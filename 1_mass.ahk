@@ -2,45 +2,45 @@
 #SingleInstance Force
 #Include "utils.ahk"
 
-massNo := 2
+massNo := 1
 
 m1 := {
-mass: "will you bow before the goth queen?",
-fu1: "good boy... youre so obedient, mommy enjoys that...",
-fu1_5: "are you feeling needier for mommies perky titties or pale bare cheeks?",
-fu1_7: "",
-
-fu2: "",
-fu2_5: "mommy wants you to fall down to you knees and look up at her holy titties",
-fu2_7: "and imagine just how soft they would be as goth-themed pillows...",
-
-fu3: "",
-fu3_5: "mommy wants you to fall down to you knees and look up under her goth-skirt",
-fu3_7: "theres so much in there that your lips viscerally need to touch.. should i let you?",
-
-ppv_base: "",
-ppv_f1: "",
-ppv_f2: "",
-ppv_f3: ""
-}
-
-m2 := {
-mass: "whats your fav color?",
-fu1: "mine are pink and black... but also... whats wet, black on the outside and pink on the inside?",
+mass: "",
+fu1: "",
 fu1_5: "",
 fu1_7: "",
 
-fu2: "i was gonna say my lipstick but i guess goth girl pussy also works...",
-fu2_5: "speaking of which... how badly do you need to taste whats under my skirt?",
+fu2: "",
+fu2_5: "",
 fu2_7: "",
 
 fu3: "",
 fu3_5: "",
 fu3_7: "",
 
-ppv_base: "testtest1",
-ppv_f1: "testtest2",
-ppv_f2: "22222",
+ppv_base: "RRAAARRAAA`ndwdawdwadwawada`ndawdawdawdwadwa",
+ppv_f1: "",
+ppv_f2: "",
+ppv_f3: ""
+}
+
+m2 := {
+mass: "",
+fu1: "",
+fu1_5: "",
+fu1_7: "",
+
+fu2: "",
+fu2_5: "",
+fu2_7: "",
+
+fu3: "",
+fu3_5: "",
+fu3_7: "",
+
+ppv_base: "",
+ppv_f1: "",
+ppv_f2: "",
 ppv_f3: ""
 }
 
@@ -120,11 +120,15 @@ F3::{ ; send fu3
 }
 
 F4::{ ; send ppv1
+    ppv := ""
     switch massNo{
-        case 1: SendText(m1.ppv_base)
-        case 2: SendText(m2.ppv_base)
-        case 3: SendText(m3.ppv_base) 
+        case 1: ppv := m1.ppv_base
+        case 2: ppv := m2.ppv_base
+        case 3: ppv := m3.ppv_base
     }
+    A_Clipboard := ppv
+    ClipWait(1)
+    Send "^v"
 }
 
 F5::{ ; send ppv2

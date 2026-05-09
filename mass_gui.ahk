@@ -98,6 +98,10 @@ c := g.Add("Button", "x" (PX0+95)  " y" BY      " w85  h28", "Clear")
 c.OnEvent("Click", ClearAll)
 RegBtn(c, 95, 0)
 
+c := g.Add("Button", "x" (PX0+190) " y" BY      " w120 h28", "Export !mma")
+c.OnEvent("Click", ExportMMA)
+RegBtn(c, 190, 0)
+
 c := g.Add("Text",   "x" PX0       " y" (BY+36),  "-- Load fields from file --")
 RegBtn(c, 0, 36)
 lblLoaded := g.Add("Text", "x" (PX0+190) " y" (BY+36) " w250", "")
@@ -264,6 +268,51 @@ ClearAll(*) {
         c.Value := ""
 }
 
+ExportMMA(*) {
+    global tabs, edCtrls, edPaste
+    mNo     := tabs.Value
+    result  := ""
+    fuGroups := [["fu1","fu1_5","fu1_7"], ["fu2","fu2_5","fu2_7"], ["fu3","fu3_5","fu3_7"]]
+    ppvFus   := ["ppv_f1", "ppv_f2", "ppv_f3"]
+
+    GetVal(prop) {
+        ck := "m" mNo "_" prop
+        return edCtrls.Has(ck) ? Trim(edCtrls[ck].Value) : ""
+    }
+
+    v := GetVal("mass")
+    if (v != "")
+        result .= v "`n"
+
+    for _, grp in fuGroups {
+        block := ""
+        for _, prop in grp {
+            v := GetVal(prop)
+            if (v != "")
+                block .= v "`n"
+        }
+        if (block != "")
+            result .= "`n" block
+    }
+
+    v := GetVal("ppv_base")
+    if (v != "") {
+        v := StrReplace(StrReplace(v, "`r`n", "`n"), "`r", "`n")
+        result .= "`n" v "`n"
+    }
+
+    block := ""
+    for _, prop in ppvFus {
+        v := GetVal(prop)
+        if (v != "")
+            block .= v "`n"
+    }
+    if (block != "")
+        result .= "`n" block
+
+    edPaste.Value := Trim(result)
+}
+
 EscQ(s) {
     return StrReplace(s, Chr(34), '`"')
 }
@@ -405,8 +454,12 @@ LoadFile(fname) {
         blockText := blk[1]
         for _, prop in props {
             ck := "m" mNo "_" prop
-            if RegExMatch(blockText, prop ": " Chr(34) "([^" Chr(34) "]*)", &mv) && edCtrls.Has(ck)
-                edCtrls[ck].Value := mv[1]
+            if RegExMatch(blockText, prop ": " Chr(34) "([^" Chr(34) "]*)", &mv) && edCtrls.Has(ck) {
+                v := mv[1]
+                if (prop = "ppv_base")
+                    v := StrReplace(v, "``n", "`r`n")
+                edCtrls[ck].Value := v
+            }
         }
     }
     lblLoaded.Text := (fname = "1_mass.ahk" ? model1Name : model2Name) " loaded"
@@ -451,6 +504,8 @@ BuildBlock(mNo) {
     Loop props.Length {
         p     := props[A_Index]
         val   := edCtrls.Has("m" mNo "_" p) ? edCtrls["m" mNo "_" p].Value : ""
+        if (p = "ppv_base")
+            val := StrReplace(StrReplace(val, "`r`n", "``n"), "`n", "``n")
         comma := A_Index < props.Length ? "," : ""
         out   .= p ': "' val '"' comma "`n"
         if breaks.Has(p)
@@ -538,12 +593,20 @@ OpenSettings(*) {
 }
 
 OpenAddHotkey(*) {
-    global ACC_DIR, g
-    fileList := []
-    Loop Files, ACC_DIR "\*.ahk"
+    global ACC_DIR, SCRIPT_DIR, g
+    fileList  := []
+    filePaths := []
+    _genPath := SCRIPT_DIR "\general.ahk"
+    if FileExist(_genPath) {
+        fileList.Push("general.ahk")
+        filePaths.Push(_genPath)
+    }
+    Loop Files, ACC_DIR "\*.ahk" {
         fileList.Push(A_LoopFileName)
+        filePaths.Push(A_LoopFilePath)
+    }
     if !fileList.Length {
-        MsgBox "No .ahk files found in " ACC_DIR,, 0x10
+        MsgBox "No .ahk files found.",, 0x10
         return
     }
     W := Round(A_ScreenWidth * 0.8)
@@ -577,7 +640,7 @@ OpenAddHotkey(*) {
         }
         trigger := RegExMatch(hk, "^[\^!+#]") ? hk "::" : "::" hk "::"
         fn    := rdSnd.Value ? "snd" : "SendText"
-        path  := ACC_DIR "\" ddl.Text
+        path  := filePaths[ddl.Value]
         raw   := StrReplace(StrReplace(edLines.Value, "`r`n", "`n"), "`r", "`n")
         block := "`n" trigger "`n{`n"
         for _, ln in StrSplit(raw, "`n") {
