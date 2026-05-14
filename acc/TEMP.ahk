@@ -2,7 +2,23 @@
 #SingleInstance Force
 #Include "../utils.ahk"
 
-::_testppv::
+::_glap::
 {
-    SendText("testtestppvtest")
+    snd("and if i was in ur lap... gazing directly into your eyes with my titties pressed against ur chest, wyd?")
+}
+
+!0::
+{
+    snd("are you gonna get me fully fucking naked tonight")
+    snd("and experience all of my wetness and tapes?")
+}
+
+!]::
+{
+    SendText("youre gonna watch my tits from below... youre gonna adore my braless pale skin.. and youre gonna imagine kissing up my tummy towards my tits and then finally getting to them and sucking on them until theyre the hardest theyve EVER been")
+}
+
+!\::
+{
+    snd("so what happens when you dream about me?")
 }

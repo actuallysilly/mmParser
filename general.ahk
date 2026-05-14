@@ -156,8 +156,44 @@
     snd("send me as many 🤍s as you would like to put inside of me (in inches)")
 }
 
+::_cuckymind1::{
+    snd("lets play a game...")
+    snd("i call it MIND TRANSFER")
+    SendText("we will pretend that youre trapped in the mind of a real man, and youre getting to experience everything he would from his POV, but youre still a trapped cuck that can just watch and not truly feel it")
+}
 
+::_smallcock::{
+    snd("i think small cocks dont deserve pussy just humiliation")
+}
 
 ; ; ; ; ; ; ; ; ; ; ; ; ; ; ; ; ; ; ; ; ; ; ; ; ; ; ; ; ; ; ; ; ; ; ; ; ; ; ; ;
 ;                   
 ; ; ; ; ; ; ; ; ; ; ; ; ; ; ; ; ; ; ; ; ; ; ; ; ; ; ; ; ; ; ; ; ; ; ; ; ; ; ; ;
+
+:*:_dryass::
+{
+    snd("stop giving me dry ass responses and ur gonna go a long way with me")
+}
+
+
+::_?eyes::
+{
+    snd("oh you came to of to look at my eyes?")
+}
+
+!+=::
+{
+    SendText("open this fast if you want me to spoil you with extra explicit freebies 🖤 ^")
+}
+
+!+]::
+{
+    SendText("you will open that fast and tell me im the most beautiful girl in the world, after than ur gonna send me ur cock so i can rate it")
+}
+
+::_cantafford::
+{
+    snd("hmmm you can tho")
+    snd("because ur gonna get an extra explicit set as a show of appreciation")
+    snd("i like it when men push themselves a lil for me")
+}

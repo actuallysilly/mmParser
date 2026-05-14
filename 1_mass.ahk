@@ -1,24 +1,24 @@
-#Requires AutoHotkey v2.0
+﻿#Requires AutoHotkey v2.0
 #SingleInstance Force
 #Include "utils.ahk"
 
 massNo := 1
 
 m1 := {
-mass: "",
-fu1: "",
-fu1_5: "",
+mass: "how bad do you want to be mommys toy?",
+fu1: "you like the sound of that, dont you? letting mommy have total control over your pleasure...",
+fu1_5: "and i bet that little cock is begging for me to ruin it, is that right?",
 fu1_7: "",
 
-fu2: "",
-fu2_5: "",
-fu2_7: "",
+fu2: "didnt doubt it for a sec, are you prepared to offer it to me...",
+fu2_5: "so that mommy can please herself with it and in return ill make sure u get to experience all of me...",
+fu2_7: "u down for that?",
 
 fu3: "",
 fu3_5: "",
 fu3_7: "",
 
-ppv_base: "RRAAARRAAA`ndwdawdwadwawada`ndawdawdawdwadwa",
+ppv_base: "",
 ppv_f1: "",
 ppv_f2: "",
 ppv_f3: ""
