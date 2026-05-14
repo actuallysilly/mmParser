@@ -827,7 +827,7 @@ CheckUpdate(*) {
 
     tmpVer := A_Temp "\mass_gui_remote_ver.txt"
     try {
-        Download UPDATE_URL "/version.txt", tmpVer
+        Download UPDATE_URL "/version.txt?t=" A_TickCount, tmpVer
     } catch {
         MsgBox "Could not reach update server.`nCheck your internet connection.",, 0x10
         return
