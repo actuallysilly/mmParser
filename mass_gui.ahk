@@ -822,6 +822,7 @@ FetchURL(url) {
     xhr.Open("GET", url, false)
     xhr.SetRequestHeader("Cache-Control", "no-cache, no-store")
     xhr.SetRequestHeader("Pragma", "no-cache")
+    xhr.SetRequestHeader("User-Agent", "mmParser-Updater")
     xhr.Send()
     if xhr.Status != 200
         throw Error("HTTP " xhr.Status)
@@ -835,6 +836,13 @@ CheckUpdate(*) {
         MsgBox "No update URL configured.`nSet [Update] URL= in mass_gui.cfg.",, 0x10
         return
     }
+
+    ; derive GitHub API URL from raw content URL
+    if !RegExMatch(UPDATE_URL, "raw\.githubusercontent\.com/([^/]+)/([^/]+)/([^/]+)", &rm) {
+        MsgBox "Invalid update URL format.",, 0x10
+        return
+    }
+    apiUrl := "https://api.github.com/repos/" rm[1] "/" rm[2] "/git/trees/" rm[3] "?recursive=1"
 
     try {
         remoteVer := Trim(FetchURL(UPDATE_URL "/version.txt"))
@@ -854,18 +862,57 @@ CheckUpdate(*) {
     if MsgBox("Update available!`nInstalled: v" localVer "  →  Latest: v" remoteVer "`n`nDownload and restart now?", "Update", 0x24) != "Yes"
         return
 
-    ; Files to update — /acc, general.ahk and mass_gui.cfg are never touched
-    updateFiles := ["mass_gui.ahk", "utils.ahk", "1_mass.ahk", "2_mass.ahk", "version.txt"]
+    ; fetch full repo file tree from GitHub API
+    try {
+        treeJson := FetchURL(apiUrl)
+    } catch {
+        MsgBox "Could not fetch file list from GitHub.",, 0x10
+        return
+    }
+
+    ; never touch these
+    skipExact := Map("mass_gui.cfg", 1, "general.ahk", 1)
+    skipPfx   := ["acc/", ".git"]
+
+    ; extract blob paths from tree JSON (GitHub returns path before type consistently)
+    updatePaths := []
+    pos := 1
+    while RegExMatch(treeJson, '"path":"([^"]+)","mode":"[^"]+","type":"blob"', &m, pos) {
+        path     := m[1]
+        pos      := m.Pos + m.Len
+        excluded := skipExact.Has(path)
+        if !excluded {
+            for _, pfx in skipPfx {
+                if SubStr(path, 1, StrLen(pfx)) = pfx {
+                    excluded := true
+                    break
+                }
+            }
+        }
+        if !excluded
+            updatePaths.Push(path)
+    }
+
+    ; binary extensions go through Download (ResponseText corrupts binary)
+    binaryExts := Map("ico", 1, "exe", 1, "png", 1, "jpg", 1, "gif", 1)
 
     failed := []
-    for _, fname in updateFiles {
+    for _, path in updatePaths {
+        dest := SCRIPT_DIR "\" StrReplace(path, "/", "\")
+        SplitPath dest, , &dir, &ext
         try {
-            content := FetchURL(UPDATE_URL "/" fname)
-            f := FileOpen(SCRIPT_DIR "\" fname, "w", "UTF-8")
-            f.Write(content)
-            f.Close()
+            if dir != "" && !DirExist(dir)
+                DirCreate dir
+            if binaryExts.Has(StrLower(ext))
+                Download UPDATE_URL "/" path "?t=" A_TickCount, dest
+            else {
+                content := FetchURL(UPDATE_URL "/" path)
+                f := FileOpen(dest, "w", "UTF-8")
+                f.Write(content)
+                f.Close()
+            }
         } catch {
-            failed.Push(fname)
+            failed.Push(path)
         }
     }
 
