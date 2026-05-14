@@ -43,6 +43,8 @@ resizables := []      ; edit controls inside tabs, width grows on resize
 SCRIPT_DIR   := A_ScriptDir
 ACC_DIR      := A_ScriptDir "\acc"
 CFG_FILE     := A_ScriptDir "\mass_gui.cfg"
+_verFile     := A_ScriptDir "\version.txt"
+APP_VER      := FileExist(_verFile) ? Trim(FileRead(_verFile, "UTF-8")) : "?"
 _codePath    := EnvGet("LOCALAPPDATA") "\Programs\Microsoft VS Code\Code.exe"
 CODE_CMD     := FileExist(_codePath) ? _codePath : "C:\Program Files\Microsoft VS Code\Code.exe"
 model1Name   := IniRead(CFG_FILE, "Settings", "Model1",    "Model 1")
@@ -75,7 +77,7 @@ BTN_ORIG_Y0  := 26 + PASTE_H0 + 12
 
 ; ─── GUI ──────────────────────────────────────────────────────────────────────
 
-g := Gui("+Resize +MinSize750x500", "Mass Parser")
+g := Gui("+Resize +MinSize750x500", "mmParser v" APP_VER)
 g.SetFont("s9", "Segoe UI")
 
 ; ── Right panel helpers ────────────────────────────────────────────────────────
@@ -236,6 +238,8 @@ Loop Files, ACC_DIR "\*.ahk" {
     togCtrls.Push({c: btn, x: togX, oy: 34})
     togX += 80
 }
+
+g.Add("Text", "x" (INIT_W - 140) " y" (TOGG_Y0 + 38) " w130 Right", "made by actually.silly")
 
 g.Show("w" INIT_W " h" INIT_H)
 g.OnEvent("Size", OnResize)
@@ -841,8 +845,8 @@ CheckUpdate(*) {
     if MsgBox("Update available!`nInstalled: v" localVer "  →  Latest: v" remoteVer "`n`nDownload and restart now?", "Update", 0x24) != "Yes"
         return
 
-    ; Files to update — /acc, general.ahk and user data files are never touched
-    updateFiles := ["mass_gui.ahk", "utils.ahk", "version.txt"]
+    ; Files to update — /acc, general.ahk and mass_gui.cfg are never touched
+    updateFiles := ["mass_gui.ahk", "utils.ahk", "1_mass.ahk", "2_mass.ahk", "version.txt"]
 
     failed := []
     for _, fname in updateFiles {
