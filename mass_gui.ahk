@@ -817,25 +817,34 @@ OpenSettings(*) {
     }
 }
 
+FetchURL(url) {
+    xhr := ComObject("MSXML2.XMLHTTP.6.0")
+    xhr.Open("GET", url, false)
+    xhr.SetRequestHeader("Cache-Control", "no-cache, no-store")
+    xhr.SetRequestHeader("Pragma", "no-cache")
+    xhr.Send()
+    if xhr.Status != 200
+        throw Error("HTTP " xhr.Status)
+    return xhr.ResponseText
+}
+
 CheckUpdate(*) {
-    global UPDATE_URL, CFG_FILE, SCRIPT_DIR
+    global UPDATE_URL, SCRIPT_DIR
 
     if UPDATE_URL = "" {
         MsgBox "No update URL configured.`nSet [Update] URL= in mass_gui.cfg.",, 0x10
         return
     }
 
-    tmpVer := A_Temp "\mass_gui_remote_ver.txt"
     try {
-        Download UPDATE_URL "/version.txt?t=" A_TickCount, tmpVer
+        remoteVer := Trim(FetchURL(UPDATE_URL "/version.txt"))
     } catch {
         MsgBox "Could not reach update server.`nCheck your internet connection.",, 0x10
         return
     }
 
-    remoteVer := Trim(FileRead(tmpVer, "UTF-8"))
     localVerFile := SCRIPT_DIR "\version.txt"
-    localVer  := FileExist(localVerFile) ? Trim(FileRead(localVerFile, "UTF-8")) : "0"
+    localVer := FileExist(localVerFile) ? Trim(FileRead(localVerFile, "UTF-8")) : "0"
 
     if remoteVer = localVer {
         MsgBox "Already up to date (v" localVer ").",, 0x40
@@ -851,7 +860,10 @@ CheckUpdate(*) {
     failed := []
     for _, fname in updateFiles {
         try {
-            Download UPDATE_URL "/" fname, SCRIPT_DIR "\" fname
+            content := FetchURL(UPDATE_URL "/" fname)
+            f := FileOpen(SCRIPT_DIR "\" fname, "w", "UTF-8")
+            f.Write(content)
+            f.Close()
         } catch {
             failed.Push(fname)
         }
