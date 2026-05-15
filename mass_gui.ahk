@@ -347,7 +347,7 @@ EscQ(s) {
 StripPrefix(s) {
     if RegExMatch(s, "i)^[Ff][Uu]?\s?\d+(?:\.\d+)?[:\s]+", &m)
         return SubStr(s, m.Len + 1)
-    if RegExMatch(s, "^[^:]+:\s*", &m)
+    if RegExMatch(s, "^[^:]+:(?![)(])\s*", &m)
         return SubStr(s, m.Len + 1)
     return s
 }
