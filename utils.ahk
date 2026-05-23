@@ -1,8 +1,10 @@
 #Requires AutoHotkey v2.0
 
 
+SetKeyDelay(-1, -1)
+
 ; config
-waitTime := 300
+waitTime := 100
 waitTimeLong := 1500
 
 
@@ -17,14 +19,22 @@ clearInterval := 1000*30 ; 60s
 
 
 snd(arg){
-    SendText(arg)
+    if (arg = "")
+        return
+    A_Clipboard := arg
+    ClipWait(0.1)
+    Send("^v")
     Send("{Enter}")
     Sleep(waitTime)
 }
 
-; you can also provide a time in milliseconds 
+; you can also provide a time in milliseconds
 sendt(arg,time){
-    SendText(arg)
+    if (arg = "")
+        return
+    A_Clipboard := arg
+    ClipWait(0.1)
+    Send("^v")
     Send("{Enter}")
     Sleep(time)
 }
