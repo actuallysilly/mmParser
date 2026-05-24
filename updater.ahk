@@ -75,7 +75,7 @@ for i, path in updatePaths {
             Download UPDATE_URL "/" path "?t=" A_TickCount, dest
         else {
             content := FetchURL(UPDATE_URL "/" path)
-            f := FileOpen(dest, "w", "UTF-8")
+            f := FileOpen(dest, "w", "UTF-8-RAW")
             f.Write(content)
             f.Close()
         }

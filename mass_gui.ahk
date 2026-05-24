@@ -216,17 +216,13 @@ c := g.Add("Button", "x" (TAB_X+230) " y" TOGG_Y0 " w95 h28", "Add Hotkey")
 c.OnEvent("Click", OpenAddHotkey)
 togCtrls.Push({c: c, x: TAB_X+230, oy: 0})
 
-c := g.Add("Button", "x" (TAB_X+335) " y" TOGG_Y0 " w85 h28", "Wipe Temp")
-c.OnEvent("Click", WipeTemp)
-togCtrls.Push({c: c, x: TAB_X+335, oy: 0})
-                           
-c := g.Add("Button", "x" (TAB_X+430) " y" TOGG_Y0 " w85 h28", "How to Use")
+c := g.Add("Button", "x" (TAB_X+335) " y" TOGG_Y0 " w85 h28", "How to Use")
 c.OnEvent("Click", OpenGuide)
-togCtrls.Push({c: c, x: TAB_X+430, oy: 0})
+togCtrls.Push({c: c, x: TAB_X+335, oy: 0})
 
-c := g.Add("Button", "x" (TAB_X+525) " y" TOGG_Y0 " w90 h28", "New Script")
+c := g.Add("Button", "x" (TAB_X+430) " y" TOGG_Y0 " w90 h28", "New Script")
 c.OnEvent("Click", NewAccScript)
-togCtrls.Push({c: c, x: TAB_X+525, oy: 0})
+togCtrls.Push({c: c, x: TAB_X+430, oy: 0})
 
 togX := TAB_X
 Loop Files, ACC_DIR "\*.ahk" {
@@ -749,8 +745,10 @@ OpenSettings(*) {
 
     sg.Add("Button", "x10  y" (y+10) " w85 h28", "Save").OnEvent("Click", SaveCfg)
     sg.Add("Button", "x105 y" (y+10) " w85 h28", "Reset").OnEvent("Click", ResetCfg)
-    sg.Add("Button", "x380 y" (y+10) " w100 h28", "Check Update").OnEvent("Click", CheckUpdate)
-    sg.Show("w490 h" (y + 55))
+    sg.Add("Button", "x200 y" (y+10) " w90 h28", "Wipe Temp").OnEvent("Click", (*) => (WipeTemp(), sg.Destroy()))
+    sg.Add("Button", "x300 y" (y+10) " w75 h28", "Report Bug").OnEvent("Click", (*) => Run("https://github.com/actuallysilly/mmParser/issues/new?title=Bug+Report&labels=bug"))
+    sg.Add("Button", "x385 y" (y+10) " w100 h28", "Check Update").OnEvent("Click", CheckUpdate)
+    sg.Show("w495 h" (y + 55))
 
     SaveCfg(*) {
         global model1Name, model2Name, CFG_FILE
