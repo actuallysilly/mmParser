@@ -246,6 +246,8 @@ _gPath := A_ScriptDir "\general.ahk"
 if FileExist(_gPath) && !WinExist(_gPath " ahk_class AutoHotkey")
     Run _gPath
 
+SetTimer(() => CheckUpdate(true), -3000)  ; silent check 3s after startup
+
 ; ─── Resize ───────────────────────────────────────────────────────────────────
 
 OnResize(gObj, minMax, W, H) {
@@ -748,7 +750,7 @@ OpenSettings(*) {
     sg.Add("Text",   "x10  y" (y+48) " w475 h2 0x10")
     sg.Add("Button", "x10  y" (y+58) " w90 h28", "Wipe Temp").OnEvent("Click", (*) => (WipeTemp(), sg.Destroy()))
     sg.Add("Button", "x110 y" (y+58) " w85 h28", "Report Bug").OnEvent("Click", (*) => Run("https://github.com/actuallysilly/mmParser/issues/new?title=Bug+Report&labels=bug"))
-    sg.Add("Button", "x385 y" (y+58) " w100 h28", "Check Update").OnEvent("Click", CheckUpdate)
+    sg.Add("Button", "x385 y" (y+58) " w100 h28", "Check Update").OnEvent("Click", (*) => CheckUpdate())
     sg.Show("w495 h" (y + 98))
 
     SaveCfg(*) {
@@ -829,18 +831,20 @@ FetchURL(url) {
     return xhr.ResponseText
 }
 
-CheckUpdate(*) {
+CheckUpdate(silent := false, *) {
     global UPDATE_URL, SCRIPT_DIR
 
     if UPDATE_URL = "" {
-        MsgBox "No update URL configured.`nSet [Update] URL= in mass_gui.cfg.",, 0x10
+        if !silent
+            MsgBox "No update URL configured.`nSet [Update] URL= in mass_gui.cfg.",, 0x10
         return
     }
 
     try {
         remoteVer := Trim(FetchURL(UPDATE_URL "/version.txt"))
     } catch {
-        MsgBox "Could not reach update server.`nCheck your internet connection.",, 0x10
+        if !silent
+            MsgBox "Could not reach update server.`nCheck your internet connection.",, 0x10
         return
     }
 
@@ -848,7 +852,8 @@ CheckUpdate(*) {
     localVer := FileExist(localVerFile) ? Trim(FileRead(localVerFile, "UTF-8")) : "0"
 
     if remoteVer = localVer {
-        MsgBox "Already up to date (v" localVer ").",, 0x40
+        if !silent
+            MsgBox "Already up to date (v" localVer ").",, 0x40
         return
     }
 
