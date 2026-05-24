@@ -24,21 +24,8 @@ AHK v2 GUI for managing message templates and sending them instantly via hotkeys
 ## Paste format
 
 ```
-your opener / mass
-
-f1 first follow-up line
-f1.5 optional second line
-
-f2 second follow-up
-f2.5 optional second line
-
-f3 third follow-up
-
-ppv your ppv caption
-
-ppvfu1 first ppv follow-up
-ppvfu2 second
-ppvfu3 third
+Same as from the Discord! 
+just copy paste and it works!
 ```
 
 - `!mm` / `!mma` prefix on the opener is optional — if missing, the first line is used
