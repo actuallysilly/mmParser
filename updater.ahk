@@ -3,7 +3,7 @@
 
 SCRIPT_DIR := A_ScriptDir
 CFG_FILE   := SCRIPT_DIR "\mass_gui.cfg"
-UPDATE_URL := IniRead(CFG_FILE, "Update", "URL", "")
+UPDATE_URL := IniRead(CFG_FILE, "Update", "URL", "https://raw.githubusercontent.com/actuallysilly/mmParser/main")
 
 if UPDATE_URL = "" {
     MsgBox "No update URL in mass_gui.cfg.",, 0x10
