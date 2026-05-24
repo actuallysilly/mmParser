@@ -2,36 +2,36 @@
 #SingleInstance Force
 #Include "utils.ahk"
 
-massNo := 1
+massNo := 3
 
 m1 := {
-mass: "how bad do you want to be mommys toy?",
-fu1: "you like the sound of that, dont you? letting mommy have total control over your pleasure...",
-fu1_5: "and i bet that little cock is begging for me to ruin it, is that right?",
+mass: "want me to tell u exactly how i want u to stroke it?",
+fu1: "grip it tight at the base n hold",
+fu1_5: "now slide up real slow for me",
 fu1_7: "",
 
-fu2: "didnt doubt it for a sec, are you prepared to offer it to me...",
-fu2_5: "so that mommy can please herself with it and in return ill make sure u get to experience all of me...",
-fu2_7: "u down for that?",
+fu2: "dont speed up yet keep it steady",
+fu2_5: "squeeze when u reach the tip",
+fu2_7: "",
 
-fu3: "",
-fu3_5: "",
+fu3: "pause n throb in ur hand",
+fu3_5: "ready for what i say next?",
 fu3_7: "",
 
 ppv_base: "",
-ppv_f1: "",
-ppv_f2: "",
+ppv_f1: "now, watch me bouncing my tits for you and FOLLOW THE RHYTHM",
+ppv_f2: "this is where we get serious about your ruination",
 ppv_f3: ""
 }
 
 m2 := {
-mass: "",
-fu1: "",
-fu1_5: "",
+mass: "should i undress? 🌙",
+fu1: "i dress to impress, but i undress to completely RUIN...",
+fu1_5: "are you sure u could handle me after dark?",
 fu1_7: "",
 
-fu2: "",
-fu2_5: "",
+fu2: "now imagine me topless and lustful.. like a midnight sex demon",
+fu2_5: "would u fall on ur knees the second the bra was off?",
 fu2_7: "",
 
 fu3: "",
@@ -45,13 +45,13 @@ ppv_f3: ""
 }
 
 m3 := {
-mass: "",
-fu1: "",
-fu1_5: "",
+mass: "r u opposed to naked girls?",
+fu1: "and how do you feel about me letting go of my limits for you... just tonight?",
+fu1_5: "i wanna make you sin with me...",
 fu1_7: "",
 
-fu2: "",
-fu2_5: "",
+fu2: "just imagine the sinful taste of my titties after dark.. youd get beyond obsessed",
+fu2_5: "and youd get them so wet riiight?",
 fu2_7: "",
 
 fu3: "",
@@ -127,7 +127,7 @@ F4::{ ; send ppv1
         case 3: ppv := m3.ppv_base
     }
     A_Clipboard := ppv
-    ClipWait(1)
+    ClipWait(0.1)
     Send "^v"
 }
 

@@ -90,9 +90,3 @@
     snd("think you can keep up, knowing you'll experience every single detail? ✨once we start my freaky ritual.. i wont stop until you discover every inch of my body..")
     snd("now that you have ACCESS to my unreleased goodies nudies ♥.")
 }
-::_test123::
-{
-    snd("this is a new")
-    snd("fclomgggg")
-    snd("hotkeyyyyy")
-}

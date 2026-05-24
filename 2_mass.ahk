@@ -8,13 +8,13 @@ massNo := 3
 
 
 m1 := {
-mass: "",
-fu1: "",
-fu1_5: "",
+mass: "r u happy with ur gift?",
+fu1: "i feel like i should do even more for you tho... and that i should be even more explicit",
+fu1_5: "and you obviously totally agree right?",
 fu1_7: "",
 
-fu2: "",
-fu2_5: "",
+fu2: "now imagine me giving you a chance to see my tits close up as an explicit gift..",
+fu2_5: "u dont have to just imagine but... would you go feral at the very first sight of them?",
 fu2_7: "",
 
 fu3: "",
@@ -48,17 +48,17 @@ ppv_f3: ""
 }
 
 m3 := {
-mass: "is it time i take complete control?",
-fu1: "i don't think there's any answer i wanna hear other than `"YES MA`'AM`"",
-fu1_5: "and i don't like to be disobeyed when i'm in such a needy mood c`;",
-fu1_7: "so will u do exactly as i say?",
+mass: "needy for tits?",
+fu1: "ofc you are... youre a needy boy with a hard cock...",
+fu1_5: "you want them in ur mouth bad right?",
+fu1_7: "",
 
-fu2: "this body of mine tends to cause throbbing sensations, especially as it gets fully bare~",
-fu2_5: "are you gonna satisfy me like no one else can so i can spoil that cock completely?",
+fu2: "imagine how hard they could get with a little help from ur saliva...",
+fu2_5: "the only thing harder would be getting u off of them...  right?",
 fu2_7: "",
 
-fu3: "",
-fu3_5: "",
+fu3: "thats okay.. i know im ur queen and u need to jerk off to me",
+fu3_5: "so get it out and send me an emoji that perfectly describes ur cock rn",
 fu3_7: "",
 
 ppv_base: "",
@@ -130,7 +130,7 @@ F12::{ ; send ppv1
         case 3: ppv := m3.ppv_base
     }
     A_Clipboard := ppv
-    ClipWait(1)
+    ClipWait(0.1)
     Send "^v"
 }
 

@@ -1,5 +1,6 @@
 #Requires AutoHotkey v2.0
 #SingleInstance Force
+DetectHiddenWindows true
 
 ; ─── Data ─────────────────────────────────────────────────────────────────────
 
@@ -611,7 +612,7 @@ BuildMassTemplate(fname) {
     out .= hk[4] "::{ " sc " send ppv1`n    ppv := `"`"`n    switch massNo{`n"
     Loop 3
         out .= "        case " A_Index ": ppv := m" A_Index ".ppv_base`n"
-    out .= "    }`n    A_Clipboard := ppv`n    ClipWait(1)`n    Send " q "^v" q "`n}`n`n"
+    out .= "    }`n    A_Clipboard := ppv`n    ClipWait(0.1)`n    Send " q "^v" q "`n}`n`n"
 
     out .= hk[5] "::{ " sc " send ppv2`n    switch massNo`n    {`n" BuildSwitch("ppv_f1","ppv_f2","ppv_f3") "    }`n}`n"
     return out
@@ -837,13 +838,6 @@ CheckUpdate(*) {
         return
     }
 
-    ; derive GitHub API URL from raw content URL
-    if !RegExMatch(UPDATE_URL, "raw\.githubusercontent\.com/([^/]+)/([^/]+)/([^/]+)", &rm) {
-        MsgBox "Invalid update URL format.",, 0x10
-        return
-    }
-    apiUrl := "https://api.github.com/repos/" rm[1] "/" rm[2] "/git/trees/" rm[3] "?recursive=1"
-
     try {
         remoteVer := Trim(FetchURL(UPDATE_URL "/version.txt"))
     } catch {
@@ -862,69 +856,8 @@ CheckUpdate(*) {
     if MsgBox("Update available!`nInstalled: v" localVer "  →  Latest: v" remoteVer "`n`nDownload and restart now?", "Update", 0x24) != "Yes"
         return
 
-    ; fetch full repo file tree from GitHub API
-    try {
-        treeJson := FetchURL(apiUrl)
-    } catch {
-        MsgBox "Could not fetch file list from GitHub.",, 0x10
-        return
-    }
-
-    ; never touch these
-    skipExact := Map("mass_gui.cfg", 1, "general.ahk", 1)
-    skipPfx   := ["acc/", ".git"]
-
-    ; extract blob paths from tree JSON (GitHub returns path before type consistently)
-    updatePaths := []
-    pos := 1
-    while RegExMatch(treeJson, '"path":"([^"]+)","mode":"[^"]+","type":"blob"', &m, pos) {
-        path     := m[1]
-        pos      := m.Pos + m.Len
-        excluded := skipExact.Has(path)
-        if !excluded {
-            for _, pfx in skipPfx {
-                if SubStr(path, 1, StrLen(pfx)) = pfx {
-                    excluded := true
-                    break
-                }
-            }
-        }
-        if !excluded
-            updatePaths.Push(path)
-    }
-
-    ; binary extensions go through Download (ResponseText corrupts binary)
-    binaryExts := Map("ico", 1, "exe", 1, "png", 1, "jpg", 1, "gif", 1)
-
-    failed := []
-    for _, path in updatePaths {
-        dest := SCRIPT_DIR "\" StrReplace(path, "/", "\")
-        SplitPath dest, , &dir, &ext
-        try {
-            if dir != "" && !DirExist(dir)
-                DirCreate dir
-            if binaryExts.Has(StrLower(ext))
-                Download UPDATE_URL "/" path "?t=" A_TickCount, dest
-            else {
-                content := FetchURL(UPDATE_URL "/" path)
-                f := FileOpen(dest, "w", "UTF-8")
-                f.Write(content)
-                f.Close()
-            }
-        } catch {
-            failed.Push(path)
-        }
-    }
-
-    if failed.Length {
-        msg := "Some files failed to download:"
-        for _, f in failed
-            msg .= "`n  " f
-        MsgBox msg "`n`nPartial update applied — please retry.",, 0x10
-        return
-    }
-
-    Reload
+    Run SCRIPT_DIR "\updater.ahk"
+    ExitApp
 }
 
 OpenAddHotkey(*) {
