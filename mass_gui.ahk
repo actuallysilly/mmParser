@@ -745,10 +745,11 @@ OpenSettings(*) {
 
     sg.Add("Button", "x10  y" (y+10) " w85 h28", "Save").OnEvent("Click", SaveCfg)
     sg.Add("Button", "x105 y" (y+10) " w85 h28", "Reset").OnEvent("Click", ResetCfg)
-    sg.Add("Button", "x200 y" (y+10) " w90 h28", "Wipe Temp").OnEvent("Click", (*) => (WipeTemp(), sg.Destroy()))
-    sg.Add("Button", "x300 y" (y+10) " w75 h28", "Report Bug").OnEvent("Click", (*) => Run("https://github.com/actuallysilly/mmParser/issues/new?title=Bug+Report&labels=bug"))
-    sg.Add("Button", "x385 y" (y+10) " w100 h28", "Check Update").OnEvent("Click", CheckUpdate)
-    sg.Show("w495 h" (y + 55))
+    sg.Add("Text",   "x10  y" (y+48) " w475 h2 0x10")
+    sg.Add("Button", "x10  y" (y+58) " w90 h28", "Wipe Temp").OnEvent("Click", (*) => (WipeTemp(), sg.Destroy()))
+    sg.Add("Button", "x110 y" (y+58) " w85 h28", "Report Bug").OnEvent("Click", (*) => Run("https://github.com/actuallysilly/mmParser/issues/new?title=Bug+Report&labels=bug"))
+    sg.Add("Button", "x385 y" (y+58) " w100 h28", "Check Update").OnEvent("Click", CheckUpdate)
+    sg.Show("w495 h" (y + 98))
 
     SaveCfg(*) {
         global model1Name, model2Name, CFG_FILE
