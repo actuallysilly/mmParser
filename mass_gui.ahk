@@ -78,7 +78,7 @@ BTN_ORIG_Y0  := 26 + PASTE_H0 + 12
 
 ; ─── GUI ──────────────────────────────────────────────────────────────────────
 
-g := Gui("+Resize +MinSize750x500", "mmParser v" APP_VER)
+g := Gui("+Resize +MinSize750x500", "MMA v" APP_VER)
 g.SetFont("s9", "Segoe UI")
 
 ; ── Right panel helpers ────────────────────────────────────────────────────────
