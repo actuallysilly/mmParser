@@ -48,8 +48,10 @@ _verFile     := A_ScriptDir "\version.txt"
 APP_VER      := FileExist(_verFile) ? Trim(FileRead(_verFile, "UTF-8")) : "?"
 _codePath    := EnvGet("LOCALAPPDATA") "\Programs\Microsoft VS Code\Code.exe"
 CODE_CMD     := FileExist(_codePath) ? _codePath : "C:\Program Files\Microsoft VS Code\Code.exe"
+modelCount   := Integer(IniRead(CFG_FILE, "Settings", "ModelCount", "2"))
 model1Name   := IniRead(CFG_FILE, "Settings", "Model1",    "Model 1")
 model2Name   := IniRead(CFG_FILE, "Settings", "Model2",    "Model 2")
+model3Name   := IniRead(CFG_FILE, "Settings", "Model3",    "Model 3")
 UPDATE_URL   := IniRead(CFG_FILE, "Update",   "URL",       "https://raw.githubusercontent.com/actuallysilly/mmParser/main")
 hk1_f1    := IniRead(CFG_FILE, "Hotkeys", "M1_f1",    "F1")
 hk1_f2    := IniRead(CFG_FILE, "Hotkeys", "M1_f2",    "F2")
@@ -61,6 +63,11 @@ hk2_f2    := IniRead(CFG_FILE, "Hotkeys", "M2_f2",    "F10")
 hk2_f3    := IniRead(CFG_FILE, "Hotkeys", "M2_f3",    "F11")
 hk2_ppv   := IniRead(CFG_FILE, "Hotkeys", "M2_ppv",   "F12")
 hk2_ppvfu := IniRead(CFG_FILE, "Hotkeys", "M2_ppvfu", "!F12")
+hk3_f1    := IniRead(CFG_FILE, "Hotkeys", "M3_f1",    "")
+hk3_f2    := IniRead(CFG_FILE, "Hotkeys", "M3_f2",    "")
+hk3_f3    := IniRead(CFG_FILE, "Hotkeys", "M3_f3",    "")
+hk3_ppv   := IniRead(CFG_FILE, "Hotkeys", "M3_ppv",   "")
+hk3_ppvfu := IniRead(CFG_FILE, "Hotkeys", "M3_ppvfu", "")
 TOGGLE_H     := 90           ; height reserved below tabs for script toggles (2 rows)
 RIGHT_W      := 468          ; paste+buttons panel (20% wider, right-anchored)
 INIT_W       := 1178         ; grew by same amount to keep tab width unchanged
@@ -75,6 +82,12 @@ INIT_TAB_W   := PX0 - TAB_X - 10       ; = 690
 INIT_EDIT_W  := INIT_TAB_W - (EDIT_X - TAB_X) - 15   ; = 593
 PASTE_H0     := Floor((INIT_H - 20) * 0.52)
 BTN_ORIG_Y0  := 26 + PASTE_H0 + 12
+
+MakeLoader(f) => (*) => LoadFile(f)
+MakeSaver(f)  => (*) => ApplyFile(f)
+
+btnLoadM := []
+btnSaveM := []
 
 ; ─── GUI ──────────────────────────────────────────────────────────────────────
 
@@ -118,55 +131,55 @@ c := g.Add("Button", "x" (PX0+190) " y" BY      " w120 h28", "Export !mma")
 c.OnEvent("Click", ExportMMA)
 RegBtn(c, 190, 0)
 
-c := g.Add("Text",   "x" PX0       " y" (BY+36),  "-- Load fields from file --")
+c := g.Add("Text",   "x" PX0 " y" (BY+36), "-- Load fields from file --")
 RegBtn(c, 0, 36)
 lblLoaded := g.Add("Text", "x" (PX0+190) " y" (BY+36) " w250", "")
 RegBtn(lblLoaded, 190, 36)
 
-btnLoadM1 := g.Add("Button", "x" PX0       " y" (BY+54)  " w175 h28", "load " model1Name)
-btnLoadM1.OnEvent("Click", (*) => LoadFile("1_mass.ahk"))
-RegBtn(btnLoadM1, 0, 54)
-
-btnLoadM2 := g.Add("Button", "x" (PX0+185) " y" (BY+54)  " w175 h28", "load " model2Name)
-btnLoadM2.OnEvent("Click", (*) => LoadFile("2_mass.ahk"))
-RegBtn(btnLoadM2, 185, 54)
-
-c := g.Add("Text",   "x" PX0       " y" (BY+92),  "-- Apply to file --")
-RegBtn(c, 0, 92)
-
-btnSaveM1 := g.Add("Button", "x" PX0       " y" (BY+110) " w175 h28", "save " model1Name "")
-btnSaveM1.OnEvent("Click", (*) => ApplyFile("1_mass.ahk"))
-RegBtn(btnSaveM1, 0, 110)
-
-btnSaveM2 := g.Add("Button", "x" (PX0+185) " y" (BY+110) " w175 h28", "save " model2Name "")
-btnSaveM2.OnEvent("Click", (*) => ApplyFile("2_mass.ahk"))
-RegBtn(btnSaveM2, 185, 110)
-
-c := g.Add("Text",   "x" PX0       " y" (BY+148), "-- Set massNo --")
-RegBtn(c, 0, 148)
-
-c := g.Add("Text",   "x" PX0       " y" (BY+170), "M1:")
-RegBtn(c, 0, 170)
-xA := PX0 + 28
-xOff := 28
-Loop 3 {
-    n := A_Index
-    c := g.Add("Button", "x" xA " y" (BY+166) " w40 h28", n)
-    c.OnEvent("Click", SetMassNo.Bind("1_mass.ahk", n))
-    RegBtn(c, xOff, 166)
-    xA += 44 , xOff += 44
+_mNames := [model1Name, model2Name, model3Name]
+_mFiles := ["1_mass.ahk", "2_mass.ahk", "3_mass.ahk"]
+_mW     := modelCount = 3 ? 143 : 175
+_mGap   := modelCount = 3 ? 8   : 10
+xA := PX0, xOff := 0
+Loop modelCount {
+    i := A_Index
+    btn := g.Add("Button", "x" xA " y" (BY+54) " w" _mW " h28", "load " _mNames[i])
+    btn.OnEvent("Click", MakeLoader(_mFiles[i]))
+    RegBtn(btn, xOff, 54)
+    btnLoadM.Push(btn)
+    xA += _mW + _mGap, xOff += _mW + _mGap
 }
 
-c := g.Add("Text",   "x" (PX0+160)  " y" (BY+170), "M2:")
-RegBtn(c, 160, 170)
-xA := PX0 + 188
-xOff := 188
-Loop 3 {
-    n := A_Index
-    c := g.Add("Button", "x" xA " y" (BY+166) " w40 h28", n)
-    c.OnEvent("Click", SetMassNo.Bind("2_mass.ahk", n))
-    RegBtn(c, xOff, 166)
-    xA += 44 , xOff += 44
+c := g.Add("Text", "x" PX0 " y" (BY+92), "-- Apply to file --")
+RegBtn(c, 0, 92)
+
+xA := PX0, xOff := 0
+Loop modelCount {
+    i := A_Index
+    btn := g.Add("Button", "x" xA " y" (BY+110) " w" _mW " h28", "save " _mNames[i])
+    btn.OnEvent("Click", MakeSaver(_mFiles[i]))
+    RegBtn(btn, xOff, 110)
+    btnSaveM.Push(btn)
+    xA += _mW + _mGap, xOff += _mW + _mGap
+}
+
+c := g.Add("Text", "x" PX0 " y" (BY+148), "-- Set massNo --")
+RegBtn(c, 0, 148)
+
+Loop modelCount {
+    i := A_Index
+    _rowY := BY + 166 + (i - 1) * 34
+    _file := _mFiles[i]
+    c := g.Add("Text", "x" PX0 " y" (_rowY + 4), "M" i ":")
+    RegBtn(c, 0, _rowY - BY)
+    xA := PX0 + 30, xOff := 30
+    Loop 3 {
+        n := A_Index
+        c := g.Add("Button", "x" xA " y" _rowY " w40 h28", n)
+        c.OnEvent("Click", SetMassNo.Bind(_file, n))
+        RegBtn(c, xOff, _rowY - BY)
+        xA += 44, xOff += 44
+    }
 }
 
 ; ── Left: tabs ─────────────────────────────────────────────────────────────────
@@ -574,7 +587,8 @@ LoadFile(fname) {
             }
         }
     }
-    lblLoaded.Text := (fname = "1_mass.ahk" ? model1Name : model2Name) " loaded"
+    _nameMap := Map("1_mass.ahk", model1Name, "2_mass.ahk", model2Name, "3_mass.ahk", model3Name)
+    lblLoaded.Text := (_nameMap.Has(fname) ? _nameMap[fname] : fname) " loaded"
 }
 
 ; ─── Apply to file ────────────────────────────────────────────────────────────
@@ -606,7 +620,9 @@ BuildMassTemplate(fname) {
     q := Chr(34)
     SplitPath fname, , , , &base
     num := RegExReplace(base, "\D", "")
-    if num = "2"
+    if num = "3"
+        hk := [hk3_f1, hk3_f2, hk3_f3, hk3_ppv, hk3_ppvfu]
+    else if num = "2"
         hk := [hk2_f1, hk2_f2, hk2_f3, hk2_ppv, hk2_ppvfu]
     else
         hk := [hk1_f1, hk1_f2, hk1_f3, hk1_ppv, hk1_ppvfu]
@@ -727,72 +743,93 @@ UpdateMassFileHotkeys(fname, newHK) {
 }
 
 UpdateModelButtons() {
-    global model1Name, model2Name, btnLoadM1, btnLoadM2, btnSaveM1, btnSaveM2
-    btnLoadM1.Text := "load " model1Name
-    btnLoadM2.Text := "load " model2Name
-    btnSaveM1.Text := "save " model1Name "  (1_mass.ahk)"
-    btnSaveM2.Text := "save " model2Name "  (2_mass.ahk)"
+    global modelCount, model1Name, model2Name, model3Name, btnLoadM, btnSaveM
+    _mNames := [model1Name, model2Name, model3Name]
+    Loop modelCount {
+        i := A_Index
+        btnLoadM[i].Text := "load " _mNames[i]
+        btnSaveM[i].Text := "save " _mNames[i]
+    }
 }
 
 OpenSettings(*) {
-    global model1Name, model2Name, CFG_FILE, g
+    global model1Name, model2Name, model3Name, modelCount, CFG_FILE, g
     global hk1_f1, hk1_f2, hk1_f3, hk1_ppv, hk1_ppvfu
     global hk2_f1, hk2_f2, hk2_f3, hk2_ppv, hk2_ppvfu
+    global hk3_f1, hk3_f2, hk3_f3, hk3_ppv, hk3_ppvfu
 
     sg := Gui("+Owner" g.Hwnd, "Settings")
     sg.SetFont("s9", "Segoe UI")
 
+    ; ── Model count ────────────────────────────────────────────────────────────
+    sg.Add("Text", "x10 y15", "Active models:")
+    rdMC1 := sg.Add("Radio", "x118 y12 Group", "1")
+    rdMC2 := sg.Add("Radio", "x158 y12",       "2")
+    rdMC3 := sg.Add("Radio", "x198 y12",       "3")
+    rdMC1.Value := modelCount = 1
+    rdMC2.Value := modelCount = 2
+    rdMC3.Value := modelCount = 3
+
     ; ── Model names ────────────────────────────────────────────────────────────
-    sg.Add("Text", "x10 y15 w70 Right", "Model 1:")
-    ed1 := sg.Add("Edit", "x85 y12 w150", model1Name)
-    sg.Add("Text", "x250 y15 w70 Right", "Model 2:")
-    ed2 := sg.Add("Edit", "x325 y12 w150", model2Name)
+    sg.Add("Text", "x10  y48 w70 Right", "Model 1:")
+    ed1 := sg.Add("Edit", "x85  y45 w120", model1Name)
+    sg.Add("Text", "x215 y48 w70 Right", "Model 2:")
+    ed2 := sg.Add("Edit", "x290 y45 w120", model2Name)
+    sg.Add("Text", "x420 y48 w70 Right", "Model 3:")
+    ed3 := sg.Add("Edit", "x495 y45 w95",  model3Name)
 
     ; ── Hotkey config ──────────────────────────────────────────────────────────
-    sg.Add("Text", "x10 y50 w480", "── Hotkeys ───────────────────────────────────────────────────────")
-    sg.Add("Text", "x85 y73 w80", "M1")
-    sg.Add("Text", "x230 y73 w80", "M2")
+    sg.Add("Text", "x10 y85 w590", "── Hotkeys ─────────────────────────────────────────────────────────────────")
+    sg.Add("Text", "x70  y108", "M1")
+    sg.Add("Text", "x230 y108", "M2")
+    sg.Add("Text", "x390 y108", "M3")
 
     hkRows := [
-        ["f1:",    hk1_f1,    hk2_f1],
-        ["f2:",    hk1_f2,    hk2_f2],
-        ["f3:",    hk1_f3,    hk2_f3],
-        ["ppv:",   hk1_ppv,   hk2_ppv],
-        ["ppvfu:", hk1_ppvfu, hk2_ppvfu],
+        ["f1:",    hk1_f1,    hk2_f1,    hk3_f1],
+        ["f2:",    hk1_f2,    hk2_f2,    hk3_f2],
+        ["f3:",    hk1_f3,    hk2_f3,    hk3_f3],
+        ["ppv:",   hk1_ppv,   hk2_ppv,   hk3_ppv],
+        ["ppvfu:", hk1_ppvfu, hk2_ppvfu, hk3_ppvfu],
     ]
-    edHK1 := [], edHK2 := []
-    y := 97
+    edHK1 := [], edHK2 := [], edHK3 := []
+    y := 132
     for _, row in hkRows {
-        sg.Add("Text", "x10 y" (y+3) " w70 Right", row[1])
-        edHK1.Push(sg.Add("Edit", "x85 y" y " w80", row[2]))
-        edHK2.Push(sg.Add("Edit", "x230 y" y " w80", row[3]))
+        sg.Add("Text", "x10 y" (y+3) " w55 Right", row[1])
+        edHK1.Push(sg.Add("Edit", "x70  y" y " w100", row[2]))
+        edHK2.Push(sg.Add("Edit", "x230 y" y " w100", row[3]))
+        edHK3.Push(sg.Add("Edit", "x390 y" y " w100", row[4]))
         y += 30
     }
 
-    sg.Add("Button", "x10  y" (y+10) " w85 h28", "Save").OnEvent("Click", SaveCfg)
-    sg.Add("Button", "x105 y" (y+10) " w85 h28", "Reset").OnEvent("Click", ResetCfg)
-    sg.Add("Text",   "x10  y" (y+48) " w475 h2 0x10")
-    sg.Add("Button", "x10  y" (y+58) " w90 h28", "Wipe Temp").OnEvent("Click", (*) => (WipeTemp(), sg.Destroy()))
-    sg.Add("Button", "x110 y" (y+58) " w85 h28", "Report Bug").OnEvent("Click", (*) => Run("https://github.com/actuallysilly/mmParser/issues/new?title=Bug+Report&labels=bug"))
-    sg.Add("Button", "x385 y" (y+58) " w100 h28", "Check Update").OnEvent("Click", (*) => CheckUpdate())
-    sg.Show("w495 h" (y + 98))
+    sg.Add("Text",   "x10  y" (y+8)  " w580 h2 0x10")
+    sg.Add("Button", "x10  y" (y+18) " w85 h28",  "Save").OnEvent("Click", SaveCfg)
+    sg.Add("Button", "x105 y" (y+18) " w85 h28",  "Reset").OnEvent("Click", ResetCfg)
+    sg.Add("Button", "x200 y" (y+18) " w90 h28",  "Wipe Temp").OnEvent("Click", (*) => (WipeTemp(), sg.Destroy()))
+    sg.Add("Button", "x300 y" (y+18) " w85 h28",  "Report Bug").OnEvent("Click", (*) => Run("https://github.com/actuallysilly/mmParser/issues/new?title=Bug+Report&labels=bug"))
+    sg.Add("Button", "x490 y" (y+18) " w100 h28", "Check Update").OnEvent("Click", (*) => CheckUpdate())
+    sg.Show("w600 h" (y + 62))
 
     SaveCfg(*) {
-        global model1Name, model2Name, CFG_FILE
+        global model1Name, model2Name, model3Name, modelCount, CFG_FILE
         global hk1_f1, hk1_f2, hk1_f3, hk1_ppv, hk1_ppvfu
         global hk2_f1, hk2_f2, hk2_f3, hk2_ppv, hk2_ppvfu
+        global hk3_f1, hk3_f2, hk3_f3, hk3_ppv, hk3_ppvfu
 
+        newCount   := rdMC1.Value ? 1 : rdMC2.Value ? 2 : 3
         model1Name := ed1.Value
         model2Name := ed2.Value
+        model3Name := ed3.Value
+        IniWrite(newCount,   CFG_FILE, "Settings", "ModelCount")
         IniWrite(model1Name, CFG_FILE, "Settings", "Model1")
         IniWrite(model2Name, CFG_FILE, "Settings", "Model2")
+        IniWrite(model3Name, CFG_FILE, "Settings", "Model3")
         UpdateModelButtons()
 
-        hk1_f1    := edHK1[1].Value  ,  hk2_f1    := edHK2[1].Value
-        hk1_f2    := edHK1[2].Value  ,  hk2_f2    := edHK2[2].Value
-        hk1_f3    := edHK1[3].Value  ,  hk2_f3    := edHK2[3].Value
-        hk1_ppv   := edHK1[4].Value  ,  hk2_ppv   := edHK2[4].Value
-        hk1_ppvfu := edHK1[5].Value  ,  hk2_ppvfu := edHK2[5].Value
+        hk1_f1    := edHK1[1].Value , hk2_f1    := edHK2[1].Value , hk3_f1    := edHK3[1].Value
+        hk1_f2    := edHK1[2].Value , hk2_f2    := edHK2[2].Value , hk3_f2    := edHK3[2].Value
+        hk1_f3    := edHK1[3].Value , hk2_f3    := edHK2[3].Value , hk3_f3    := edHK3[3].Value
+        hk1_ppv   := edHK1[4].Value , hk2_ppv   := edHK2[4].Value , hk3_ppv   := edHK3[4].Value
+        hk1_ppvfu := edHK1[5].Value , hk2_ppvfu := edHK2[5].Value , hk3_ppvfu := edHK3[5].Value
 
         IniWrite(hk1_f1,    CFG_FILE, "Hotkeys", "M1_f1")
         IniWrite(hk1_f2,    CFG_FILE, "Hotkeys", "M1_f2")
@@ -804,28 +841,39 @@ OpenSettings(*) {
         IniWrite(hk2_f3,    CFG_FILE, "Hotkeys", "M2_f3")
         IniWrite(hk2_ppv,   CFG_FILE, "Hotkeys", "M2_ppv")
         IniWrite(hk2_ppvfu, CFG_FILE, "Hotkeys", "M2_ppvfu")
+        IniWrite(hk3_f1,    CFG_FILE, "Hotkeys", "M3_f1")
+        IniWrite(hk3_f2,    CFG_FILE, "Hotkeys", "M3_f2")
+        IniWrite(hk3_f3,    CFG_FILE, "Hotkeys", "M3_f3")
+        IniWrite(hk3_ppv,   CFG_FILE, "Hotkeys", "M3_ppv")
+        IniWrite(hk3_ppvfu, CFG_FILE, "Hotkeys", "M3_ppvfu")
 
         c1 := UpdateMassFileHotkeys("1_mass.ahk", [hk1_f1, hk1_f2, hk1_f3, hk1_ppv, hk1_ppvfu])
         c2 := UpdateMassFileHotkeys("2_mass.ahk", [hk2_f1, hk2_f2, hk2_f3, hk2_ppv, hk2_ppvfu])
+        c3 := hk3_f1 != "" ? UpdateMassFileHotkeys("3_mass.ahk", [hk3_f1, hk3_f2, hk3_f3, hk3_ppv, hk3_ppvfu]) : false
         sg.Destroy()
-        if (c1 || c2) {
+
+        if newCount != modelCount {
+            modelCount := newCount
+            Reload
+            return
+        }
+
+        if (c1 || c2 || c3) {
             msg := "Hotkeys updated in:"
             if c1
                 msg .= "`n  1_mass.ahk"
             if c2
                 msg .= "`n  2_mass.ahk"
+            if c3
+                msg .= "`n  3_mass.ahk"
             if MsgBox(msg "`nReload now?", "Done", 0x24) = "Yes" {
-                p1 := SCRIPT_DIR "\1_mass.ahk"
-                p2 := SCRIPT_DIR "\2_mass.ahk"
-                if c1 && WinExist(p1 " ahk_class AutoHotkey") {
-                    ProcessClose WinGetPID(p1 " ahk_class AutoHotkey")
-                    Sleep 150
-                    Run p1
-                }
-                if c2 && WinExist(p2 " ahk_class AutoHotkey") {
-                    ProcessClose WinGetPID(p2 " ahk_class AutoHotkey")
-                    Sleep 150
-                    Run p2
+                for fname in (c1 ? ["1_mass.ahk"] : []).Concat(c2 ? ["2_mass.ahk"] : []).Concat(c3 ? ["3_mass.ahk"] : []) {
+                    p := SCRIPT_DIR "\" fname
+                    if WinExist(p " ahk_class AutoHotkey") {
+                        ProcessClose WinGetPID(p " ahk_class AutoHotkey")
+                        Sleep 150
+                        Run p
+                    }
                 }
             }
         }
@@ -834,12 +882,17 @@ OpenSettings(*) {
     ResetCfg(*) {
         ed1.Value := "Model 1"
         ed2.Value := "Model 2"
-        defs1 := ["F1","F2","F3","F4","F5"]
-        defs2 := ["F9","F10","F11","F12","!F12"]
+        ed3.Value := "Model 3"
+        rdMC2.Value := true
+        defs1 := ["F1", "F2", "F3", "F4",  "F5"]
+        defs2 := ["F9", "F10","F11","F12", "!F12"]
+        defs3 := ["",   "",   "",   "",    ""]
         for i, e in edHK1
             e.Value := defs1[i]
         for i, e in edHK2
             e.Value := defs2[i]
+        for i, e in edHK3
+            e.Value := defs3[i]
     }
 }
 
