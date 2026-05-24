@@ -301,7 +301,7 @@ ExportMMA(*) {
 
     GetVal(prop) {
         ck := "m" mNo "_" prop
-        return edCtrls.Has(ck) ? Trim(edCtrls[ck].Value) : ""
+        return edCtrls.Has(ck) ? Trim(UnescQ(edCtrls[ck].Value)) : ""
     }
 
     v := GetVal("mass")
@@ -346,8 +346,15 @@ EscQ(s) {
 StripPrefix(s) {
     if RegExMatch(s, "i)^[Ff][Uu]?\s?\d+(?:\.\d+)?[:\s]+", &m)
         return SubStr(s, m.Len + 1)
-    if RegExMatch(s, "^[^:]+:(?![)(])\s*", &m)
+    if RegExMatch(s, "^\S+:(?![)(])\s*", &m)
         return SubStr(s, m.Len + 1)
+    return s
+}
+
+UnescQ(s) {
+    s := StrReplace(s, Chr(96) Chr(34), Chr(34))
+    s := StrReplace(s, Chr(96) Chr(59), Chr(59))
+    s := StrReplace(s, Chr(96) Chr(96), Chr(96))
     return s
 }
 
@@ -400,12 +407,14 @@ FillTab(lines, mNo) {
     ; ── positional / prefix mode ──────────────────────────────────────────────
 
     ; extract mass line: !mm, !mma, MM, MMA — with or without colon
+    massFound := false
     for _, rawLn in lines {
         t := Trim(rawLn)
         if RegExMatch(t, "i)^!?mm[a]?[\s:]+\s*(.*)", &m) {
             ck := "m" mNo "_mass"
             if edCtrls.Has(ck)
                 edCtrls[ck].Value := EscQ(Trim(m[1]))
+            massFound := true
             break
         }
     }
@@ -419,6 +428,21 @@ FillTab(lines, mNo) {
         if RegExMatch(t, "i)^fan\s+response[\s:]")
             continue
         filtered.Push(t)
+    }
+
+    ; no !mm line — treat first non-blank filtered line as mass and remove it from the pool
+    if !massFound {
+        for i, t in filtered {
+            if t != "" {
+                ck := "m" mNo "_mass"
+                if edCtrls.Has(ck)
+                    edCtrls[ck].Value := EscQ(t)
+                filtered.RemoveAt(i)
+                if filtered.Length >= i && filtered[i] = ""
+                    filtered.RemoveAt(i)
+                break
+            }
+        }
     }
 
     ; ── prefix mode: lines carry explicit f/fu + number labels ───────────────
@@ -542,7 +566,7 @@ LoadFile(fname) {
         blockText := blk[1]
         for _, prop in props {
             ck := "m" mNo "_" prop
-            if RegExMatch(blockText, prop ": " Chr(34) "([^" Chr(34) "]*)", &mv) && edCtrls.Has(ck) {
+            if RegExMatch(blockText, prop ": " Chr(34) "((?:[^" Chr(34) Chr(96) "]|" Chr(96) ".)*)" Chr(34), &mv) && edCtrls.Has(ck) {
                 v := mv[1]
                 if (prop = "ppv_base")
                     v := StrReplace(v, "``n", "`r`n")
