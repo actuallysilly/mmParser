@@ -64,7 +64,7 @@ ppv_f2: "",
 ppv_f3: ""
 }
 
-::{ ; send fu1
+F6::{ ; send fu1
     switch massNo
     {
         case 1:
@@ -82,7 +82,7 @@ ppv_f3: ""
     }
 }
 
-::{ ; send fu2
+F7::{ ; send fu2
     switch massNo
     {
         case 1:
@@ -100,7 +100,7 @@ ppv_f3: ""
     }
 }
 
-::{ ; send fu3
+!F7::{ ; send fu3
     switch massNo
     {
         case 1:
@@ -118,7 +118,7 @@ ppv_f3: ""
     }
 }
 
-::{ ; send ppv1
+F8::{ ; send ppv1
     ppv := ""
     switch massNo{
         case 1: ppv := m1.ppv_base
@@ -130,7 +130,7 @@ ppv_f3: ""
     Send "^v"
 }
 
-::{ ; send ppv2
+!F8::{ ; send ppv2
     switch massNo
     {
         case 1:

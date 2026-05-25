@@ -49,6 +49,8 @@ APP_VER      := FileExist(_verFile) ? Trim(FileRead(_verFile, "UTF-8")) : "?"
 _codePath    := EnvGet("LOCALAPPDATA") "\Programs\Microsoft VS Code\Code.exe"
 CODE_CMD     := FileExist(_codePath) ? _codePath : "C:\Program Files\Microsoft VS Code\Code.exe"
 modelCount   := Integer(IniRead(CFG_FILE, "Settings", "ModelCount", "2"))
+_utilsRaw    := FileExist(A_ScriptDir "\utils.ahk") ? FileRead(A_ScriptDir "\utils.ahk", "UTF-8") : ""
+waitTime     := RegExMatch(_utilsRaw, "\bwaitTime\b\s*:=\s*(\d+)", &_wm) ? Integer(_wm[1]) : 350
 model1Name   := IniRead(CFG_FILE, "Settings", "Model1",    "Model 1")
 model2Name   := IniRead(CFG_FILE, "Settings", "Model2",    "Model 2")
 model3Name   := IniRead(CFG_FILE, "Settings", "Model3",    "Model 3")
@@ -809,11 +811,15 @@ OpenSettings(*) {
     sg.Add("Text", "x420 y48 w70 Right", "Model 3:")
     ed3 := sg.Add("Edit", "x495 y45 w95",  model3Name)
 
+    sg.Add("Text", "x10 y78 w70 Right", "Wait time:")
+    edWT := sg.Add("Edit", "x85 y75 w60", waitTime)
+    sg.Add("Text", "x150 y78", "ms")
+
     ; ── Hotkey config ──────────────────────────────────────────────────────────
-    sg.Add("Text", "x10 y85 w590", "── Hotkeys ─────────────────────────────────────────────────────────────────")
-    sg.Add("Text", "x70  y108", "M1")
-    sg.Add("Text", "x230 y108", "M2")
-    sg.Add("Text", "x390 y108", "M3")
+    sg.Add("Text", "x10 y115 w590", "── Hotkeys ─────────────────────────────────────────────────────────────────")
+    sg.Add("Text", "x70  y138", "M1")
+    sg.Add("Text", "x230 y138", "M2")
+    sg.Add("Text", "x390 y138", "M3")
 
     hkRows := [
         ["f1:",    hk1_f1,    hk2_f1,    hk3_f1],
@@ -823,7 +829,7 @@ OpenSettings(*) {
         ["ppvfu:", hk1_ppvfu, hk2_ppvfu, hk3_ppvfu],
     ]
     edHK1 := [], edHK2 := [], edHK3 := []
-    y := 132
+    y := 162
     for _, row in hkRows {
         sg.Add("Text", "x10 y" (y+3) " w55 Right", row[1])
         edHK1.Push(sg.Add("Edit", "x70  y" y " w100", row[2]))
@@ -850,10 +856,17 @@ OpenSettings(*) {
         model1Name := ed1.Value
         model2Name := ed2.Value
         model3Name := ed3.Value
+        waitTime   := Max(50, Integer(edWT.Value))
         IniWrite(newCount,   CFG_FILE, "Settings", "ModelCount")
         IniWrite(model1Name, CFG_FILE, "Settings", "Model1")
         IniWrite(model2Name, CFG_FILE, "Settings", "Model2")
         IniWrite(model3Name, CFG_FILE, "Settings", "Model3")
+        _uPath := SCRIPT_DIR "\utils.ahk"
+        _uContent := FileRead(_uPath, "UTF-8")
+        _uContent := RegExReplace(_uContent, "\bwaitTime\b\s*:=\s*\d+", "waitTime     := " waitTime)
+        _f := FileOpen(_uPath, "w", "UTF-8")
+        _f.Write(_uContent)
+        _f.Close()
         UpdateModelButtons()
 
         hk1_f1    := edHK1[1].Value , hk2_f1    := edHK2[1].Value , hk3_f1    := edHK3[1].Value
@@ -921,6 +934,7 @@ OpenSettings(*) {
         ed1.Value := "Model 1"
         ed2.Value := "Model 2"
         ed3.Value := "Model 3"
+        edWT.Value := "350"
         rdMC2.Value := true
         defs1 := ["F1", "F2", "F3", "F4",  "F5"]
         defs2 := ["F9", "F10","F11","F12", "!F12"]

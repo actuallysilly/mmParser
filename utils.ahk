@@ -1,10 +1,10 @@
-#Requires AutoHotkey v2.0
+﻿#Requires AutoHotkey v2.0
 
 
 SetKeyDelay(-1, -1)
 
 ; config
-waitTime := 350
+waitTime     := 400
 waitTimeLong := 1500
 
 
@@ -17,12 +17,12 @@ clearInterval := 1000*30 ; 60s
 ; ! ALT
 ; + shift
 
-
 snd(arg){
     if (arg = "")
         return
+    A_Clipboard := ""
     A_Clipboard := arg
-    ClipWait(0.1)
+    ClipWait(1)
     Send("^v")
     Send("{Enter}")
     Sleep(waitTime)
