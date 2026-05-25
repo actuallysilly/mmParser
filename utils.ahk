@@ -4,7 +4,7 @@
 SetKeyDelay(-1, -1)
 
 ; config
-waitTime := 100
+waitTime := 350
 waitTimeLong := 1500
 
 
