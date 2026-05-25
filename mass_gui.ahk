@@ -172,10 +172,13 @@ Loop modelCount {
     _file := _mFiles[i]
     c := g.Add("Text", "x" PX0 " y" (_rowY + 4), "M" i ":")
     RegBtn(c, 0, _rowY - BY)
+    _curMassNo := ReadMassNo(_file)
     xA := PX0 + 30, xOff := 30
     Loop 3 {
         n := A_Index
-        c := g.Add("Button", "x" xA " y" _rowY " w40 h28", n)
+        opt := (n = 1 ? "Group " : "") "x" xA " y" _rowY " w40 h24"
+        c := g.Add("Radio", opt, n)
+        c.Value := (n = _curMassNo)
         c.OnEvent("Click", SetMassNo.Bind(_file, n))
         RegBtn(c, xOff, _rowY - BY)
         xA += 44, xOff += 44
@@ -249,10 +252,13 @@ Loop Files, ACC_DIR "\*.ahk" {
     togX += 80
 }
 
-g.Add("Text", "x" (INIT_W - 140) " y" (TOGG_Y0 + 38) " w130 Right", "made by actually.silly")
+lblCredit := g.Add("Text", "x10 y" (TOGG_Y0 + 38), "made by actually.silly")
 
 g.Show("w" INIT_W " h" INIT_H)
 g.OnEvent("Size", OnResize)
+
+lblCredit.GetPos(, , &lblCreditW)
+lblCredit.Move(INIT_W - lblCreditW - 10)
 
 ; auto-start general.ahk from root if not already running
 _gPath := A_ScriptDir "\general.ahk"
@@ -263,10 +269,8 @@ SetTimer(() => CheckUpdate(true), -3000)  ; silent check 3s after startup
 
 ; ─── Resize ───────────────────────────────────────────────────────────────────
 
-OnResize(gObj, minMax, W, H) {
+ApplyLayout(W, H) {
     global
-    if minMax = -1
-        return
     pasteX     := Round(W * 0.6)
     newPasteH  := Floor((H - 20) * 0.52)
     for _, tc in topCtrls
@@ -283,7 +287,23 @@ OnResize(gObj, minMax, W, H) {
     togY := H - TOGGLE_H + 8
     for _, tc in togCtrls
         tc.c.Move(tc.x, togY + tc.oy)
+    lblCredit.Move(W - lblCreditW - 10, togY + 38)
 }
+
+OnResize(gObj, minMax, W, H) {
+    global
+    if minMax = -1 || minMax = 1
+        return  ; minimize: skip; maximize: WM_SIZE handler has correct dims
+    ApplyLayout(W, H)
+}
+
+OnWMSize(wParam, lParam, *) {
+    global g
+    if wParam != 2  ; SIZE_MAXIMIZED = 2
+        return
+    ApplyLayout(lParam & 0xFFFF, lParam >> 16)
+}
+OnMessage(0x0005, OnWMSize)
 
 ; ─── Parse ────────────────────────────────────────────────────────────────────
 
@@ -716,6 +736,17 @@ SetMassNo(fname, n, *) {
     Run path
 }
 
+ReadMassNo(fname) {
+    global SCRIPT_DIR
+    path := SCRIPT_DIR "\" fname
+    if !FileExist(path)
+        return 1
+    content := FileRead(path, "UTF-8")
+    if RegExMatch(content, "massNo\s*:=\s*(\d+)", &m)
+        return Integer(m[1])
+    return 1
+}
+
 ; ─── Settings ─────────────────────────────────────────────────────────────────
 
 UpdateMassFileHotkeys(fname, newHK) {
@@ -867,7 +898,14 @@ OpenSettings(*) {
             if c3
                 msg .= "`n  3_mass.ahk"
             if MsgBox(msg "`nReload now?", "Done", 0x24) = "Yes" {
-                for fname in (c1 ? ["1_mass.ahk"] : []).Concat(c2 ? ["2_mass.ahk"] : []).Concat(c3 ? ["3_mass.ahk"] : []) {
+                fnames := []
+                if c1
+                    fnames.Push("1_mass.ahk")
+                if c2
+                    fnames.Push("2_mass.ahk")
+                if c3
+                    fnames.Push("3_mass.ahk")
+                for fname in fnames {
                     p := SCRIPT_DIR "\" fname
                     if WinExist(p " ahk_class AutoHotkey") {
                         ProcessClose WinGetPID(p " ahk_class AutoHotkey")

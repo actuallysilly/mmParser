@@ -5,33 +5,33 @@
 massNo := 3
 
 m1 := {
-mass: "want me to tell u exactly how i want u to stroke it?",
-fu1: "grip it tight at the base n hold",
-fu1_5: "now slide up real slow for me",
+mass: "",
+fu1: "",
+fu1_5: "",
 fu1_7: "",
 
-fu2: "dont speed up yet keep it steady",
-fu2_5: "squeeze when u reach the tip",
+fu2: "",
+fu2_5: "",
 fu2_7: "",
 
-fu3: "pause n throb in ur hand",
-fu3_5: "ready for what i say next?",
+fu3: "",
+fu3_5: "",
 fu3_7: "",
 
 ppv_base: "",
-ppv_f1: "now, watch me bouncing my tits for you and FOLLOW THE RHYTHM",
-ppv_f2: "this is where we get serious about your ruination",
+ppv_f1: "",
+ppv_f2: "",
 ppv_f3: ""
 }
 
 m2 := {
-mass: "should i undress? 🌙",
-fu1: "i dress to impress, but i undress to completely RUIN...",
-fu1_5: "are you sure u could handle me after dark?",
+mass: "",
+fu1: "",
+fu1_5: "",
 fu1_7: "",
 
-fu2: "now imagine me topless and lustful.. like a midnight sex demon",
-fu2_5: "would u fall on ur knees the second the bra was off?",
+fu2: "",
+fu2_5: "",
 fu2_7: "",
 
 fu3: "",
@@ -45,16 +45,16 @@ ppv_f3: ""
 }
 
 m3 := {
-mass: "r u opposed to naked girls?",
-fu1: "and how do you feel about me letting go of my limits for you... just tonight?",
-fu1_5: "i wanna make you sin with me...",
+mass: "can u help me?",
+fu1: "my tits are so lonely... they need someone to suck the soul out of them and make them perky",
+fu1_5: "can u do that?",
 fu1_7: "",
 
-fu2: "just imagine the sinful taste of my titties after dark.. youd get beyond obsessed",
-fu2_5: "and youd get them so wet riiight?",
+fu2: "and they also need someone to spit on them while groping them and making me moan",
+fu2_5: "but beware once im in the mood im unstoppable... and u could not handle that?",
 fu2_7: "",
 
-fu3: "",
+fu3: "so u think u can handle me and my tits? u think u could handle me naked as well?",
 fu3_5: "",
 fu3_7: "",
 

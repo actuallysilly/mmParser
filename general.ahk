@@ -197,3 +197,31 @@
     snd("because ur gonna get an extra explicit set as a show of appreciation")
     snd("i like it when men push themselves a lil for me")
 }
+
+:*:_spit::
+{
+    snd("spit on ur dick and stroke it slow, tell me how hard it is 1-10")
+}
+
+:*:_oathex::
+{
+    snd("now you will have to repeat a little promise to me... and as you repeat the words, i will trust you more and reveal MORE OF MYSELF to you")
+}
+
+:*:_seen::
+{
+    snd("you will now explain to me why i was left on read")
+}
+
+:*:_?ns::
+{
+    snd("so what was it about me that u liked so much")
+}
+
+:*:_payday::
+{
+    snd("open ur calendar")
+    snd("and mark it as `"the day i unravel my princess`"")
+    snd("and send me a ss")
+    snd("and i will make smthn special for u, deal?")
+}

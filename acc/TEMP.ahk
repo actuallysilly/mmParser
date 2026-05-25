@@ -22,3 +22,17 @@
 {
     snd("so what happens when you dream about me?")
 }
+
+!+p::
+{
+    snd("i have to tell you something about YOU👈")
+    snd("you are a big man... with a big cock... and an even bigger DREAM")
+    snd("and that dream is getting me fully naked tonight and watching my TAPES")
+    snd("so grip it tightly")
+    snd("because the big leagues are calling")
+}
+
+^L::
+{
+    snd("dhnawldhjialwdhwaiodhwaiodhauio")
+}

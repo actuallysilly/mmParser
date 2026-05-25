@@ -2,19 +2,16 @@
 #SingleInstance Force
 #Include "utils.ahk"
 
-
-massNo := 1 
-; dhbsj i
-
+massNo := 1
 
 m1 := {
-mass: "is my sword bigger than yours?",
-fu1: "its not really about the size.. for me, its all about how obedient and sensitive to JOI it is",
-fu1_5: "do you have the most obedient cock of all time?",
+mass: "",
+fu1: "",
+fu1_5: "",
 fu1_7: "",
 
-fu2: "how about you take a 2 second break from staring at my tits to pull it out, actually get fully naked for me",
-fu2_5: "are you ready to obey your cosplay empress?",
+fu2: "",
+fu2_5: "",
 fu2_7: "",
 
 fu3: "",
@@ -67,8 +64,7 @@ ppv_f2: "",
 ppv_f3: ""
 }
 
-
-F9::{ ; send fu1
+::{ ; send fu1
     switch massNo
     {
         case 1:
@@ -86,7 +82,7 @@ F9::{ ; send fu1
     }
 }
 
-F10::{ ; send fu2
+::{ ; send fu2
     switch massNo
     {
         case 1:
@@ -104,7 +100,7 @@ F10::{ ; send fu2
     }
 }
 
-F11::{ ; send fu3
+::{ ; send fu3
     switch massNo
     {
         case 1:
@@ -122,7 +118,7 @@ F11::{ ; send fu3
     }
 }
 
-F12::{ ; send ppv1
+::{ ; send ppv1
     ppv := ""
     switch massNo{
         case 1: ppv := m1.ppv_base
@@ -134,7 +130,7 @@ F12::{ ; send ppv1
     Send "^v"
 }
 
-!F12::{ ; send ppv2
+::{ ; send ppv2
     switch massNo
     {
         case 1:
@@ -151,4 +147,3 @@ F12::{ ; send ppv1
             snd(m3.ppv_f3)
     }
 }
-
