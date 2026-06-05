@@ -48,12 +48,13 @@ _verFile     := A_ScriptDir "\version.txt"
 APP_VER      := FileExist(_verFile) ? Trim(FileRead(_verFile, "UTF-8")) : "?"
 _codePath    := EnvGet("LOCALAPPDATA") "\Programs\Microsoft VS Code\Code.exe"
 CODE_CMD     := FileExist(_codePath) ? _codePath : "C:\Program Files\Microsoft VS Code\Code.exe"
-modelCount   := Integer(IniRead(CFG_FILE, "Settings", "ModelCount", "2"))
-_utilsRaw    := FileExist(A_ScriptDir "\utils.ahk") ? FileRead(A_ScriptDir "\utils.ahk", "UTF-8") : ""
-waitTime     := RegExMatch(_utilsRaw, "\bwaitTime\b\s*:=\s*(\d+)", &_wm) ? Integer(_wm[1]) : 350
-model1Name   := IniRead(CFG_FILE, "Settings", "Model1",    "Model 1")
-model2Name   := IniRead(CFG_FILE, "Settings", "Model2",    "Model 2")
-model3Name   := IniRead(CFG_FILE, "Settings", "Model3",    "Model 3")
+modelCount        := Integer(IniRead(CFG_FILE, "Settings", "ModelCount",        "2"))
+_utilsRaw         := FileExist(A_ScriptDir "\utils.ahk") ? FileRead(A_ScriptDir "\utils.ahk", "UTF-8") : ""
+waitTime          := RegExMatch(_utilsRaw, "\bwaitTime\b\s*:=\s*(\d+)", &_wm) ? Integer(_wm[1]) : 350
+model1Name        := IniRead(CFG_FILE, "Settings", "Model1",            "Model 1")
+model2Name        := IniRead(CFG_FILE, "Settings", "Model2",            "Model 2")
+model3Name        := IniRead(CFG_FILE, "Settings", "Model3",            "Model 3")
+defaultHotkeyFile := IniRead(CFG_FILE, "Settings", "DefaultHotkeyFile", "TEMP.ahk")
 UPDATE_URL   := IniRead(CFG_FILE, "Update",   "URL",       "https://raw.githubusercontent.com/actuallysilly/mmParser/main")
 hk1_f1    := IniRead(CFG_FILE, "Hotkeys", "M1_f1",    "F1")
 hk1_f2    := IniRead(CFG_FILE, "Hotkeys", "M1_f2",    "F2")
@@ -133,10 +134,13 @@ c := g.Add("Button", "x" (PX0+190) " y" BY      " w120 h28", "Export !mma")
 c.OnEvent("Click", ExportMMA)
 RegBtn(c, 190, 0)
 
-c := g.Add("Text",   "x" PX0 " y" (BY+36), "-- Load fields from file --")
-RegBtn(c, 0, 36)
-lblLoaded := g.Add("Text", "x" (PX0+190) " y" (BY+36) " w250", "")
-RegBtn(lblLoaded, 190, 36)
+c := g.Add("Text", "x" PX0 " y" (BY+38) " w" (RIGHT_W-20) " h2 0x10")
+RegBtn(c, 0, 38)
+
+c := g.Add("Text",   "x" PX0 " y" (BY+52), "-- Load fields from file --")
+RegBtn(c, 0, 52)
+lblLoaded := g.Add("Text", "x" (PX0+190) " y" (BY+52) " w250", "")
+RegBtn(lblLoaded, 190, 52)
 
 _mNames := [model1Name, model2Name, model3Name]
 _mFiles := ["1_mass.ahk", "2_mass.ahk", "3_mass.ahk"]
@@ -145,32 +149,32 @@ _mGap   := modelCount = 3 ? 8   : 10
 xA := PX0, xOff := 0
 Loop modelCount {
     i := A_Index
-    btn := g.Add("Button", "x" xA " y" (BY+54) " w" _mW " h28", "load " _mNames[i])
+    btn := g.Add("Button", "x" xA " y" (BY+70) " w" _mW " h28", "load " _mNames[i])
     btn.OnEvent("Click", MakeLoader(_mFiles[i]))
-    RegBtn(btn, xOff, 54)
+    RegBtn(btn, xOff, 70)
     btnLoadM.Push(btn)
     xA += _mW + _mGap, xOff += _mW + _mGap
 }
 
-c := g.Add("Text", "x" PX0 " y" (BY+92), "-- Apply to file --")
-RegBtn(c, 0, 92)
+c := g.Add("Text", "x" PX0 " y" (BY+108), "-- Apply to file --")
+RegBtn(c, 0, 108)
 
 xA := PX0, xOff := 0
 Loop modelCount {
     i := A_Index
-    btn := g.Add("Button", "x" xA " y" (BY+110) " w" _mW " h28", "save " _mNames[i])
+    btn := g.Add("Button", "x" xA " y" (BY+126) " w" _mW " h28", "save " _mNames[i])
     btn.OnEvent("Click", MakeSaver(_mFiles[i]))
-    RegBtn(btn, xOff, 110)
+    RegBtn(btn, xOff, 126)
     btnSaveM.Push(btn)
     xA += _mW + _mGap, xOff += _mW + _mGap
 }
 
-c := g.Add("Text", "x" PX0 " y" (BY+148), "-- Set massNo --")
-RegBtn(c, 0, 148)
+c := g.Add("Text", "x" PX0 " y" (BY+164), "-- Set massNo --")
+RegBtn(c, 0, 164)
 
 Loop modelCount {
     i := A_Index
-    _rowY := BY + 166 + (i - 1) * 34
+    _rowY := BY + 182 + (i - 1) * 34
     _file := _mFiles[i]
     c := g.Add("Text", "x" PX0 " y" (_rowY + 4), "M" i ":")
     RegBtn(c, 0, _rowY - BY)
@@ -231,7 +235,7 @@ c.OnEvent("Click", OpenSettings)
 togCtrls.Push({c: c, x: TAB_X+140, oy: 0})
 
 c := g.Add("Button", "x" (TAB_X+230) " y" TOGG_Y0 " w95 h28", "Add Hotkey")
-c.OnEvent("Click", OpenAddHotkey)
+c.OnEvent("Click", (*) => OpenAddHotkey())
 togCtrls.Push({c: c, x: TAB_X+230, oy: 0})
 
 c := g.Add("Button", "x" (TAB_X+335) " y" TOGG_Y0 " w85 h28", "How to Use")
@@ -241,6 +245,24 @@ togCtrls.Push({c: c, x: TAB_X+335, oy: 0})
 c := g.Add("Button", "x" (TAB_X+430) " y" TOGG_Y0 " w90 h28", "New Script")
 c.OnEvent("Click", NewAccScript)
 togCtrls.Push({c: c, x: TAB_X+430, oy: 0})
+
+fuChks := []
+Loop 3 {
+    m := A_Index
+    _oy := 4 + (m - 1) * 17
+    lbl := g.Add("Text", "x" (TAB_X+534) " y" (TOGG_Y0+_oy+2) " w18 Right", "M" m)
+    togCtrls.Push({c: lbl, x: TAB_X+534, oy: _oy+2})
+    fuChks.Push([])
+    Loop 3 {
+        f := A_Index
+        _xFu := TAB_X + 556 + (f - 1) * 38
+        chk := g.Add("Checkbox", "x" _xFu " y" (TOGG_Y0+_oy) " w34", "F" f)
+        chk.Value := IniRead(CFG_FILE, "Settings", "FuSingle_" m "_" f, "0") = "1"
+        chk.OnEvent("Click", MakeFuToggle(m, f))
+        togCtrls.Push({c: chk, x: _xFu, oy: _oy})
+        fuChks[m].Push(chk)
+    }
+}
 
 togX := TAB_X
 Loop Files, ACC_DIR "\*.ahk" {
@@ -618,6 +640,15 @@ LoadFile(fname) {
 ApplyFile(fname) {
     global
     path := SCRIPT_DIR "\" fname
+    allEmpty := true
+    for _, c in edCtrls {
+        if Trim(c.Value) != "" {
+            allEmpty := false
+            break
+        }
+    }
+    if allEmpty && MsgBox("All fields are empty. Save anyway?", "Confirm Save", 0x24) != "Yes"
+        return
     content := FileExist(path) ? FileRead(path, "UTF-8") : BuildMassTemplate(fname)
     Loop 3 {
         mNo  := A_Index
@@ -649,7 +680,7 @@ BuildMassTemplate(fname) {
     else
         hk := [hk1_f1, hk1_f2, hk1_f3, hk1_ppv, hk1_ppvfu]
 
-    out := "#Requires AutoHotkey v2.0`n#SingleInstance Force`n#Include " q "utils.ahk" q "`n`nmassNo := 1`n`n"
+    out := "#Requires AutoHotkey v2.0`n#SingleInstance Force`n#Include " q "utils.ahk" q "`n`nmassNo := 1`nmodelFileNo := " num "`n`n"
     Loop 3
         out .= BuildBlock(A_Index) "`n`n"
 
@@ -664,10 +695,23 @@ BuildMassTemplate(fname) {
         return s
     }
 
+    BuildSwitchFu(group, slots*) {
+        s := ""
+        Loop 3 {
+            mn := A_Index
+            s .= "        case " mn ":`n"
+            args := group
+            for _, prop in slots
+                args .= ", m" mn "." prop
+            s .= "            sndFu(" args ")`n"
+        }
+        return s
+    }
+
     sc := Chr(59)
-    out .= hk[1] "::{ " sc " send fu1`n    switch massNo`n    {`n" BuildSwitch("fu1","fu1_5","fu1_7") "    }`n}`n`n"
-    out .= hk[2] "::{ " sc " send fu2`n    switch massNo`n    {`n" BuildSwitch("fu2","fu2_5","fu2_7") "    }`n}`n`n"
-    out .= hk[3] "::{ " sc " send fu3`n    switch massNo`n    {`n" BuildSwitch("fu3","fu3_5","fu3_7") "    }`n}`n`n"
+    out .= hk[1] "::{ " sc " send fu1`n    switch massNo`n    {`n" BuildSwitchFu(1, "fu1","fu1_5","fu1_7") "    }`n}`n`n"
+    out .= hk[2] "::{ " sc " send fu2`n    switch massNo`n    {`n" BuildSwitchFu(2, "fu2","fu2_5","fu2_7") "    }`n}`n`n"
+    out .= hk[3] "::{ " sc " send fu3`n    switch massNo`n    {`n" BuildSwitchFu(3, "fu3","fu3_5","fu3_7") "    }`n}`n`n"
 
     out .= hk[4] "::{ " sc " send ppv1`n    ppv := `"`"`n    switch massNo{`n"
     Loop 3
@@ -790,6 +834,14 @@ OpenSettings(*) {
     global hk1_f1, hk1_f2, hk1_f3, hk1_ppv, hk1_ppvfu
     global hk2_f1, hk2_f2, hk2_f3, hk2_ppv, hk2_ppvfu
     global hk3_f1, hk3_f2, hk3_f3, hk3_ppv, hk3_ppvfu
+    global defaultHotkeyFile, ACC_DIR, SCRIPT_DIR
+
+    _dhfList := []
+    _genPath2 := SCRIPT_DIR "\general.ahk"
+    if FileExist(_genPath2)
+        _dhfList.Push("general.ahk")
+    Loop Files, ACC_DIR "\*.ahk"
+        _dhfList.Push(A_LoopFileName)
 
     sg := Gui("+Owner" g.Hwnd, "Settings")
     sg.SetFont("s9", "Segoe UI")
@@ -814,6 +866,15 @@ OpenSettings(*) {
     sg.Add("Text", "x10 y78 w70 Right", "Wait time:")
     edWT := sg.Add("Edit", "x85 y75 w60", waitTime)
     sg.Add("Text", "x150 y78", "ms")
+    sg.Add("Text", "x220 y78 w80 Right", "Default file:")
+    ddlDef := sg.Add("DropDownList", "x305 y75 w165", _dhfList)
+    for i, f in _dhfList
+        if f = defaultHotkeyFile {
+            ddlDef.Value := i
+            break
+        }
+    if ddlDef.Value = 0
+        ddlDef.Value := 1
 
     ; ── Hotkey config ──────────────────────────────────────────────────────────
     sg.Add("Text", "x10 y115 w590", "── Hotkeys ─────────────────────────────────────────────────────────────────")
@@ -851,16 +912,19 @@ OpenSettings(*) {
         global hk1_f1, hk1_f2, hk1_f3, hk1_ppv, hk1_ppvfu
         global hk2_f1, hk2_f2, hk2_f3, hk2_ppv, hk2_ppvfu
         global hk3_f1, hk3_f2, hk3_f3, hk3_ppv, hk3_ppvfu
+        global defaultHotkeyFile
 
-        newCount   := rdMC1.Value ? 1 : rdMC2.Value ? 2 : 3
-        model1Name := ed1.Value
-        model2Name := ed2.Value
-        model3Name := ed3.Value
-        waitTime   := Max(50, Integer(edWT.Value))
-        IniWrite(newCount,   CFG_FILE, "Settings", "ModelCount")
-        IniWrite(model1Name, CFG_FILE, "Settings", "Model1")
-        IniWrite(model2Name, CFG_FILE, "Settings", "Model2")
-        IniWrite(model3Name, CFG_FILE, "Settings", "Model3")
+        newCount          := rdMC1.Value ? 1 : rdMC2.Value ? 2 : 3
+        model1Name        := ed1.Value
+        model2Name        := ed2.Value
+        model3Name        := ed3.Value
+        waitTime          := Max(50, Integer(edWT.Value))
+        defaultHotkeyFile := ddlDef.Text
+        IniWrite(newCount,          CFG_FILE, "Settings", "ModelCount")
+        IniWrite(model1Name,        CFG_FILE, "Settings", "Model1")
+        IniWrite(model2Name,        CFG_FILE, "Settings", "Model2")
+        IniWrite(model3Name,        CFG_FILE, "Settings", "Model3")
+        IniWrite(defaultHotkeyFile, CFG_FILE, "Settings", "DefaultHotkeyFile")
         _uPath := SCRIPT_DIR "\utils.ahk"
         _uContent := FileRead(_uPath, "UTF-8")
         _uContent := RegExReplace(_uContent, "\bwaitTime\b\s*:=\s*\d+", "waitTime     := " waitTime)
@@ -993,7 +1057,7 @@ CheckUpdate(silent := false, *) {
     ExitApp
 }
 
-OpenAddHotkey(*) {
+OpenAddHotkey(prefill := "", *) {
     global ACC_DIR, SCRIPT_DIR, g
     fileList  := []
     filePaths := []
@@ -1020,7 +1084,7 @@ OpenAddHotkey(*) {
     ddl     := ah.Add("DropDownList", "x325 y41 w220", fileList)
     ddl.Value := 1
     for i, f in fileList
-        if f = "TEMP.ahk" {
+        if f = defaultHotkeyFile {
             ddl.Value := i
             break
         }
@@ -1031,6 +1095,8 @@ OpenAddHotkey(*) {
     rdHSWild := ah.Add("Radio", "x835 y44 Checked",       ":*:")
     ah.Add("Text",        "x10  y75 w55 Right",   "Lines:")
     edLines := ah.Add("Edit",        "x70  y72 w" (W-80) " h120 Multi")
+    if prefill != ""
+        edLines.Value := prefill
     ah.Add("Button", "x10  y202 w85 h28", "Append").OnEvent("Click", DoAppend)
     ah.Add("Button", "x105 y202 w85 h28", "Cancel").OnEvent("Click", (*) => ah.Destroy())
     ah.Show("w" W " h245")
@@ -1064,6 +1130,7 @@ OpenAddHotkey(*) {
             MsgBox "Write error: " e.Message,, 0x10
             return
         }
+        CheckCollisions()
         ah.Destroy()
         if WinExist(path " ahk_class AutoHotkey") {
             pid := WinGetPID(path " ahk_class AutoHotkey")
@@ -1116,6 +1183,13 @@ OpenGuide(*) {
     gg.Show("w600 h480")
 }
 
+MakeFuToggle(m, f) => (*) => ToggleFuCell(m, f)
+
+ToggleFuCell(m, f) {
+    global fuChks, CFG_FILE
+    IniWrite(fuChks[m][f].Value ? "1" : "0", CFG_FILE, "Settings", "FuSingle_" m "_" f)
+}
+
 WipeTemp(*) {
     global ACC_DIR
     path    := ACC_DIR "\TEMP.ahk"
@@ -1128,4 +1202,82 @@ WipeTemp(*) {
         ProcessClose pid
     }
     Run path
+}
+
+; ─── Collision checker ───────────────────────────────────────────────────────
+
+CheckCollisions() {
+    global SCRIPT_DIR, ACC_DIR
+
+    files := []
+    for fp in [SCRIPT_DIR "\utils.ahk", SCRIPT_DIR "\general.ahk"] {
+        if FileExist(fp)
+            files.Push(fp)
+    }
+    Loop Files, ACC_DIR "\*.ahk"
+        files.Push(A_LoopFilePath)
+    Loop 3 {
+        fp := SCRIPT_DIR "\" A_Index "_mass.ahk"
+        if FileExist(fp)
+            files.Push(fp)
+    }
+
+    seen := Map()  ; trigger → Map(fname → 1)
+
+    for fpath in files {
+        SplitPath fpath, &fname
+        content := FileRead(fpath, "UTF-8")
+        for ln in StrSplit(StrReplace(StrReplace(content, "`r`n", "`n"), "`r", "`n"), "`n") {
+            ln := Trim(ln)
+            if ln = "" || SubStr(ln, 1, 1) = ";"
+                continue
+            trigger := ""
+            if RegExMatch(ln, "^:[^:]*:([^:`r`n]+)::", &m)
+                trigger := StrLower(Trim(m[1]))
+            else if RegExMatch(ln, "^([^:\s]+)::", &m)
+                trigger := StrLower(m[1])
+            if trigger = ""
+                continue
+            if !seen.Has(trigger)
+                seen[trigger] := Map()
+            seen[trigger][fname] := 1
+        }
+    }
+
+    collisions := []
+    for trigger, fmap in seen {
+        if fmap.Count > 1 {
+            fnames := []
+            for fn, _ in fmap
+                fnames.Push(fn)
+            collisions.Push(trigger "  →  " ArrJoin(fnames, ", "))
+        }
+    }
+
+    if !collisions.Length
+        return
+
+    msg := "Collision warning — same trigger in multiple files:`n`n"
+    for c in collisions
+        msg .= "  " c "`n"
+    MsgBox msg, "Collision Warning", 0x30
+}
+
+ArrJoin(arr, sep) {
+    out := ""
+    for i, v in arr
+        out .= (i > 1 ? sep : "") v
+    return out
+}
+
+!0:: {
+    saved := A_Clipboard
+    A_Clipboard := ""
+    Send "^a"
+    Sleep 50
+    Send "^c"
+    ClipWait 0.5
+    grabbed := A_Clipboard
+    A_Clipboard := saved
+    OpenAddHotkey(grabbed)
 }

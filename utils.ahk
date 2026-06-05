@@ -4,12 +4,13 @@
 SetKeyDelay(-1, -1)
 
 ; config
-waitTime     := 400
-waitTimeLong := 1500
+WaitTime     := 400
+WaitTimeLong := 1500
+modelFileNo  := 0
 
 
-afk := false
-clearInterval := 1000*30 ; 60s
+Afk := false
+ClearInterval := 1000*30 ; 60s
 
 
 ; # Win
@@ -17,7 +18,7 @@ clearInterval := 1000*30 ; 60s
 ; ! ALT
 ; + shift
 
-snd(arg){
+Snd(arg){
     if (arg = "")
         return
     A_Clipboard := ""
@@ -29,7 +30,7 @@ snd(arg){
 }
 
 ; you can also provide a time in milliseconds
-sendt(arg,time){
+Sendt(arg,time){
     if (arg = "")
         return
     A_Clipboard := arg
@@ -40,6 +41,40 @@ sendt(arg,time){
 }
 
 
+
+sndFu(group, parts*) {
+    global waitTime, modelFileNo
+    nonEmpty := []
+    for p in parts
+        if Trim(p) != ""
+            nonEmpty.Push(p)
+    if !nonEmpty.Length
+        return
+    fuSingle := IniRead(A_ScriptDir "\mass_gui.cfg", "Settings", "FuSingle_" modelFileNo "_" group, "0") = "1"
+    if !fuSingle {
+        for p in nonEmpty
+            snd(p)
+        return
+    }
+    combined := ""
+    for p in nonEmpty
+        combined .= (combined != "" ? "`n" : "") p
+    A_Clipboard := ""
+    A_Clipboard := combined
+    ClipWait(1)
+    Send("^v")
+    Send("{Enter}")
+    Sleep(waitTime)
+}
+
+Unseen() {
+    MouseGetPos &cx, &cy
+    CoordMode "Mouse", "Screen"
+    MouseClickDrag "Left", cx, cy, cx - 300, cy, 5
+    MouseMove cx - 50, cy + 60, 0
+}
+
+!-::Unseen()
 
 ; AFK
 
@@ -54,7 +89,7 @@ CoordMode "Mouse", "Window"
     Click
 }
 
-goAfk(){
+GoAfk(){
     
     while(afk){
         MouseMove 347, 208, 0
@@ -81,9 +116,9 @@ goAfk(){
     afk := false
 }
 
-SetTimer(CheckAFK, 1000) ; check every 1 second
+SetTimer(CheckAFK, 1000) ; cheque every 1 second
 
-checkAFK() {
+CheckAFK() {
     static afkTriggered := false  ; persistent state (like a private field)
 
     if (A_TimeIdle > 60000) {      ; 60,000 ms = 1 minute
@@ -95,3 +130,6 @@ checkAFK() {
         afkTriggered := false      ; reset when user becomes active again
     }
 }
+
+
+

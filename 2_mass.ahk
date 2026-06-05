@@ -3,18 +3,19 @@
 #Include "utils.ahk"
 
 
-massNo := 1 
+massNo := 2
+modelFileNo := 2 
 ; dhbsj i
 
 
 m1 := {
-mass: "is my sword bigger than yours?",
-fu1: "its not really about the size.. for me, its all about how obedient and sensitive to JOI it is",
-fu1_5: "do you have the most obedient cock of all time?",
+mass: "can u say ahh",
+fu1: "good boy... now imagine me sitting on your face and turning you into my personal vibrator.. would u make me cum?",
+fu1_5: "",
 fu1_7: "",
 
-fu2: "how about you take a 2 second break from staring at my tits to pull it out, actually get fully naked for me",
-fu2_5: "are you ready to obey your cosplay empress?",
+fu2: "so you pinky promise me that you wont disappoint my pussy? im rly in the mood",
+fu2_5: "",
 fu2_7: "",
 
 fu3: "",
@@ -72,17 +73,11 @@ F9::{ ; send fu1
     switch massNo
     {
         case 1:
-            snd(m1.fu1)
-            snd(m1.fu1_5)
-            snd(m1.fu1_7)
+            sndFu(1, m1.fu1, m1.fu1_5, m1.fu1_7)
         case 2:
-            snd(m2.fu1)
-            snd(m2.fu1_5)
-            snd(m2.fu1_7)
+            sndFu(1, m2.fu1, m2.fu1_5, m2.fu1_7)
         case 3:
-            snd(m3.fu1)
-            snd(m3.fu1_5)
-            snd(m3.fu1_7)
+            sndFu(1, m3.fu1, m3.fu1_5, m3.fu1_7)
     }
 }
 
@@ -90,17 +85,11 @@ F10::{ ; send fu2
     switch massNo
     {
         case 1:
-            snd(m1.fu2)
-            snd(m1.fu2_5)
-            snd(m1.fu2_7)
+            sndFu(2, m1.fu2, m1.fu2_5, m1.fu2_7)
         case 2:
-            snd(m2.fu2)
-            snd(m2.fu2_5)
-            snd(m2.fu2_7)
+            sndFu(2, m2.fu2, m2.fu2_5, m2.fu2_7)
         case 3:
-            snd(m3.fu2)
-            snd(m3.fu2_5)
-            snd(m3.fu2_7)
+            sndFu(2, m3.fu2, m3.fu2_5, m3.fu2_7)
     }
 }
 
@@ -108,17 +97,11 @@ F11::{ ; send fu3
     switch massNo
     {
         case 1:
-            snd(m1.fu3)
-            snd(m1.fu3_5)
-            snd(m1.fu3_7)
+            sndFu(3, m1.fu3, m1.fu3_5, m1.fu3_7)
         case 2:
-            snd(m2.fu3)
-            snd(m2.fu3_5)
-            snd(m2.fu3_7)
+            sndFu(3, m2.fu3, m2.fu3_5, m2.fu3_7)
         case 3:
-            snd(m3.fu3)
-            snd(m3.fu3_5)
-            snd(m3.fu3_7)
+            sndFu(3, m3.fu3, m3.fu3_5, m3.fu3_7)
     }
 }
 

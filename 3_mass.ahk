@@ -3,6 +3,7 @@
 #Include "utils.ahk"
 
 massNo := 1
+modelFileNo := 3
 
 m1 := {
 mass: "",
@@ -68,17 +69,11 @@ F6::{ ; send fu1
     switch massNo
     {
         case 1:
-            snd(m1.fu1)
-            snd(m1.fu1_5)
-            snd(m1.fu1_7)
+            sndFu(1, m1.fu1, m1.fu1_5, m1.fu1_7)
         case 2:
-            snd(m2.fu1)
-            snd(m2.fu1_5)
-            snd(m2.fu1_7)
+            sndFu(1, m2.fu1, m2.fu1_5, m2.fu1_7)
         case 3:
-            snd(m3.fu1)
-            snd(m3.fu1_5)
-            snd(m3.fu1_7)
+            sndFu(1, m3.fu1, m3.fu1_5, m3.fu1_7)
     }
 }
 
@@ -86,17 +81,11 @@ F7::{ ; send fu2
     switch massNo
     {
         case 1:
-            snd(m1.fu2)
-            snd(m1.fu2_5)
-            snd(m1.fu2_7)
+            sndFu(2, m1.fu2, m1.fu2_5, m1.fu2_7)
         case 2:
-            snd(m2.fu2)
-            snd(m2.fu2_5)
-            snd(m2.fu2_7)
+            sndFu(2, m2.fu2, m2.fu2_5, m2.fu2_7)
         case 3:
-            snd(m3.fu2)
-            snd(m3.fu2_5)
-            snd(m3.fu2_7)
+            sndFu(2, m3.fu2, m3.fu2_5, m3.fu2_7)
     }
 }
 
@@ -104,17 +93,11 @@ F7::{ ; send fu2
     switch massNo
     {
         case 1:
-            snd(m1.fu3)
-            snd(m1.fu3_5)
-            snd(m1.fu3_7)
+            sndFu(3, m1.fu3, m1.fu3_5, m1.fu3_7)
         case 2:
-            snd(m2.fu3)
-            snd(m2.fu3_5)
-            snd(m2.fu3_7)
+            sndFu(3, m2.fu3, m2.fu3_5, m2.fu3_7)
         case 3:
-            snd(m3.fu3)
-            snd(m3.fu3_5)
-            snd(m3.fu3_7)
+            sndFu(3, m3.fu3, m3.fu3_5, m3.fu3_7)
     }
 }
 
