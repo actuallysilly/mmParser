@@ -55,6 +55,7 @@ model1Name        := IniRead(CFG_FILE, "Settings", "Model1",            "Model 1
 model2Name        := IniRead(CFG_FILE, "Settings", "Model2",            "Model 2")
 model3Name        := IniRead(CFG_FILE, "Settings", "Model3",            "Model 3")
 defaultHotkeyFile := IniRead(CFG_FILE, "Settings", "DefaultHotkeyFile", "TEMP.ahk")
+mouseControl      := Integer(IniRead(CFG_FILE, "Settings", "MouseControl",      "1"))
 UPDATE_URL   := IniRead(CFG_FILE, "Update",   "URL",       "https://raw.githubusercontent.com/actuallysilly/mmParser/main")
 hk1_f1    := IniRead(CFG_FILE, "Hotkeys", "M1_f1",    "F1")
 hk1_f2    := IniRead(CFG_FILE, "Hotkeys", "M1_f2",    "F2")
@@ -834,7 +835,7 @@ OpenSettings(*) {
     global hk1_f1, hk1_f2, hk1_f3, hk1_ppv, hk1_ppvfu
     global hk2_f1, hk2_f2, hk2_f3, hk2_ppv, hk2_ppvfu
     global hk3_f1, hk3_f2, hk3_f3, hk3_ppv, hk3_ppvfu
-    global defaultHotkeyFile, ACC_DIR, SCRIPT_DIR
+    global defaultHotkeyFile, ACC_DIR, SCRIPT_DIR, mouseControl
 
     _dhfList := []
     _genPath2 := SCRIPT_DIR "\general.ahk"
@@ -868,6 +869,8 @@ OpenSettings(*) {
     sg.Add("Text", "x150 y78", "ms")
     sg.Add("Text", "x220 y78 w80 Right", "Default file:")
     ddlDef := sg.Add("DropDownList", "x305 y75 w165", _dhfList)
+    chkMC := sg.Add("Checkbox", "x480 y78", "Mouse control")
+    chkMC.Value := mouseControl
     for i, f in _dhfList
         if f = defaultHotkeyFile {
             ddlDef.Value := i
@@ -912,7 +915,7 @@ OpenSettings(*) {
         global hk1_f1, hk1_f2, hk1_f3, hk1_ppv, hk1_ppvfu
         global hk2_f1, hk2_f2, hk2_f3, hk2_ppv, hk2_ppvfu
         global hk3_f1, hk3_f2, hk3_f3, hk3_ppv, hk3_ppvfu
-        global defaultHotkeyFile
+        global defaultHotkeyFile, mouseControl
 
         newCount          := rdMC1.Value ? 1 : rdMC2.Value ? 2 : 3
         model1Name        := ed1.Value
@@ -955,7 +958,12 @@ OpenSettings(*) {
         IniWrite(hk3_ppv,   CFG_FILE, "Hotkeys", "M3_ppv")
         IniWrite(hk3_ppvfu, CFG_FILE, "Hotkeys", "M3_ppvfu")
 
-        c1 := UpdateMassFileHotkeys("1_mass.ahk", [hk1_f1, hk1_f2, hk1_f3, hk1_ppv, hk1_ppvfu])
+        newMC := chkMC.Value ? 1 : 0
+        mcChanged := (newMC != mouseControl)
+        mouseControl := newMC
+        IniWrite(mouseControl, CFG_FILE, "Settings", "MouseControl")
+
+        c1 := UpdateMassFileHotkeys("1_mass.ahk", [hk1_f1, hk1_f2, hk1_f3, hk1_ppv, hk1_ppvfu]) || mcChanged
         c2 := UpdateMassFileHotkeys("2_mass.ahk", [hk2_f1, hk2_f2, hk2_f3, hk2_ppv, hk2_ppvfu])
         c3 := hk3_f1 != "" ? UpdateMassFileHotkeys("3_mass.ahk", [hk3_f1, hk3_f2, hk3_f3, hk3_ppv, hk3_ppvfu]) : false
         sg.Destroy()

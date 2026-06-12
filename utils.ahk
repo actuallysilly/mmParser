@@ -67,14 +67,14 @@ sndFu(group, parts*) {
     Sleep(waitTime)
 }
 
-Unseen() {
+Unread() {
     MouseGetPos &cx, &cy
     CoordMode "Mouse", "Screen"
     MouseClickDrag "Left", cx, cy, cx - 300, cy, 5
     MouseMove cx - 50, cy + 60, 0
 }
 
-!-::Unseen()
+
 
 ; AFK
 
@@ -129,6 +129,43 @@ CheckAFK() {
     } else {
         afkTriggered := false      ; reset when user becomes active again
     }
+}
+
+clickOn(coord){
+    MouseMove coord[1], coord[2]
+    Click
+}
+
+focusTextbox(){
+    MouseMove 800, 950
+    Click
+}
+
+focusTop(){
+    MouseMove 220,315
+    Click
+}
+
+_savedChatX := 220
+_savedChatY := 315
+topChat := [165, 320]
+
+focusAuto(){
+    global _savedChatX, _savedChatY
+    MouseGetPos &mx, &my
+    if (mx < 400) {
+        _savedChatX := mx
+        _savedChatY := my
+        focusTextbox()
+    } else {
+        clickOn(topChat)
+    }
+}
+
+nextChat(){
+   MouseGetPos &cx, &cy
+   MouseMove cx, cy + 100
+   MouseClick
 }
 
 
