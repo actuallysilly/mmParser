@@ -21,6 +21,22 @@ fieldDefs := [
     ["ppv_f3",   "ppvfu3", false],
 ]
 
+b2FieldDefs := [
+    ["b2_fu1",      "b2.f1",    false],
+    ["b2_fu1_5",    "b2.f1.5",  false],
+    ["b2_fu1_7",    "b2.f1.7",  true],
+    ["b2_fu2",      "b2.f2",    false],
+    ["b2_fu2_5",    "b2.f2.5",  false],
+    ["b2_fu2_7",    "b2.f2.7",  true],
+    ["b2_fu3",      "b2.f3",    false],
+    ["b2_fu3_5",    "b2.f3.5",  false],
+    ["b2_fu3_7",    "b2.f3.7",  true],
+    ["b2_ppv_base", "b2.ppv",   false],
+    ["b2_ppv_f1",   "b2.ppvf1", false],
+    ["b2_ppv_f2",   "b2.ppvf2", false],
+    ["b2_ppv_f3",   "b2.ppvf3", false],
+]
+
 keyMap := Map(
     "!mm",    "mass",    "!mma",   "mass",    "mm",     "mass",    "mma",    "mass",
     "f1",     "fu1",     "f1.5",   "fu1_5",   "f1.7",   "fu1_7",
@@ -56,6 +72,15 @@ model2Name        := IniRead(CFG_FILE, "Settings", "Model2",            "Model 2
 model3Name        := IniRead(CFG_FILE, "Settings", "Model3",            "Model 3")
 defaultHotkeyFile := IniRead(CFG_FILE, "Settings", "DefaultHotkeyFile", "TEMP.ahk")
 mouseControl      := Integer(IniRead(CFG_FILE, "Settings", "MouseControl",      "1"))
+openTabFu2        := Integer(IniRead(CFG_FILE, "Settings", "OpenTabFu2",        "0"))
+openTabFu3        := Integer(IniRead(CFG_FILE, "Settings", "OpenTabFu3",        "0"))
+openTabPpv        := Integer(IniRead(CFG_FILE, "Settings", "OpenTabPpv",        "0"))
+walletCheckFu3    := Integer(IniRead(CFG_FILE, "Settings", "WalletCheckFu3",    "0"))
+_hiddenRaw        := IniRead(CFG_FILE, "Settings", "HiddenScripts", "")
+hiddenScripts     := Map()
+for _h in StrSplit(_hiddenRaw, ",")
+    if Trim(_h) != ""
+        hiddenScripts[Trim(_h)] := true
 UPDATE_URL   := IniRead(CFG_FILE, "Update",   "URL",       "https://raw.githubusercontent.com/actuallysilly/mmParser/main")
 hk1_f1    := IniRead(CFG_FILE, "Hotkeys", "M1_f1",    "F1")
 hk1_f2    := IniRead(CFG_FILE, "Hotkeys", "M1_f2",    "F2")
@@ -135,13 +160,19 @@ c := g.Add("Button", "x" (PX0+190) " y" BY      " w120 h28", "Export !mma")
 c.OnEvent("Click", ExportMMA)
 RegBtn(c, 190, 0)
 
+chkArchive := g.Add("Checkbox", "x" (PX0+322) " y" (BY+6) " Checked", "Archive")
+RegBtn(chkArchive, 322, 6)
+
 c := g.Add("Text", "x" PX0 " y" (BY+38) " w" (RIGHT_W-20) " h2 0x10")
 RegBtn(c, 0, 38)
 
 c := g.Add("Text",   "x" PX0 " y" (BY+52), "-- Load fields from file --")
 RegBtn(c, 0, 52)
-lblLoaded := g.Add("Text", "x" (PX0+190) " y" (BY+52) " w250", "")
+lblLoaded := g.Add("Text", "x" (PX0+190) " y" (BY+52) " w140", "")
 RegBtn(lblLoaded, 190, 52)
+c := g.Add("Button", "x" (PX0+338) " y" (BY+48) " w118 h22", "Load from archive")
+c.OnEvent("Click", OpenArchive)
+RegBtn(c, 338, 48)
 
 _mNames := [model1Name, model2Name, model3Name]
 _mFiles := ["1_mass.ahk", "2_mass.ahk", "3_mass.ahk"]
@@ -220,6 +251,7 @@ Loop 3 {
                 y += 6
         }
     }
+
 }
 tabs.UseTab()
 
@@ -247,6 +279,19 @@ c := g.Add("Button", "x" (TAB_X+430) " y" TOGG_Y0 " w90 h28", "New Script")
 c.OnEvent("Click", NewAccScript)
 togCtrls.Push({c: c, x: TAB_X+430, oy: 0})
 
+editFuChks := []
+_edLbl := g.Add("Text", "x" (TAB_X+534) " y" (TOGG_Y0-11) " w18 Right", "Ed")
+togCtrls.Push({c: _edLbl, x: TAB_X+534, oy: -11})
+Loop 3 {
+    _f := A_Index
+    _xFu := TAB_X + 556 + (_f - 1) * 38
+    _eChk := g.Add("Checkbox", "x" _xFu " y" (TOGG_Y0-13) " w34", "F" _f)
+    _eChk.Value := IniRead(CFG_FILE, "Settings", "EditableFu" _f, "0") = "1"
+    _eChk.OnEvent("Click", MakeEditFuToggle(_f))
+    togCtrls.Push({c: _eChk, x: _xFu, oy: -13})
+    editFuChks.Push(_eChk)
+}
+
 fuChks := []
 Loop 3 {
     m := A_Index
@@ -271,16 +316,69 @@ Loop Files, ACC_DIR "\*.ahk" {
     sname := StrReplace(A_LoopFileName, ".ahk", "")
     if (A_LoopFileName = "mass_gui.ahk" || A_LoopFileName = "mass_gui copy.ahk")
         continue
+    if hiddenScripts.Has(A_LoopFileName)
+        continue
     btn := g.Add("Button", "x" togX " y" (TOGG_Y0+34) " w70 h28", "◻ " sname)
     btn.OnEvent("Click", MakeScriptToggle(spath, btn))
     togCtrls.Push({c: btn, x: togX, oy: 34})
     togX += 80
 }
 
+
 lblCredit := g.Add("Text", "x10 y" (TOGG_Y0 + 38), "made by actually.silly")
 
 g.Show("w" INIT_W " h" INIT_H)
 g.OnEvent("Size", OnResize)
+
+; ─── Or-Or window (hidden until or-or mode is parsed) ─────────────────────────
+
+OOR_W     := 720
+OOR_LABEL_X := 12
+OOR_EDIT_X  := 82
+OOR_EDIT_W  := OOR_W - OOR_EDIT_X - 30
+
+gOrOr := Gui("+Resize +MinSize400x300", "Or-Or — Branch 2")
+gOrOr.SetFont("s9", "Segoe UI")
+oorTabs := gOrOr.Add("Tab3", "x10 y10 w" (OOR_W-20) " h560", ["M1", "M2", "M3"])
+
+Loop 3 {
+    mNo := A_Index
+    oorTabs.UseTab(mNo)
+    y := 40
+
+    ec := gOrOr.Add("Edit", "x" OOR_EDIT_X " y" y " w0 h0")
+    edCtrls["m" mNo "_orOr"] := ec
+
+    gOrOr.Add("Text", "x" OOR_LABEL_X " y" (y+4) " w65 Right", "B1 label:")
+    ec := gOrOr.Add("Edit", "x" OOR_EDIT_X " y" y " w130 h22 ReadOnly")
+    edCtrls["m" mNo "_b1_label"] := ec
+    gOrOr.Add("Text", "x" (OOR_EDIT_X+138) " y" (y+4), "B2 label:")
+    ec := gOrOr.Add("Edit", "x" (OOR_EDIT_X+200) " y" y " w130 h22 ReadOnly")
+    edCtrls["m" mNo "_b2_label"] := ec
+    y += 32
+
+    for _, fd in b2FieldDefs {
+        prop  := fd[1]
+        label := fd[2]
+        sep   := fd[3]
+        gOrOr.Add("Text", "x" OOR_LABEL_X " y" y " w65 Right", label ":")
+        if prop = "b2_ppv_base" {
+            ec := gOrOr.Add("Edit", "x" OOR_EDIT_X " y" (y-2) " w" OOR_EDIT_W " h103 Multi")
+            edCtrls["m" mNo "_" prop] := ec
+            y += 109
+        } else {
+            ec := gOrOr.Add("Edit", "x" OOR_EDIT_X " y" (y-2) " w" OOR_EDIT_W " h22")
+            edCtrls["m" mNo "_" prop] := ec
+            y += 27
+            if sep
+                y += 6
+        }
+    }
+}
+oorTabs.UseTab()
+
+gOrOr.Add("Button", "x10 y580 w120 h28", "Save to file").OnEvent("Click", (*) => ApplyFile(["1_mass.ahk","2_mass.ahk","3_mass.ahk"][oorTabs.Value]))
+gOrOr.Add("Button", "x140 y580 w80 h28", "Close").OnEvent("Click", (*) => gOrOr.Hide())
 
 lblCredit.GetPos(, , &lblCreditW)
 lblCredit.Move(INIT_W - lblCreditW - 10)
@@ -341,6 +439,11 @@ ParseCurrent(*) {
         if SubStr(k, 1, 3) = pfx
             c.Value := ""
     FillTab(StrSplit(raw, "`n"), mNo)
+    if chkArchive.Value && Trim(raw) != "" {
+        mName := mNo = 1 ? model1Name : mNo = 2 ? model2Name : model3Name
+        ts    := FormatTime(, "yyyy-MM-dd HH:mm:ss")
+        FileAppend "[" ts "] [" mName "]`n" raw "`n===END===`n`n", A_ScriptDir "\mass_archive.txt", "UTF-8"
+    }
 }
 
 ClearAll(*) {
@@ -348,6 +451,73 @@ ClearAll(*) {
     edPaste.Value := ""
     for _, c in edCtrls
         c.Value := ""
+}
+
+OpenArchive(*) {
+    global edPaste
+    archiveFile := A_ScriptDir "\mass_archive.txt"
+    if !FileExist(archiveFile) {
+        MsgBox "No archive file found."
+        return
+    }
+    raw     := FileRead(archiveFile, "UTF-8")
+    chunks  := StrSplit(raw, "===END===")
+    entries := []
+    for chunk in chunks {
+        chunk := Trim(chunk)
+        if chunk = ""
+            continue
+        lines := StrSplit(StrReplace(chunk, "`r`n", "`n"), "`n")
+        if lines.Length < 2
+            continue
+        header := Trim(lines[1])
+        if !RegExMatch(header, "^\[(.+?)\]\s+\[(.+?)\]$", &hm)
+            continue
+        content := ""
+        Loop lines.Length - 1
+            content .= lines[A_Index + 1] "`n"
+        content := Trim(content)
+        preview := ""
+        for ln in StrSplit(content, "`n") {
+            t := Trim(ln)
+            if t != "" {
+                preview := t
+                break
+            }
+        }
+        entries.Push({ts: hm[1], model: hm[2], content: content, preview: preview})
+    }
+    if !entries.Length {
+        MsgBox "Archive is empty."
+        return
+    }
+    ag := Gui("+Owner" g.Hwnd, "Mass Archive")
+    ag.BackColor := "1a1a1a"
+    ag.SetFont("s9 cWhite", "Segoe UI")
+    ag.MarginX := 10
+    ag.MarginY := 10
+    lv := ag.Add("ListView", "w660 h380 -Multi Background1a1a1a cWhite", ["Timestamp", "Model", "Preview"])
+    lv.ModifyCol(1, 160)
+    lv.ModifyCol(2, 80)
+    lv.ModifyCol(3, 400)
+    Loop entries.Length {
+        e := entries[entries.Length - A_Index + 1]
+        lv.Add("", e.ts, e.model, e.preview)
+    }
+    revEntries := []
+    Loop entries.Length
+        revEntries.Push(entries[entries.Length - A_Index + 1])
+    ag.Add("Button", "w100 y+8", "Load").OnEvent("Click", DoLoad)
+    ag.Add("Button", "w80 x+6",  "Close").OnEvent("Click", (*) => ag.Destroy())
+    ag.Show("w680")
+    lv.OnEvent("DoubleClick", DoLoad)
+    DoLoad(*) {
+        row := lv.GetNext(0)
+        if !row
+            return
+        edPaste.Value := revEntries[row].content
+        ag.Destroy()
+    }
 }
 
 ExportMMA(*) {
@@ -359,7 +529,7 @@ ExportMMA(*) {
 
     GetVal(prop) {
         ck := "m" mNo "_" prop
-        return edCtrls.Has(ck) ? Trim(UnescQ(edCtrls[ck].Value)) : ""
+        return edCtrls.Has(ck) ? Trim(edCtrls[ck].Value) : ""
     }
 
     v := GetVal("mass")
@@ -432,8 +602,119 @@ FPrefixToSlot(s) {
     return ""
 }
 
+ParseBranch(lines, mNo, pfx) {
+    global edCtrls
+    groups := [], cur := []
+    for _, rawLn in lines {
+        t := Trim(rawLn)
+        if t = "" {
+            if cur.Length {
+                groups.Push(cur)
+                cur := []
+            }
+        } else
+            cur.Push(t)
+    }
+    if cur.Length
+        groups.Push(cur)
+
+    fSlotGroups := [
+        [pfx "fu1",  pfx "fu1_5", pfx "fu1_7"],
+        [pfx "fu2",  pfx "fu2_5", pfx "fu2_7"],
+        [pfx "fu3",  pfx "fu3_5", pfx "fu3_7"],
+    ]
+    fIdx := 0, skipIdx := 0
+    for gi, grp in groups {
+        if gi = skipIdx
+            continue
+        firstLine := Trim(grp[1])
+        if RegExMatch(firstLine, "i)^ppv") {
+            ppvParts := []
+            if RegExMatch(firstLine, "i)^ppv\s+(.*)", &pm) && Trim(pm[1]) != ""
+                ppvParts.Push(Trim(pm[1]))
+            for i, l in grp
+                if i > 1
+                    ppvParts.Push(StripPrefix(Trim(l)))
+            ppvBase := ""
+            for _, part in ppvParts
+                ppvBase .= (ppvBase != "" ? "`r`n" : "") part
+            ck := "m" mNo "_" pfx "ppv_base"
+            if edCtrls.Has(ck)
+                edCtrls[ck].Value := ppvBase
+            if gi + 1 <= groups.Length {
+                skipIdx := gi + 1
+                fuGrp := groups[gi + 1]
+                for si, slot in [pfx "ppv_f1", pfx "ppv_f2", pfx "ppv_f3"] {
+                    if si > fuGrp.Length
+                        break
+                    ck := "m" mNo "_" slot
+                    if edCtrls.Has(ck)
+                        edCtrls[ck].Value := StripPrefix(Trim(fuGrp[si]))
+                }
+            }
+            continue
+        }
+        fIdx++
+        if fIdx > 3
+            continue
+        slots := fSlotGroups[fIdx]
+        for si, slot in slots {
+            if si > grp.Length
+                break
+            ck := "m" mNo "_" slot
+            if edCtrls.Has(ck)
+                edCtrls[ck].Value := StripPrefix(Trim(grp[si]))
+        }
+    }
+}
+
 FillTab(lines, mNo) {
     global
+    ; ── or-or mode detection ─────────────────────────────────────────────────────
+    firstContent := ""
+    for _, rawLn in lines {
+        t := Trim(rawLn)
+        if t != "" {
+            firstContent := t
+            break
+        }
+    }
+    if RegExMatch(firstContent, "i)^!?mm[a]?\s+(.+?)\s+or\s+(.+)$", &om) {
+        tagPositions := []
+        for i, rawLn in lines {
+            t := Trim(rawLn)
+            if RegExMatch(t, "i)^(\w+):$", &tm) && StrLower(tm[1]) != "ppv"
+                tagPositions.Push(i)
+        }
+        if tagPositions.Length >= 1 {
+            b1Label := Trim(om[1])
+            b2Label := Trim(om[2])
+            for prop, val in Map("orOr", "1", "b1_label", b1Label, "b2_label", b2Label, "mass", b1Label " or " b2Label) {
+                ck := "m" mNo "_" prop
+                if edCtrls.Has(ck)
+                    edCtrls[ck].Value := val
+            }
+            b1Lines := [], b2Lines := []
+            if tagPositions.Length >= 2 {
+                b1Start := tagPositions[1] + 1
+                b2Start := tagPositions[2] + 1
+                Loop tagPositions[2] - b1Start
+                    b1Lines.Push(lines[b1Start + A_Index - 1])
+                Loop lines.Length - b2Start + 1
+                    b2Lines.Push(lines[b2Start + A_Index - 1])
+            } else {
+                b1Start := tagPositions[1] + 1
+                Loop lines.Length - b1Start + 1
+                    b1Lines.Push(lines[b1Start + A_Index - 1])
+            }
+            ParseBranch(b1Lines, mNo, "")
+            ParseBranch(b2Lines, mNo, "b2_")
+            oorTabs.Value := mNo
+            gOrOr.Show("w" OOR_W " h620")
+            return
+        }
+    }
+
     ; ── keyword mode: any non-mass line starts with a known keyword ────────────
     hasKw := false
     for _, rawLn in lines {
@@ -451,7 +732,7 @@ FillTab(lines, mNo) {
                 continue
             if RegExMatch(t, "^(\S+)\s*(.*)", &m) {
                 kw  := StrLower(m[1])
-                val := EscQ(Trim(m[2]))
+                val := Trim(m[2])
                 if keyMap.Has(kw) {
                     ck := "m" mNo "_" keyMap[kw]
                     if edCtrls.Has(ck)
@@ -471,7 +752,7 @@ FillTab(lines, mNo) {
         if RegExMatch(t, "i)^!?mm[a]?[\s:]+\s*(.*)", &m) {
             ck := "m" mNo "_mass"
             if edCtrls.Has(ck)
-                edCtrls[ck].Value := EscQ(Trim(m[1]))
+                edCtrls[ck].Value := Trim(m[1])
             massFound := true
             break
         }
@@ -494,7 +775,7 @@ FillTab(lines, mNo) {
             if t != "" {
                 ck := "m" mNo "_mass"
                 if edCtrls.Has(ck)
-                    edCtrls[ck].Value := EscQ(t)
+                    edCtrls[ck].Value := t
                 filtered.RemoveAt(i)
                 if filtered.Length >= i && filtered[i] = ""
                     filtered.RemoveAt(i)
@@ -522,7 +803,7 @@ FillTab(lines, mNo) {
             if RegExMatch(t, "i)^ppv[:\s]+\s*(.*)", &pm) {
                 ck := "m" mNo "_ppv_base"
                 if edCtrls.Has(ck) && Trim(pm[1]) != ""
-                    edCtrls[ck].Value := EscQ(Trim(pm[1]))
+                    edCtrls[ck].Value := Trim(pm[1])
                 continue
             }
             slot := FPrefixToSlot(t)
@@ -530,7 +811,7 @@ FillTab(lines, mNo) {
                 continue
             ck := "m" mNo "_" slot
             if edCtrls.Has(ck)
-                edCtrls[ck].Value := EscQ(StripPrefix(t))
+                edCtrls[ck].Value := StripPrefix(t)
         }
         return
     }
@@ -565,10 +846,10 @@ FillTab(lines, mNo) {
         if RegExMatch(firstLine, "i)^ppv") {
             ppvParts := []
             if RegExMatch(firstLine, "i)^ppv\s+(.*)", &pm) && Trim(pm[1]) != ""
-                ppvParts.Push(EscQ(Trim(pm[1])))
+                ppvParts.Push(Trim(pm[1]))
             for i, l in grp
                 if i > 1
-                    ppvParts.Push(EscQ(StripPrefix(Trim(l))))
+                    ppvParts.Push(StripPrefix(Trim(l)))
             ppvBase := ""
             for _, part in ppvParts
                 ppvBase .= (ppvBase != "" ? "`r`n" : "") part
@@ -584,7 +865,7 @@ FillTab(lines, mNo) {
                         break
                     ck := "m" mNo "_" slot
                     if edCtrls.Has(ck)
-                        edCtrls[ck].Value := EscQ(StripPrefix(Trim(fuGrp[si])))
+                        edCtrls[ck].Value := StripPrefix(Trim(fuGrp[si]))
                 }
             }
             continue
@@ -600,7 +881,7 @@ FillTab(lines, mNo) {
                 break
             ck := "m" mNo "_" slot
             if edCtrls.Has(ck)
-                edCtrls[ck].Value := EscQ(StripPrefix(Trim(grp[si])))
+                edCtrls[ck].Value := StripPrefix(Trim(grp[si]))
         }
     }
 }
@@ -616,7 +897,11 @@ LoadFile(fname) {
     }
     content := FileRead(path, "UTF-8")
     props   := ["mass","fu1","fu1_5","fu1_7","fu2","fu2_5","fu2_7",
-                "fu3","fu3_5","fu3_7","ppv_base","ppv_f1","ppv_f2","ppv_f3"]
+                "fu3","fu3_5","fu3_7","ppv_base","ppv_f1","ppv_f2","ppv_f3",
+                "orOr","b1_label","b2_label",
+                "b2_fu1","b2_fu1_5","b2_fu1_7","b2_fu2","b2_fu2_5","b2_fu2_7",
+                "b2_fu3","b2_fu3_5","b2_fu3_7","b2_ppv_base",
+                "b2_ppv_f1","b2_ppv_f2","b2_ppv_f3"]
     Loop 3 {
         mNo := A_Index
         if !RegExMatch(content, "m" mNo " := \{([^}]*)\}", &blk)
@@ -626,9 +911,9 @@ LoadFile(fname) {
             ck := "m" mNo "_" prop
             if RegExMatch(blockText, prop ": " Chr(34) "((?:[^" Chr(34) Chr(96) "]|" Chr(96) ".)*)" Chr(34), &mv) && edCtrls.Has(ck) {
                 v := mv[1]
-                if (prop = "ppv_base")
+                if (prop = "ppv_base" || prop = "b2_ppv_base")
                     v := StrReplace(v, "``n", "`r`n")
-                edCtrls[ck].Value := v
+                edCtrls[ck].Value := UnescQ(v)
             }
         }
     }
@@ -727,13 +1012,18 @@ BuildMassTemplate(fname) {
 BuildBlock(mNo) {
     global
     props  := ["mass","fu1","fu1_5","fu1_7","fu2","fu2_5","fu2_7",
-               "fu3","fu3_5","fu3_7","ppv_base","ppv_f1","ppv_f2","ppv_f3"]
-    breaks := Map("fu1_7", 1, "fu2_7", 1, "fu3_7", 1)
+               "fu3","fu3_5","fu3_7","ppv_base","ppv_f1","ppv_f2","ppv_f3",
+               "orOr","b1_label","b2_label",
+               "b2_fu1","b2_fu1_5","b2_fu1_7","b2_fu2","b2_fu2_5","b2_fu2_7",
+               "b2_fu3","b2_fu3_5","b2_fu3_7","b2_ppv_base",
+               "b2_ppv_f1","b2_ppv_f2","b2_ppv_f3"]
+    breaks := Map("fu1_7", 1, "fu2_7", 1, "fu3_7", 1, "ppv_f3", 1, "b2_fu1_7", 1, "b2_fu2_7", 1, "b2_fu3_7", 1)
     out    := "m" mNo " := {`n"
     Loop props.Length {
         p     := props[A_Index]
         val   := edCtrls.Has("m" mNo "_" p) ? edCtrls["m" mNo "_" p].Value : ""
-        if (p = "ppv_base")
+        val   := EscQ(val)
+        if (p = "ppv_base" || p = "b2_ppv_base")
             val := StrReplace(StrReplace(val, "`r`n", "``n"), "`n", "``n")
         comma := A_Index < props.Length ? "," : ""
         out   .= p ': "' val '"' comma "`n"
@@ -903,6 +1193,35 @@ OpenSettings(*) {
     }
 
     sg.Add("Text",   "x10  y" (y+8)  " w580 h2 0x10")
+    y += 22
+    sg.Add("Text",   "x10  y" (y+8)  " w200", "── Open new tab after send ──")
+    chkTabFu2 := sg.Add("Checkbox", "x10  y" (y+28), "FU2")
+    chkTabFu3 := sg.Add("Checkbox", "x70  y" (y+28), "FU3")
+    chkTabPpv := sg.Add("Checkbox", "x130 y" (y+28), "PPV")
+    chkTabFu2.Value := openTabFu2
+    chkTabFu3.Value := openTabFu3
+    chkTabPpv.Value := openTabPpv
+    chkDMM    := sg.Add("Checkbox", "x230 y" (y+28), "Double MM")
+    chkDMM.Value := _doubleMM
+    chkDMM.OnEvent("Click", (*) => (ToggleDoubleMM(), chkDMM.Value := _doubleMM))
+    chkWallet := sg.Add("Checkbox", "x330 y" (y+28), "Wallet check FU3")
+    chkWallet.Value := walletCheckFu3
+    chkWallet.OnEvent("Click", (*) => _BroadcastWallet(chkWallet.Value ? 1 : 0))
+    y += 58
+    sg.Add("Text",   "x10  y" (y+8)  " w580 h2 0x10")
+    y += 22
+    sg.Add("Text",   "x10  y" (y+8)  " w200", "── Visible scripts ──")
+    accChks := Map()
+    xSc := 10
+    Loop Files, ACC_DIR "\*.ahk" {
+        fname := A_LoopFileName
+        chk := sg.Add("Checkbox", "x" xSc " y" (y+28), StrReplace(fname, ".ahk", ""))
+        chk.Value := !hiddenScripts.Has(fname)
+        accChks[fname] := chk
+        xSc += 80
+    }
+    y += 52
+    sg.Add("Text",   "x10  y" (y+8)  " w580 h2 0x10")
     sg.Add("Button", "x10  y" (y+18) " w85 h28",  "Save").OnEvent("Click", SaveCfg)
     sg.Add("Button", "x105 y" (y+18) " w85 h28",  "Reset").OnEvent("Click", ResetCfg)
     sg.Add("Button", "x200 y" (y+18) " w90 h28",  "Wipe Temp").OnEvent("Click", (*) => (WipeTemp(), sg.Destroy()))
@@ -961,7 +1280,24 @@ OpenSettings(*) {
         newMC := chkMC.Value ? 1 : 0
         mcChanged := (newMC != mouseControl)
         mouseControl := newMC
-        IniWrite(mouseControl, CFG_FILE, "Settings", "MouseControl")
+        IniWrite(mouseControl,         CFG_FILE, "Settings", "MouseControl")
+        openTabFu2 := chkTabFu2.Value ? 1 : 0
+        openTabFu3 := chkTabFu3.Value ? 1 : 0
+        openTabPpv := chkTabPpv.Value ? 1 : 0
+        IniWrite(openTabFu2, CFG_FILE, "Settings", "OpenTabFu2")
+        IniWrite(openTabFu3, CFG_FILE, "Settings", "OpenTabFu3")
+        IniWrite(openTabPpv, CFG_FILE, "Settings", "OpenTabPpv")
+        walletCheckFu3 := chkWallet.Value ? 1 : 0
+        IniWrite(walletCheckFu3, CFG_FILE, "Settings", "WalletCheckFu3")
+        _hiddenList := ""
+        for fname, chk in accChks
+            if !chk.Value
+                _hiddenList .= (_hiddenList != "" ? "," : "") fname
+        hiddenScripts := Map()
+        for _h in StrSplit(_hiddenList, ",")
+            if Trim(_h) != ""
+                hiddenScripts[Trim(_h)] := true
+        IniWrite(_hiddenList, CFG_FILE, "Settings", "HiddenScripts")
 
         c1 := UpdateMassFileHotkeys("1_mass.ahk", [hk1_f1, hk1_f2, hk1_f3, hk1_ppv, hk1_ppvfu]) || mcChanged
         c2 := UpdateMassFileHotkeys("2_mass.ahk", [hk2_f1, hk2_f2, hk2_f3, hk2_ppv, hk2_ppvfu])
@@ -1096,11 +1432,18 @@ OpenAddHotkey(prefill := "", *) {
             ddl.Value := i
             break
         }
-    rdSnd  := ah.Add("Radio", "x555 y44 Group Checked", "snd()")
-    rdSend := ah.Add("Radio", "x625 y44",               "SendText()")
-    ah.Add("Text",        "x730 y45 w55 Right",   "HS type:")
-    rdHSStd  := ah.Add("Radio", "x790 y44 Group",         "::")
-    rdHSWild := ah.Add("Radio", "x835 y44 Checked",       ":*:")
+    rdSnd   := ah.Add("Radio", "x555 y44 Group Checked", "snd()")
+    rdSend  := ah.Add("Radio", "x625 y44",               "SendText()")
+    rdSendt := ah.Add("Radio", "x715 y44",               "Sendt()")
+    ah.Add("Text",  "x800 y47 w25 Right", "ms:")
+    edSendtMs := ah.Add("Edit", "x828 y44 w55 h20 Number")
+    edSendtMs.Enabled := false
+    rdSendt.OnEvent("Click", (*) => edSendtMs.Enabled := true)
+    rdSnd.OnEvent("Click",   (*) => edSendtMs.Enabled := false)
+    rdSend.OnEvent("Click",  (*) => edSendtMs.Enabled := false)
+    ah.Add("Text",        "x900 y45 w55 Right",   "HS type:")
+    rdHSStd  := ah.Add("Radio", "x960 y44 Group",         "::")
+    rdHSWild := ah.Add("Radio", "x1005 y44 Checked",      ":*:")
     ah.Add("Text",        "x10  y75 w55 Right",   "Lines:")
     edLines := ah.Add("Edit",        "x70  y72 w" (W-80) " h120 Multi")
     if prefill != ""
@@ -1126,7 +1469,11 @@ OpenAddHotkey(prefill := "", *) {
         block := "`n" trigger "`n{`n"
         for _, ln in StrSplit(raw, "`n") {
             t := Trim(ln)
-            if t != ""
+            if t = ""
+                continue
+            if rdSendt.Value
+                block .= '    Sendt("' t '", ' (Trim(edSendtMs.Value) != "" ? Integer(edSendtMs.Value) : 500) ')`n'
+            else
                 block .= "    " fn '("' t '")`n'
         }
         block .= "}`n"
@@ -1196,6 +1543,24 @@ MakeFuToggle(m, f) => (*) => ToggleFuCell(m, f)
 ToggleFuCell(m, f) {
     global fuChks, CFG_FILE
     IniWrite(fuChks[m][f].Value ? "1" : "0", CFG_FILE, "Settings", "FuSingle_" m "_" f)
+}
+
+MakeEditFuToggle(f) => (*) => ToggleEditFuCell(f)
+
+ToggleEditFuCell(f) {
+    global editFuChks, CFG_FILE
+    val := editFuChks[f].Value ? 1 : 0
+    IniWrite(val, CFG_FILE, "Settings", "EditableFu" f)
+    _BroadcastEditableFu(f, val)
+}
+
+_BroadcastEditableFu(f, val) {
+    global SCRIPT_DIR, modelCount
+    Loop modelCount {
+        path := SCRIPT_DIR "\" A_Index "_mass.ahk"
+        if WinExist(path " ahk_class AutoHotkey")
+            PostMessage(0x8002 + f, val, 0, , path " ahk_class AutoHotkey")
+    }
 }
 
 WipeTemp(*) {
@@ -1289,3 +1654,34 @@ ArrJoin(arr, sep) {
     A_Clipboard := saved
     OpenAddHotkey(grabbed)
 }
+
+; ─── Mouse control ────────────────────────────────────────────────────────────
+
+_doubleMM := false
+
+ToggleDoubleMM() {
+    global SCRIPT_DIR, modelCount, _doubleMM
+    _doubleMM := !_doubleMM
+    Loop modelCount {
+        path := SCRIPT_DIR "\" A_Index "_mass.ahk"
+        if WinExist(path " ahk_class AutoHotkey")
+            PostMessage(0x8001, 0, 0, , path " ahk_class AutoHotkey")
+    }
+    ToolTip("Double MM: " (_doubleMM ? "ON" : "OFF"))
+    SetTimer(() => ToolTip(), -1500)
+}
+
+_BroadcastWallet(val) {
+    global SCRIPT_DIR, modelCount, walletCheckFu3
+    walletCheckFu3 := val
+    Loop modelCount {
+        path := SCRIPT_DIR "\" A_Index "_mass.ahk"
+        if WinExist(path " ahk_class AutoHotkey")
+            PostMessage(0x8002, val, 0, , path " ahk_class AutoHotkey")
+    }
+}
+
+#HotIf mouseControl
+MButton:: ToggleDoubleMM()
+#HotIf
+

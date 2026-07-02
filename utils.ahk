@@ -3,6 +3,13 @@
 
 SetKeyDelay(-1, -1)
 
+Bind(key, fn) {
+    if Trim(key) != ""
+        Hotkey key, fn
+}
+
+Key(name, default) => IniRead(A_ScriptDir "\mass_gui.cfg", "NavHotkeys", name, default)
+
 ; config
 WaitTime     := 400
 WaitTimeLong := 1500
@@ -12,7 +19,7 @@ modelFileNo  := 0
 Afk := false
 ClearInterval := 1000*30 ; 60s
 
-
+global topChat := 300
 ; # Win
 ; ^ CTRL
 ; ! ALT
@@ -131,9 +138,42 @@ CheckAFK() {
     }
 }
 
+; Finds the nth occurrence of a color in a screen area.
+; Returns [x, y] or false if fewer than n matches found.
+; groupSkip: pixels to advance after each match — set > icon width to treat each icon as one hit
+FindNthColor(n, color, x1, y1, x2, y2, variation := 10, groupSkip := 1) {
+    CoordMode "Pixel", "Screen"
+    sx := x1, sy := y1
+    loop n {
+        if !PixelSearch(&px, &py, sx, sy, x2, y2, color, variation)
+            return false
+        sx := px + groupSkip
+        sy := py
+        if sx > x2 {
+            sx := x1
+            sy := py + 1
+            if sy > y2
+                return false
+        }
+    }
+    return [px, py]
+}
+
 clickOn(coord){
     MouseMove coord[1], coord[2]
     Click
+}
+
+_lastTyped := ""
+
+RecoverLastMsg() {
+    global _lastTyped
+    if _lastTyped = ""
+        return
+    focusTextbox()
+    Sleep 80
+    A_Clipboard := _lastTyped
+    Send "^v"
 }
 
 focusTextbox(){
@@ -148,10 +188,9 @@ focusTop(){
 
 _savedChatX := 220
 _savedChatY := 315
-topChat := [165, 320]
 
 focusAuto(){
-    global _savedChatX, _savedChatY
+    global _savedChatX, _savedChatY, topChat
     MouseGetPos &mx, &my
     if (mx < 400) {
         _savedChatX := mx
@@ -159,6 +198,8 @@ focusAuto(){
         focusTextbox()
     } else {
         clickOn(topChat)
+        if (_savedChatY > 900)
+            Send "{WheelDown 4}"
     }
 }
 

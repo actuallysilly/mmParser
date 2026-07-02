@@ -1,78 +1,77 @@
 #Requires AutoHotkey v2.0
 
 ; ============================================================
-;  CAPITALIZATION ONLY — spelling fixes handled by espanso
-;  Enter  → capitalize sentences in current text field
+;  SENTENCE CAPITALIZATION
+;  Capitalizes the first letter after:
+;    - Enter  (new line)
+;    - .  !  ?  followed by Space
+;  Non-destructive: never selects or replaces existing text.
+;  5-second timeout resets the flag if no letter is typed.
 ; ============================================================
 
-; Shift+Enter = normal Enter (no capitalization)
-+Enter:: Send("{Enter}")
+capitalizeNext := false
 
-; Ctrl+Enter = normal Enter (no capitalization)
+; Shift+Enter / Ctrl+Enter pass through normally
++Enter:: Send("{Enter}")
 ^Enter:: Send("{Enter}")
 
-; Normal Enter = fix capitalization + send Enter
-Enter:: CapitalizeOnEnter(true)
-
-; Win+Enter = fix capitalization but don't send Enter (useful for review)
-#Enter:: CapitalizeOnEnter(false)
-
-CapitalizeOnEnter(sendEnter) {
-    saved := ClipboardAll()
-    A_Clipboard := ""
-
-    ; Select all text in current field
-    Send("^a")
-    Sleep(50)
-    Send("^c")
-
-    if !ClipWait(1) {
-        A_Clipboard := saved
-        if sendEnter
-            Send("{Enter}")
-        return
-    }
-
-    text := A_Clipboard
-
-    if (text = "") {
-        A_Clipboard := saved
-        if sendEnter
-            Send("{Enter}")
-        return
-    }
-
-    text := CapitalizeSentences(text)
-
-    A_Clipboard := text
-    ClipWait(0.5)
-    Send("^a")
-    Sleep(50)
-    Send("^v")
-    Sleep(100)
-
-    A_Clipboard := saved
-    if sendEnter
-        Send("{Enter}")
+; Normal Enter → send Enter, then queue capitalize
+Enter:: {
+    global capitalizeNext
+    Send("{Enter}")
+    capitalizeNext := true
+    SetTimer(ResetCapNext, -5000)
 }
 
-CapitalizeSentences(text) {
-    ; Fix standalone lowercase "i" → "I"
-    text := RegExReplace(text, "(?<![a-zA-Z])i(?![a-zA-Z])", "I")
+; Detect ". " "! " "? " sequences — B0 = no backspace/replacement
+:B0:. ::SetCapNext()
+:B0:! ::SetCapNext()
+:B0:? ::SetCapNext()
 
-    ; Capitalize first letter of the entire text (start of document/field)
-    text := RegExReplace(text, "^([a-z])", "$U1")
+SetCapNext() {
+    global capitalizeNext
+    capitalizeNext := true
+    SetTimer(ResetCapNext, -5000)
+}
 
-    ; Capitalize after newline (every new line starts uppercase)
-    text := RegExReplace(text, "`n([a-z])", "`n$U1")
-    text := RegExReplace(text, "`r`n([a-z])", "`r`n$U1")
+ResetCapNext() {
+    global capitalizeNext
+    capitalizeNext := false
+}
 
-    ; Capitalize after sentence-ending punctuation + whitespace
-    ; Handles: .  ..  ...  !  ?  followed by space(s) then lowercase
-    text := RegExReplace(text, "([.!?])\s+([a-z])", "$1 $U2")
+; When capitalizeNext is active, uppercase the next letter typed
+#HotIf capitalizeNext
+Space:: Send(" ")   ; allow leading spaces, keep waiting
+a:: Cap("A")
+b:: Cap("B")
+c:: Cap("C")
+d:: Cap("D")
+e:: Cap("E")
+f:: Cap("F")
+g:: Cap("G")
+h:: Cap("H")
+i:: Cap("I")
+j:: Cap("J")
+k:: Cap("K")
+l:: Cap("L")
+m:: Cap("M")
+n:: Cap("N")
+o:: Cap("O")
+p:: Cap("P")
+q:: Cap("Q")
+r:: Cap("R")
+s:: Cap("S")
+t:: Cap("T")
+u:: Cap("U")
+v:: Cap("V")
+w:: Cap("W")
+x:: Cap("X")
+y:: Cap("Y")
+z:: Cap("Z")
+#HotIf
 
-    ; Also handle multiple periods (ellipsis) followed by space + lowercase
-    text := RegExReplace(text, "([.]{2,})\s+([a-z])", "$1 $U2")
-
-    return text
+Cap(letter) {
+    global capitalizeNext
+    capitalizeNext := false
+    Send(letter)
 }

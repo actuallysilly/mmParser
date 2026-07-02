@@ -225,3 +225,8 @@
     snd("and send me a ss")
     snd("and i will make smthn special for u, deal?")
 }
+
+:*:___blueball::
+{
+    snd("Oh thats quite unfortunate, do you mind telling me when your payday is, so that I dont bother you before youre able to play? I feel a little bad about blue balling...")
+}

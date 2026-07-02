@@ -219,3 +219,34 @@
 {
     snd("Are you ready to experience all of my magic tricks... And watch me slowly get fully naked and bewitch you beyond repair?")
 }
+
+:*:__later::
+{
+    snd("Do you think we will be able to finish this adventure later this month x?")
+}
+
+:*:___fu::
+{
+    snd("Can you imagine how nice it would be if your tongue was circling my areolae")
+    snd("You'd feel me getting perkier and perkier for you.. You'd be the hardest you've ever been")
+    snd("And my eyes would beg you to take my bra off x")
+}
+
+:*:..bump2::
+{
+    snd("I reckon your pace needs to perfectly match mine, if you're up for my game.")
+    snd("But for that, your bulge needs to be out and in your hands.")
+    snd("Think you can match my pace till we reach pleasure together? <3")
+}
+
+:*:..bump4::
+{
+    snd("Now tell me... Are you against hopping into the bath with me?")
+    snd("The bubbles are not very talkative..")
+}
+
+:*:..ppv4f2::
+{
+    snd("I feel quite slutty for sending you this but... You deserve it")
+    snd("Now... Do I deserve to be endlessly wet for you in this scorching heat?")
+}
