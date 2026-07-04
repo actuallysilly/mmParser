@@ -76,6 +76,7 @@ openTabFu2        := Integer(IniRead(CFG_FILE, "Settings", "OpenTabFu2",        
 openTabFu3        := Integer(IniRead(CFG_FILE, "Settings", "OpenTabFu3",        "0"))
 openTabPpv        := Integer(IniRead(CFG_FILE, "Settings", "OpenTabPpv",        "0"))
 walletCheckFu3    := Integer(IniRead(CFG_FILE, "Settings", "WalletCheckFu3",    "0"))
+fastParseAutosave := Integer(IniRead(CFG_FILE, "Settings", "FastParseAutosave", "0"))
 _hiddenRaw        := IniRead(CFG_FILE, "Settings", "HiddenScripts", "")
 hiddenScripts     := Map()
 for _h in StrSplit(_hiddenRaw, ",")
@@ -429,6 +430,46 @@ OnWMSize(wParam, lParam, *) {
 OnMessage(0x0005, OnWMSize)
 
 ; ─── Parse ────────────────────────────────────────────────────────────────────
+
+AutoParseFromClipboard(wParam, lParam, msg, hwnd) {
+    global
+    edPaste.Value := A_Clipboard
+    if fastParseAutosave {
+        ParseCurrent()
+        ApplyFile(_mFiles[tabs.Value], true)
+    } else {
+        PromptSaveTarget()
+    }
+}
+OnMessage(0x8010, AutoParseFromClipboard) ; 0x8010: paste clipboard into edPaste + parse (from copyDiscordMessageSeq)
+
+PromptSaveTarget() {
+    global _mNames, _mFiles, tabs, modelCount, g
+    names := []
+    Loop modelCount
+        names.Push(_mNames[A_Index])
+
+    pg := Gui("+Owner" g.Hwnd, "Save parsed message")
+    pg.SetFont("s9", "Segoe UI")
+    pg.Add("Text", "x10 y14 w45", "Model:")
+    ddlModel := pg.Add("DropDownList", "x60 y11 w150", names)
+    ddlModel.Value := 1
+    pg.Add("Text", "x10 y46 w45", "Mass #:")
+    rd1 := pg.Add("Radio", "x60 y44 Group", "1")
+    rd2 := pg.Add("Radio", "x105 y44", "2")
+    rd3 := pg.Add("Radio", "x150 y44", "3")
+    rd1.Value := true
+    pg.Add("Button", "x10  y78 w95 h26 Default", "Parse + Save").OnEvent("Click", DoSave)
+    pg.Add("Button", "x115 y78 w95 h26", "Cancel").OnEvent("Click", (*) => pg.Destroy())
+    pg.Show("w230 h116")
+
+    DoSave(*) {
+        tabs.Value := rd1.Value ? 1 : rd2.Value ? 2 : 3
+        ParseCurrent()
+        ApplyFile(_mFiles[ddlModel.Value], true)
+        pg.Destroy()
+    }
+}
 
 ParseCurrent(*) {
     global
@@ -923,7 +964,7 @@ LoadFile(fname) {
 
 ; ─── Apply to file ────────────────────────────────────────────────────────────
 
-ApplyFile(fname) {
+ApplyFile(fname, silent := false) {
     global
     path := SCRIPT_DIR "\" fname
     allEmpty := true
@@ -933,14 +974,18 @@ ApplyFile(fname) {
             break
         }
     }
-    if allEmpty && MsgBox("All fields are empty. Save anyway?", "Confirm Save", 0x24) != "Yes"
-        return
+    if allEmpty {
+        if silent
+            return
+        if MsgBox("All fields are empty. Save anyway?", "Confirm Save", 0x24) != "Yes"
+            return
+    }
     content := FileExist(path) ? FileRead(path, "UTF-8") : BuildMassTemplate(fname)
     Loop 3 {
         mNo  := A_Index
         repl := BuildBlock(mNo)
         content := RegExReplace(content, "m" mNo " := \{[^}]*\}", repl, &n)
-        if !n
+        if !n && !silent
             MsgBox "Warning: m" mNo " block not found in " fname,, 0x30
     }
     try {
@@ -948,9 +993,12 @@ ApplyFile(fname) {
         f.Write(content)
         f.Close()
     } catch as e {
-        MsgBox "Write error: " e.Message,, 0x10
+        if !silent
+            MsgBox "Write error: " e.Message,, 0x10
         return
     }
+    if silent
+        return
     if MsgBox("Saved to " fname ".`nReload script now?", "Done", 0x24) = "Yes"
         Run path
 }
@@ -1207,7 +1255,9 @@ OpenSettings(*) {
     chkWallet := sg.Add("Checkbox", "x330 y" (y+28), "Wallet check FU3")
     chkWallet.Value := walletCheckFu3
     chkWallet.OnEvent("Click", (*) => _BroadcastWallet(chkWallet.Value ? 1 : 0))
-    y += 58
+    chkFastSave := sg.Add("Checkbox", "x10 y" (y+52), "Fast parse+autosave (auto-saves current model, no prompts)")
+    chkFastSave.Value := fastParseAutosave
+    y += 80
     sg.Add("Text",   "x10  y" (y+8)  " w580 h2 0x10")
     y += 22
     sg.Add("Text",   "x10  y" (y+8)  " w200", "── Visible scripts ──")
@@ -1234,7 +1284,7 @@ OpenSettings(*) {
         global hk1_f1, hk1_f2, hk1_f3, hk1_ppv, hk1_ppvfu
         global hk2_f1, hk2_f2, hk2_f3, hk2_ppv, hk2_ppvfu
         global hk3_f1, hk3_f2, hk3_f3, hk3_ppv, hk3_ppvfu
-        global defaultHotkeyFile, mouseControl
+        global defaultHotkeyFile, mouseControl, fastParseAutosave
 
         newCount          := rdMC1.Value ? 1 : rdMC2.Value ? 2 : 3
         model1Name        := ed1.Value
@@ -1289,6 +1339,8 @@ OpenSettings(*) {
         IniWrite(openTabPpv, CFG_FILE, "Settings", "OpenTabPpv")
         walletCheckFu3 := chkWallet.Value ? 1 : 0
         IniWrite(walletCheckFu3, CFG_FILE, "Settings", "WalletCheckFu3")
+        fastParseAutosave := chkFastSave.Value ? 1 : 0
+        IniWrite(fastParseAutosave, CFG_FILE, "Settings", "FastParseAutosave")
         _hiddenList := ""
         for fname, chk in accChks
             if !chk.Value

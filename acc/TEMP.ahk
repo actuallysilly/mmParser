@@ -75,3 +75,13 @@
     Sendt("You're going to slowly kiss down from my neck, and then bite that bra off me", 1000)
     Sendt("And reveal my vulnerable side right?", 1000)
 }
+
+:*:titty111::
+{
+    snd("Are you going to slide your hands behind my back and unclasp my bra then? They really want to be freed")
+}
+
+:*:titty222::
+{
+    snd("And once my tits were free and vulnerable for you, how would you deal with the responsibility of making my nipples hard?")
+}

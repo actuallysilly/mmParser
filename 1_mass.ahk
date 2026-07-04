@@ -61,21 +61,21 @@ SndFuEditable(parts*) {
 }
 
 m1 := {
-mass: "What's your favourite animal?",
-fu1: "My favourite animals are ducks, dolphins and the beast I'm going to awaken within you once I show you all of my body ❤️",
+mass: "What else should be free on Independence Day?",
+fu1: "In my humble opinion, it should definitely be my panties, and surely you agree right?",
 fu1_5: "",
 fu1_7: "",
 
-fu2: "How would you feel if I were to shove my magnificent fae titties into your face, feral style of course and say `"You need to suck on them for the ritual to work`"?",
-fu2_5: "Also I forgot to note, your trousers need to be off too, for the ritual..",
+fu2: "I really want them off.. They need to disappear forever, my pussy really hates being caged up",
+fu2_5: "So will you be like a bald eagle and swiftly snatch them off me?",
 fu2_7: "",
 
-fu3: "",
-fu3_5: "",
+fu3: "And then I'm going to be all exposed and vulnerable...",
+fu3_5: "Can I really trust you with my naked body tonight, or can I expect a tea party too?",
 fu3_7: "",
 
 ppv_base: "",
-ppv_f1: "But... Do you think depositing large amounts of saliva onto my bare skin while holding me tight will get something else wet?",
+ppv_f1: "",
 ppv_f2: "",
 ppv_f3: "",
 
