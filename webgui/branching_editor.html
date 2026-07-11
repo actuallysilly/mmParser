@@ -1,0 +1,1021 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>MMA — Branching Flow Editor</title>
+<style>
+  :root {
+    --bg: #1a1a1a;
+    --panel: #232323;
+    --border: rgba(255,255,255,.12);
+    --text: #eee;
+    --accent: #7aa2f7;
+    --accent2: #f7a27a;
+  }
+  * { box-sizing: border-box; }
+  html, body { height: 100%; margin: 0; background: var(--bg); color: var(--text); font-family: "Segoe UI", sans-serif; overflow: hidden; }
+
+  #toolbar {
+    height: 46px; display: flex; align-items: center; gap: 8px; padding: 0 10px;
+    background: #151515; border-bottom: 1px solid var(--border); flex-wrap: nowrap;
+  }
+  #toolbar button, #toolbar select {
+    background: #2b2b2b; color: var(--text); border: 1px solid var(--border);
+    border-radius: 5px; padding: 6px 10px; font-size: 12.5px; cursor: pointer;
+  }
+  #toolbar button:hover { background: #383838; }
+  #toolbar .sep { width: 1px; height: 24px; background: var(--border); margin: 0 4px; }
+  #toolbar .title { font-weight: 600; margin-right: 8px; font-size: 13px; opacity: .85; white-space: nowrap; }
+  #toolbar .spacer { flex: 1; }
+
+  #canvasWrap { position: absolute; top: 46px; left: 0; right: 380px; bottom: 0; overflow: auto; }
+
+  #sidePanel {
+    position: absolute; top: 46px; right: 0; bottom: 0; width: 380px;
+    background: #1e1e1e; border-left: 1px solid var(--border);
+    display: flex; flex-direction: column; padding: 10px; gap: 6px;
+  }
+  #sidePanel h3 { margin: 0 0 2px; font-size: 13px; }
+  #sidePanelHint { font-size: 11px; opacity: .7; line-height: 1.4; }
+  #sideWarnings { font-size: 11.5px; color: #ffb454; white-space: pre-wrap; max-height: 90px; overflow: auto; }
+  #sideText {
+    flex: 1; width: 100%; background: #111; color: #dfe; border: 1px solid var(--border);
+    border-radius: 5px; padding: 8px; font-family: Consolas, monospace; font-size: 12px;
+    white-space: pre; resize: none;
+  }
+  #sideBtns { display: flex; gap: 8px; }
+  #sideBtns button {
+    flex: 1; background: #2b2b2b; color: var(--text); border: 1px solid var(--border);
+    border-radius: 5px; padding: 7px 8px; font-size: 12.5px; cursor: pointer;
+  }
+  #sideBtns button:hover { background: #383838; }
+  #sideBtns button.primary { background: #2a4d7a; }
+  #sideBtns button.primary:hover { background: #34608f; }
+  #canvas {
+    position: relative; width: 6000px; height: 4000px;
+    background-image: radial-gradient(circle, rgba(255,255,255,.06) 1px, transparent 1px);
+    background-size: 24px 24px;
+  }
+  svg#edgeLayer { position: absolute; top: 0; left: 0; width: 100%; height: 100%; overflow: visible; }
+  .edge-hit { stroke: transparent; stroke-width: 14; fill: none; cursor: pointer; }
+  .edge-line { stroke: var(--accent); stroke-width: 2; fill: none; pointer-events: none; }
+  .edge-line.selected { stroke: var(--accent2); stroke-width: 3; }
+  .edge-line.warn { stroke: #e05d5d; }
+  .edge-label-input {
+    width: 130px; font-size: 11px; background: #111; color: var(--text);
+    border: 1px solid var(--border); border-radius: 4px; padding: 2px 4px; text-align: center;
+  }
+  .edge-del {
+    fill: #3a1d1d; stroke: #a55; stroke-width: 1; cursor: pointer;
+  }
+  .edge-del-x { fill: #e88; font-size: 11px; pointer-events: none; user-select: none; }
+  .edge-fork {
+    fill: #1d2f3a; stroke: #5a8aa5; stroke-width: 1; cursor: pointer;
+  }
+  .edge-fork-plus { fill: #8fd0e8; font-size: 12px; pointer-events: none; user-select: none; }
+
+  .node {
+    position: absolute; width: 240px; border-radius: 8px; border: 1px solid var(--border);
+    background: #26364d; box-shadow: 0 2px 6px rgba(0,0,0,.4); padding: 8px; cursor: move;
+  }
+  .node.stage-0 { background: #2d4a3a; border-color: rgba(120,220,160,.35); }
+  .node.stage-1 { background: #26364d; }
+  .node.stage-2 { background: #3a2d4d; }
+  .node.stage-3 { background: #2d4a4a; }
+  .node.stage-4 { background: #4a3f1f; }
+  .node.stage-5 { background: #4a331f; }
+  .node.stage-6 { background: #4a2c1f; }
+  .node.stage-7 { background: #4a251f; }
+  .node.selected   { outline: 2px solid var(--accent2); }
+  .node-header { display: flex; align-items: center; gap: 4px; margin-bottom: 6px; cursor: default; }
+  .node-root-badge {
+    flex: 1; font-weight: 700; font-size: 12.5px; letter-spacing: .03em; opacity: .9; padding: 2px 4px;
+  }
+  .node-stage {
+    font-size: 11px; padding: 2px 3px;
+  }
+  .node-tag {
+    flex: 1; min-width: 0; background: rgba(255,255,255,.06); border: 1px solid transparent; color: var(--text);
+    font-size: 12px; padding: 3px 5px; border-radius: 3px;
+  }
+  .node-tag::placeholder { color: rgba(255,255,255,.35); }
+  .node-tag:focus { background: rgba(255,255,255,.1); border-color: var(--border); outline: none; }
+  .node-del {
+    background: transparent; border: none; color: #e88; font-size: 15px; cursor: pointer; line-height: 1; padding: 2px 5px;
+  }
+  .node-del:hover { color: #f55; }
+  .node-text {
+    width: 100%; min-height: 56px; resize: vertical; background: rgba(0,0,0,.28);
+    color: var(--text); border: 1px solid var(--border); border-radius: 4px; padding: 5px;
+    font-size: 12.5px; font-family: inherit;
+  }
+  .handle-out {
+    position: absolute; bottom: -8px; left: 50%; transform: translateX(-50%);
+    width: 15px; height: 15px; border-radius: 50%; background: var(--accent);
+    border: 2px solid #111; cursor: crosshair; z-index: 5;
+  }
+  .handle-out:hover { background: var(--accent2); }
+
+  #legend { font-size: 11px; opacity: .75; display: flex; align-items: center; gap: 10px; white-space: nowrap; }
+  #legend span.dot { display:inline-block; width:9px; height:9px; border-radius:50%; margin-right:4px; vertical-align:middle; }
+
+  #helpBox {
+    position: absolute; z-index: 10; top: 56px; right: 12px; width: 320px; background: #202020;
+    border: 1px solid var(--border); border-radius: 8px; padding: 10px 12px; font-size: 12px; line-height: 1.5;
+    box-shadow: 0 4px 14px rgba(0,0,0,.5);
+  }
+  #helpBox h4 { margin: 0 0 6px; font-size: 13px; }
+  #helpBox button { float: right; background: transparent; border: none; color: #aaa; cursor: pointer; font-size: 13px; }
+</style>
+</head>
+<body>
+
+<div id="toolbar">
+  <div class="title">MMA Branching Editor</div>
+  <button id="btnAddNode">+ Add node</button>
+  <button id="btnAutoLayout">Auto layout</button>
+  <div class="sep"></div>
+  <button id="btnSaveJson">Save .json</button>
+  <button id="btnLoadJson">Load .json</button>
+  <div class="sep"></div>
+  <button id="btnClear">Clear all</button>
+  <div class="spacer"></div>
+  <div id="legend">
+    <span><span class="dot" style="background:#2d4a3a"></span>root (!mma)</span>
+    <span><span class="dot" style="background:#26364d"></span>fu1</span>
+    <span><span class="dot" style="background:#3a2d4d"></span>fu2</span>
+    <span><span class="dot" style="background:#2d4a4a"></span>fu3</span>
+    <span><span class="dot" style="background:#4a3f1f"></span>ppv</span>
+    <span title="ppvfu1 / ppvfu2 / ppvfu3 — sent after the ppv"><span class="dot" style="background:#4a2c1f"></span>ppv-fu</span>
+  </div>
+  <button id="btnHelp">?</button>
+</div>
+
+<div id="canvasWrap">
+  <div id="canvas">
+    <svg id="edgeLayer"></svg>
+  </div>
+</div>
+
+<div id="sidePanel">
+  <h3>Text ⇄ Graph</h3>
+  <div id="sidePanelHint">
+    This mirrors the graph as text. Edit or paste over it — either the
+    <code>[id]</code> / <code>-></code> format, or a plain flat paste
+    (<code>!mma ...</code> then blank-line-separated follow-ups) — and hit
+    Apply to rebuild the graph.
+  </div>
+  <div id="sideWarnings"></div>
+  <textarea id="sideText" spellcheck="false"></textarea>
+  <div id="sideBtns">
+    <button id="btnApplyText" class="primary">Apply ▸ graph</button>
+    <button id="btnCopyText">Copy</button>
+  </div>
+</div>
+
+<div id="helpBox" style="display:none">
+  <button id="btnHelpClose">×</button>
+  <h4>How this works</h4>
+  There is always exactly <b>one root node</b> — the <code>!mma</code> opener. You can't delete it or change its stage.<br><br>
+  Every other node sits at a fixed <b>stage</b>: <code>fu1 → fu2 → fu3 → ppv → ppvfu1 → ppvfu2 → ppvfu3</code>, picked from the dropdown in its header. <code>ppvfu1-3</code> are follow-ups sent <i>after</i> the ppv unlocks. Every stage past root is optional — a flow can skip straight from root to ppv with no fu's, and can end at ppv with no ppvfu's. An edge should always point to a <i>later</i> stage than where it started (shown in red if it doesn't).<br><br>
+  Give a node a <b>branch tag</b> (the text box next to the stage dropdown) when it's an alternate version of that stage — e.g. two <code>fu1</code> nodes, one tagged <code>blue</code> and one tagged <code>yellow</code>, both fed by edges out of root labeled with the client's reply.<br><br>
+  Multiple edges out of one node = a <b>fork</b>. Multiple edges into one node = a <b>merge</b> — alternate branches rejoining a shared continuation. A branch can be as short as a single node before merging back.<br><br>
+  Hover an edge to see a <b>+</b> button — click it to fork right there: it asks for a branch label and adds a new alternate node at the same next stage, wired from the same source.<br><br>
+  <b>Auto layout</b> arranges nodes in columns by stage, git-graph style, with each branch kept in its own lane.<br><br>
+  When pasting a plain flat message (no <code>[id]</code>/<code>-></code> markup), two markers help the parser: a line starting with <code>--</code> is a comment noting the client's expected reply (stripped, never sent); a lone <code>---</code> line folds that paragraph into the previous one instead of starting a new stage — e.g. to keep a multi-paragraph ppv as one send instead of spinning off extra <code>ppvfu</code> stages.<br><br>
+  The panel on the right mirrors the graph as text — edit it directly or paste a whole new flow in, then hit <b>Apply</b>. Turning that text into hotkeys is a separate step.
+</div>
+
+<input type="file" id="fileInput" accept="application/json" style="display:none">
+
+<script>
+(function(){
+"use strict";
+
+// ─── Stage model ────────────────────────────────────────────────────────────
+// 0 = root (!mma, singleton, fixed id "root"), 1..3 = fu1/fu2/fu3, 4 = ppv,
+// 5..7 = ppvfu1/ppvfu2/ppvfu3 (follow-ups sent *after* the ppv unlocks —
+// matches ppv_f1/ppv_f2/ppv_f3 in 1_mass.ahk). Every stage past root is
+// optional — a flow can skip straight from root to ppv with none of fu1-3,
+// and can end at ppv with none of ppvfu1-3.
+const STAGE_NAMES = ["root", "fu1", "fu2", "fu3", "ppv", "ppvfu1", "ppvfu2", "ppvfu3"];
+const MAX_STAGE = STAGE_NAMES.length - 1;
+
+// ─── State ──────────────────────────────────────────────────────────────────
+let graph = { nodes: {}, edges: [] };
+let counter = 0;
+let selected = null; // {type:'node'|'edge', id}
+let connecting = null; // {fromId, tempLine}
+let dragging = null; // {id, offX, offY}
+
+const STORAGE_KEY = "mma_branch_graph_v2";
+
+const canvas = document.getElementById("canvas");
+const canvasWrap = document.getElementById("canvasWrap");
+const svg = document.getElementById("edgeLayer");
+
+function newId(prefix){ counter++; return prefix + counter; }
+
+// ─── Persistence ────────────────────────────────────────────────────────────
+let saveTimer = null;
+function scheduleSave(){
+  clearTimeout(saveTimer);
+  saveTimer = setTimeout(() => {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify({ meta: { counter }, nodes: graph.nodes, edges: graph.edges }));
+    refreshSideText();
+  }, 250);
+}
+
+function loadFromStorage(){
+  const raw = localStorage.getItem(STORAGE_KEY);
+  if (!raw) return false;
+  try {
+    const data = JSON.parse(raw);
+    graph.nodes = data.nodes || {};
+    graph.edges = data.edges || [];
+    counter = (data.meta && data.meta.counter) || 0;
+    return !!graph.nodes.root;
+  } catch(e) { return false; }
+}
+
+function seedDefault(){
+  createRoot(60, 60, "Hey! saw you liked my last post 😏");
+  const fu1 = addNode(60, 260, 1, "", "You still around? 👀");
+  addEdge("root", fu1.id, "");
+}
+
+// ─── Graph mutation ─────────────────────────────────────────────────────────
+function createRoot(x, y, text){
+  const n = { id: "root", x, y, stage: 0, branchTag: "", text: text || "" };
+  graph.nodes.root = n;
+  renderNode(n);
+  scheduleSave();
+  return n;
+}
+
+function addNode(x, y, stage, branchTag, text){
+  const id = newId("n");
+  graph.nodes[id] = { id, x, y, stage: stage || 1, branchTag: branchTag || "", text: text || "" };
+  renderNode(graph.nodes[id]);
+  scheduleSave();
+  return graph.nodes[id];
+}
+
+function deleteNode(id){
+  if (id === "root" || !graph.nodes[id]) return;
+  graph.edges = graph.edges.filter(e => e.from !== id && e.to !== id);
+  delete graph.nodes[id];
+  const el = canvas.querySelector(`.node[data-id="${id}"]`);
+  if (el) el.remove();
+  if (selected && selected.type === "node" && selected.id === id) selected = null;
+  renderEdges();
+  scheduleSave();
+}
+
+function addEdge(fromId, toId, label){
+  if (fromId === toId) return null;
+  if (graph.edges.some(e => e.from === fromId && e.to === toId)) return null;
+  const id = newId("e");
+  const edge = { id, from: fromId, to: toId, label: label || "" };
+  graph.edges.push(edge);
+  renderEdges();
+  scheduleSave();
+  return edge;
+}
+
+function deleteEdge(id){
+  graph.edges = graph.edges.filter(e => e.id !== id);
+  if (selected && selected.type === "edge" && selected.id === id) selected = null;
+  renderEdges();
+  scheduleSave();
+}
+
+// ─── Rendering: nodes ───────────────────────────────────────────────────────
+function renderAll(){
+  canvas.querySelectorAll(".node").forEach(n => n.remove());
+  for (const n of Object.values(graph.nodes)) renderNode(n);
+  renderEdges();
+}
+
+function renderNode(n){
+  let el = canvas.querySelector(`.node[data-id="${n.id}"]`);
+  if (!el) {
+    el = document.createElement("div");
+    el.className = "node";
+    el.dataset.id = n.id;
+    if (n.stage === 0) {
+      el.innerHTML = `
+        <div class="node-header">
+          <span class="node-root-badge">!mma · ROOT</span>
+        </div>
+        <textarea class="node-text" spellcheck="false" placeholder="opening message..."></textarea>
+        <div class="handle-out" title="Drag to connect"></div>
+      `;
+    } else {
+      el.innerHTML = `
+        <div class="node-header">
+          <select class="node-stage">
+            <option value="1">fu1</option>
+            <option value="2">fu2</option>
+            <option value="3">fu3</option>
+            <option value="4">ppv</option>
+            <option value="5">ppvfu1</option>
+            <option value="6">ppvfu2</option>
+            <option value="7">ppvfu3</option>
+          </select>
+          <input class="node-tag" placeholder="branch tag (optional)">
+          <button class="node-del" title="Delete node">×</button>
+        </div>
+        <textarea class="node-text" spellcheck="false" placeholder="message text..."></textarea>
+        <div class="handle-out" title="Drag to connect"></div>
+      `;
+    }
+    canvas.appendChild(el);
+
+    const textArea = el.querySelector(".node-text");
+    const handle = el.querySelector(".handle-out");
+    textArea.addEventListener("input", () => { n.text = textArea.value; renderEdges(); scheduleSave(); });
+    textArea.addEventListener("mousedown", e => e.stopPropagation());
+    handle.addEventListener("mousedown", e => { e.stopPropagation(); startConnect(n.id, e); });
+
+    if (n.stage !== 0) {
+      const stageSel = el.querySelector(".node-stage");
+      const tagInput = el.querySelector(".node-tag");
+      const delBtn = el.querySelector(".node-del");
+      stageSel.addEventListener("mousedown", e => e.stopPropagation());
+      stageSel.addEventListener("change", () => {
+        n.stage = parseInt(stageSel.value, 10);
+        el.className = "node stage-" + n.stage + (selected && selected.type==="node" && selected.id===n.id ? " selected" : "");
+        renderEdges();
+        scheduleSave();
+      });
+      tagInput.addEventListener("mousedown", e => e.stopPropagation());
+      tagInput.addEventListener("input", () => { n.branchTag = tagInput.value; scheduleSave(); });
+      delBtn.addEventListener("mousedown", e => e.stopPropagation());
+      delBtn.addEventListener("click", () => {
+        if (confirm("Delete this node and its connections?")) deleteNode(n.id);
+      });
+    }
+
+    el.addEventListener("mousedown", e => {
+      if (["INPUT","SELECT","TEXTAREA","BUTTON"].includes(e.target.tagName)) return;
+      selectNode(n.id);
+      startDrag(n.id, e);
+    });
+  }
+  el.style.left = n.x + "px";
+  el.style.top = n.y + "px";
+  el.className = "node stage-" + n.stage + (selected && selected.type==="node" && selected.id===n.id ? " selected" : "");
+  const textArea = el.querySelector(".node-text");
+  if (document.activeElement !== textArea) textArea.value = n.text;
+  if (n.stage !== 0) {
+    const stageSel = el.querySelector(".node-stage");
+    const tagInput = el.querySelector(".node-tag");
+    stageSel.value = String(n.stage);
+    if (document.activeElement !== tagInput) tagInput.value = n.branchTag;
+  }
+}
+
+function selectNode(id){
+  selected = { type: "node", id };
+  renderAll();
+}
+
+// ─── Dragging nodes ─────────────────────────────────────────────────────────
+function startDrag(id, evt){
+  const n = graph.nodes[id];
+  const wrapRect = canvasWrap.getBoundingClientRect();
+  dragging = {
+    id,
+    offX: evt.clientX + canvasWrap.scrollLeft - wrapRect.left - n.x,
+    offY: evt.clientY + canvasWrap.scrollTop - wrapRect.top - n.y,
+  };
+  document.addEventListener("mousemove", onDragMove);
+  document.addEventListener("mouseup", onDragEnd);
+}
+function onDragMove(evt){
+  if (!dragging) return;
+  const wrapRect = canvasWrap.getBoundingClientRect();
+  const n = graph.nodes[dragging.id];
+  n.x = Math.max(0, evt.clientX + canvasWrap.scrollLeft - wrapRect.left - dragging.offX);
+  n.y = Math.max(0, evt.clientY + canvasWrap.scrollTop - wrapRect.top - dragging.offY);
+  renderNode(n);
+  renderEdges();
+}
+function onDragEnd(){
+  dragging = null;
+  document.removeEventListener("mousemove", onDragMove);
+  document.removeEventListener("mouseup", onDragEnd);
+  scheduleSave();
+}
+
+// ─── Connecting nodes ───────────────────────────────────────────────────────
+function startConnect(fromId, evt){
+  const line = document.createElementNS("http://www.w3.org/2000/svg", "line");
+  line.setAttribute("class", "edge-line");
+  line.setAttribute("stroke-dasharray", "5,4");
+  svg.appendChild(line);
+  connecting = { fromId, line };
+  document.addEventListener("mousemove", onConnectMove);
+  document.addEventListener("mouseup", onConnectEnd);
+}
+// Bottom-center of a node — where outgoing connections originate (top-down flow).
+function anchorPoint(nodeEl){
+  return {
+    x: nodeEl.offsetLeft + nodeEl.offsetWidth / 2,
+    y: nodeEl.offsetTop + nodeEl.offsetHeight,
+  };
+}
+// Top-center of a node — where incoming connections land.
+function targetAnchorPoint(nodeEl){
+  return {
+    x: nodeEl.offsetLeft + nodeEl.offsetWidth / 2,
+    y: nodeEl.offsetTop,
+  };
+}
+function onConnectMove(evt){
+  if (!connecting) return;
+  const fromEl = canvas.querySelector(`.node[data-id="${connecting.fromId}"]`);
+  const a = anchorPoint(fromEl);
+  const wrapRect = canvasWrap.getBoundingClientRect();
+  const x = evt.clientX + canvasWrap.scrollLeft - wrapRect.left;
+  const y = evt.clientY + canvasWrap.scrollTop - wrapRect.top;
+  connecting.line.setAttribute("x1", a.x);
+  connecting.line.setAttribute("y1", a.y);
+  connecting.line.setAttribute("x2", x);
+  connecting.line.setAttribute("y2", y);
+}
+function onConnectEnd(evt){
+  if (!connecting) return;
+  connecting.line.remove();
+  const target = document.elementFromPoint(evt.clientX, evt.clientY);
+  const targetNodeEl = target && target.closest(".node");
+  if (targetNodeEl && targetNodeEl.dataset.id !== connecting.fromId) {
+    addEdge(connecting.fromId, targetNodeEl.dataset.id, "");
+  }
+  connecting = null;
+  document.removeEventListener("mousemove", onConnectMove);
+  document.removeEventListener("mouseup", onConnectEnd);
+}
+
+// ─── Rendering: edges ───────────────────────────────────────────────────────
+function forkFromEdge(edge){
+  const label = prompt('Label for the new branch (e.g. "yellow", "asks price"):', "");
+  if (label === null) return;
+  const tgt = graph.nodes[edge.to];
+  if (!tgt) return;
+  const newNode = addNode(tgt.x + 260, tgt.y, tgt.stage, label, "");
+  addEdge(edge.from, newNode.id, label);
+  selectNode(newNode.id);
+}
+
+function renderEdges(){
+  svg.querySelectorAll(".edge-hit,.edge-line:not([stroke-dasharray]),.edge-del,.edge-del-x,.edge-fork,.edge-fork-plus,foreignObject").forEach(el => el.remove());
+  for (const edge of graph.edges) {
+    const fromEl = canvas.querySelector(`.node[data-id="${edge.from}"]`);
+    const toEl = canvas.querySelector(`.node[data-id="${edge.to}"]`);
+    if (!fromEl || !toEl) continue;
+    const fromNode = graph.nodes[edge.from];
+    const toNode = graph.nodes[edge.to];
+    const backward = toNode.stage <= fromNode.stage;
+    const a = anchorPoint(fromEl);
+    const b = targetAnchorPoint(toEl);
+    const midX = (a.x + b.x) / 2, midY = (a.y + b.y) / 2;
+    const c1y = a.y + Math.max(40, (b.y - a.y) / 2);
+    const c2y = b.y - Math.max(40, (b.y - a.y) / 2);
+    const d = `M ${a.x} ${a.y} C ${a.x} ${c1y}, ${b.x} ${c2y}, ${b.x} ${b.y}`;
+
+    const hit = document.createElementNS("http://www.w3.org/2000/svg", "path");
+    hit.setAttribute("class", "edge-hit");
+    hit.setAttribute("d", d);
+    hit.addEventListener("mousedown", e => { e.stopPropagation(); selected = { type: "edge", id: edge.id }; renderEdges(); });
+    svg.appendChild(hit);
+
+    const line = document.createElementNS("http://www.w3.org/2000/svg", "path");
+    line.setAttribute("class", "edge-line"
+      + (selected && selected.type === "edge" && selected.id === edge.id ? " selected" : "")
+      + (backward ? " warn" : ""));
+    line.setAttribute("d", d);
+    line.setAttribute("marker-end", "url(#arrowhead)");
+    if (backward) line.setAttribute("marker-end", "url(#arrowhead-warn)");
+    svg.appendChild(line);
+
+    const fo = document.createElementNS("http://www.w3.org/2000/svg", "foreignObject");
+    fo.setAttribute("x", midX - 65);
+    fo.setAttribute("y", midY - 10);
+    fo.setAttribute("width", 130);
+    fo.setAttribute("height", 22);
+    const input = document.createElement("input");
+    input.className = "edge-label-input";
+    input.placeholder = "(default)";
+    input.value = edge.label;
+    input.title = backward ? "Warning: target stage is not after the source stage." : "";
+    input.addEventListener("mousedown", e => e.stopPropagation());
+    input.addEventListener("input", () => { edge.label = input.value; scheduleSave(); });
+    fo.appendChild(input);
+    svg.appendChild(fo);
+
+    // fork button — add an alternate branch starting from this edge's source
+    const forkCircle = document.createElementNS("http://www.w3.org/2000/svg", "circle");
+    forkCircle.setAttribute("class", "edge-fork");
+    forkCircle.setAttribute("cx", midX - 88);
+    forkCircle.setAttribute("cy", midY + 1);
+    forkCircle.setAttribute("r", 8);
+    forkCircle.style.cursor = "pointer";
+    forkCircle.addEventListener("mousedown", e => { e.stopPropagation(); forkFromEdge(edge); });
+    svg.appendChild(forkCircle);
+    const forkPlus = document.createElementNS("http://www.w3.org/2000/svg", "text");
+    forkPlus.setAttribute("class", "edge-fork-plus");
+    forkPlus.setAttribute("x", midX - 92);
+    forkPlus.setAttribute("y", midY + 4);
+    forkPlus.textContent = "+";
+    svg.appendChild(forkPlus);
+
+    const delCircle = document.createElementNS("http://www.w3.org/2000/svg", "circle");
+    delCircle.setAttribute("class", "edge-del");
+    delCircle.setAttribute("cx", midX + 88);
+    delCircle.setAttribute("cy", midY + 1);
+    delCircle.setAttribute("r", 8);
+    delCircle.style.cursor = "pointer";
+    delCircle.addEventListener("mousedown", e => { e.stopPropagation(); deleteEdge(edge.id); });
+    svg.appendChild(delCircle);
+    const delX = document.createElementNS("http://www.w3.org/2000/svg", "text");
+    delX.setAttribute("class", "edge-del-x");
+    delX.setAttribute("x", midX + 84);
+    delX.setAttribute("y", midY + 4);
+    delX.textContent = "×";
+    svg.appendChild(delX);
+  }
+}
+
+// arrowhead marker defs (created once)
+(function initDefs(){
+  const defs = document.createElementNS("http://www.w3.org/2000/svg", "defs");
+  defs.innerHTML = `
+    <marker id="arrowhead" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto">
+      <path d="M0,0 L8,4 L0,8 Z" fill="#7aa2f7"></path>
+    </marker>
+    <marker id="arrowhead-warn" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto">
+      <path d="M0,0 L8,4 L0,8 Z" fill="#e05d5d"></path>
+    </marker>`;
+  svg.appendChild(defs);
+})();
+
+// canvas background click clears selection
+canvas.addEventListener("mousedown", e => {
+  if (e.target === canvas) { selected = null; renderAll(); }
+});
+
+// keyboard delete
+document.addEventListener("keydown", e => {
+  if (["INPUT","TEXTAREA","SELECT"].includes(document.activeElement.tagName)) return;
+  if ((e.key === "Delete" || e.key === "Backspace") && selected) {
+    if (selected.type === "node") { if (confirm("Delete this node and its connections?")) deleteNode(selected.id); }
+    else deleteEdge(selected.id);
+  }
+});
+
+// ─── Auto layout (stage columns × branch lanes, git-graph style) ───────────
+function computeLanes(){
+  const laneOf = {};
+  let maxLane = 0;
+  if (!graph.nodes.root) return laneOf;
+  laneOf.root = 0;
+
+  const byStage = {};
+  for (const n of Object.values(graph.nodes)) (byStage[n.stage] = byStage[n.stage] || []).push(n.id);
+
+  for (let s = 0; s <= MAX_STAGE; s++) {
+    const ids = (byStage[s] || []).filter(id => laneOf[id] !== undefined)
+      .sort((a, b) => laneOf[a] - laneOf[b]);
+    for (const id of ids) {
+      const outs = graph.edges.filter(e => e.from === id && graph.nodes[e.to] && graph.nodes[e.to].stage > s);
+      outs.forEach((e, idx) => {
+        if (laneOf[e.to] === undefined) {
+          laneOf[e.to] = idx === 0 ? laneOf[id] : ++maxLane;
+        } else {
+          laneOf[e.to] = Math.min(laneOf[e.to], laneOf[id]);
+        }
+      });
+    }
+  }
+  // orphans / anything not reached from root, appended below existing lanes
+  for (let s = 0; s <= MAX_STAGE; s++) {
+    for (const id of (byStage[s] || [])) {
+      if (laneOf[id] === undefined) laneOf[id] = ++maxLane;
+    }
+  }
+  return laneOf;
+}
+
+function autoLayout(){
+  const laneOf = computeLanes();
+  const colWidth = 300, rowHeight = 190, marginX = 60, marginY = 60;
+  for (const n of Object.values(graph.nodes)) {
+    n.x = marginX + n.stage * colWidth;
+    n.y = marginY + (laneOf[n.id] || 0) * rowHeight;
+  }
+  renderAll();
+  scheduleSave();
+}
+
+// ─── Export ─────────────────────────────────────────────────────────────────
+function slugTag(tag){
+  let s = (tag || "").toString().trim().toLowerCase().replace(/[^a-z0-9]+/g, "_").replace(/^_+|_+$/g, "");
+  return s;
+}
+
+function exportId(n, used){
+  const base = STAGE_NAMES[n.stage];
+  const tag = slugTag(n.branchTag);
+  let id = tag ? base + "_" + tag : base;
+  let out = id, i = 2;
+  while (used.has(out)) { out = id + "_" + i; i++; }
+  used.add(out);
+  return out;
+}
+
+function buildExport(){
+  const warnings = [];
+  const root = graph.nodes.root;
+  const others = Object.values(graph.nodes).filter(n => n.stage !== 0);
+
+  const used = new Set(["start"]);
+  const idMap = {};
+  for (const n of others) idMap[n.id] = exportId(n, used);
+
+  for (const e of graph.edges) {
+    const f = graph.nodes[e.from], t = graph.nodes[e.to];
+    if (f && t && t.stage <= f.stage) {
+      warnings.push(`Edge "${STAGE_NAMES[f.stage]}${f.branchTag ? " ("+f.branchTag+")" : ""}" → "${STAGE_NAMES[t.stage]}${t.branchTag ? " ("+t.branchTag+")" : ""}" doesn't move forward a stage.`);
+    }
+  }
+
+  let reachable = new Set();
+  if (root) {
+    const queue = ["root"];
+    reachable.add("root");
+    while (queue.length) {
+      const id = queue.shift();
+      for (const e of graph.edges) if (e.from === id && !reachable.has(e.to)) { reachable.add(e.to); queue.push(e.to); }
+    }
+  }
+  const orphanNames = others.filter(n => !reachable.has(n.id)).map(n => idMap[n.id]);
+  if (orphanNames.length) warnings.push("Not reachable from root (still exported, at the end): " + orphanNames.join(", "));
+
+  if (root && !root.text.trim()) warnings.push("Root (!mma) has no message text.");
+  for (const n of others) if (!n.text.trim()) warnings.push(`Node "${idMap[n.id]}" has no message text.`);
+
+  const order = [];
+  if (root) {
+    order.push("root");
+    const seen = new Set(["root"]);
+    const queue = ["root"];
+    while (queue.length) {
+      const id = queue.shift();
+      const outs = graph.edges.filter(e => e.from === id);
+      for (const e of outs) if (!seen.has(e.to)) { seen.add(e.to); order.push(e.to); queue.push(e.to); }
+    }
+    for (const n of others) if (!seen.has(n.id)) order.push(n.id);
+  } else {
+    for (const n of others) order.push(n.id);
+  }
+
+  const blocks = [];
+  for (const id of order) {
+    const n = graph.nodes[id];
+    const edgesOut = graph.edges.filter(e => e.from === id);
+    let block = "";
+    if (id === "root") {
+      const lines = (n.text || "").split(/\r?\n/);
+      block += "!mma " + (lines[0] || "") + "\n";
+      for (let i = 1; i < lines.length; i++) block += lines[i] + "\n";
+    } else {
+      block += "[" + idMap[id] + "]\n";
+      block += (n.text || "") + "\n";
+    }
+    for (const e of edgesOut) {
+      const targetId = e.to === "root" ? "start" : idMap[e.to];
+      block += "-> " + targetId + (e.label ? " : " + e.label : "") + "\n";
+    }
+    blocks.push(block.trimEnd());
+  }
+  return { text: blocks.join("\n\n"), warnings };
+}
+
+// ─── Import ─────────────────────────────────────────────────────────────────
+// Longer/more specific prefixes must be checked before shorter ones (e.g.
+// "ppvfu1" before bare "ppv"), or the bare pattern would match first and the
+// rest would get swallowed into the branch tag instead of the stage.
+const STAGE_ID_PATTERNS = [
+  [1, /^fu?1/i],
+  [2, /^fu?2/i],
+  [3, /^fu?3/i],
+  [5, /^ppv[_]?f?u?1/i],
+  [6, /^ppv[_]?f?u?2/i],
+  [7, /^ppv[_]?f?u?3/i],
+  [4, /^ppv/i],
+];
+function stageAndTagFromId(id){
+  for (const [stage, re] of STAGE_ID_PATTERNS) {
+    const m = id.match(re);
+    if (m) return { stage, tag: id.slice(m[0].length).replace(/^[_\s]+/, "") };
+  }
+  return { stage: null, tag: id };
+}
+
+function resolveUnknownStages(newGraph){
+  if (!newGraph.nodes.root) return;
+  const queue = ["root"];
+  const seen = new Set(["root"]);
+  while (queue.length) {
+    const id = queue.shift();
+    const s = newGraph.nodes[id].stage;
+    for (const e of newGraph.edges) {
+      if (e.from === id) {
+        const t = newGraph.nodes[e.to];
+        if (t && t.stage == null) t.stage = Math.min(MAX_STAGE, s + 1);
+        if (t && !seen.has(e.to)) { seen.add(e.to); queue.push(e.to); }
+      }
+    }
+  }
+  for (const n of Object.values(newGraph.nodes)) if (n.stage == null) n.stage = 1;
+}
+
+function parseImportText(text){
+  const lines = text.replace(/\r\n/g, "\n").split("\n");
+  const rawBlocks = [];
+  let cur = null;
+  for (let raw of lines) {
+    const line = raw;
+    const trimmed = line.trim();
+    if (trimmed === "") {
+      if (cur) cur.textLines.push("");
+      continue;
+    }
+    // "--" (but not "---") is a comment noting the client's expected
+    // response — dropped entirely, never sent. A lone "---" is the
+    // flat-paste multiline-continuation marker; meaningless here since a
+    // block's text already runs on until the next header/edge, so just
+    // drop the marker line itself.
+    if (trimmed === "---") continue;
+    if (trimmed.startsWith("--")) continue;
+    const bracket = trimmed.match(/^\[(.+)\]$/);
+    const mmaMatch = trimmed.match(/^!mma[ \t]?(.*)$/i);
+    const edgeMatch = trimmed.match(/^->\s*(\S+)\s*(?::\s*(.*))?$/);
+    if (mmaMatch) {
+      cur = { id: "root", textLines: [mmaMatch[1] || ""], edges: [] };
+      rawBlocks.push(cur);
+    } else if (bracket) {
+      cur = { id: bracket[1].trim(), textLines: [], edges: [] };
+      rawBlocks.push(cur);
+    } else if (edgeMatch && cur) {
+      cur.edges.push({ to: edgeMatch[1].trim(), label: (edgeMatch[2] || "").trim() });
+    } else if (cur) {
+      cur.textLines.push(line);
+    }
+  }
+  if (!rawBlocks.length) throw new Error("No recognizable blocks found (expected '!mma ...' and '[id]' sections).");
+
+  const newGraph = { nodes: {}, edges: [] };
+  const idToInternal = {};
+  let localCounter = 0;
+  for (const b of rawBlocks) {
+    const internalId = b.id === "root" ? "root" : "n" + (++localCounter);
+    idToInternal[b.id] = internalId;
+    if (b.id === "root") {
+      newGraph.nodes.root = { id: "root", x: 0, y: 0, stage: 0, branchTag: "", text: b.textLines.join("\n").trim() };
+    } else {
+      const { stage, tag } = stageAndTagFromId(b.id);
+      newGraph.nodes[internalId] = {
+        id: internalId, x: 0, y: 0,
+        stage, branchTag: tag,
+        text: b.textLines.join("\n").trim(),
+      };
+    }
+  }
+  if (!newGraph.nodes.root) newGraph.nodes.root = { id: "root", x: 0, y: 0, stage: 0, branchTag: "", text: "" };
+  let edgeCounter2 = 0;
+  for (const b of rawBlocks) {
+    for (const e of b.edges) {
+      const fromInternal = idToInternal[b.id];
+      const toId = e.to === "start" ? "root" : e.to;
+      const toInternal = idToInternal[toId];
+      if (!fromInternal || !toInternal) continue;
+      edgeCounter2++;
+      newGraph.edges.push({ id: "e" + edgeCounter2, from: fromInternal, to: toInternal, label: e.label || "" });
+    }
+  }
+  resolveUnknownStages(newGraph);
+  return newGraph;
+}
+
+// Plain flat/positional paste: "!mma opener" then blank-line-separated
+// paragraphs, no [id]/-> markup at all — the classic Discord-copy format.
+// Maps onto the fixed root -> fu1 -> fu2 -> fu3 -> ppv -> ppvfu1 -> ppvfu2
+// -> ppvfu3 spine. Every stage past root is optional:
+//   - whichever paragraph is the first to start with "ppv" is the ppv node;
+//     if none do, the last paragraph is treated as ppv (old behavior).
+//   - up to 3 paragraphs before it become fu1/fu2/fu3 (fewer is fine —
+//     "text / text / ppv" is 2 fu's and a ppv, not padded out to 3).
+//   - up to 3 paragraphs after it become ppvfu1/ppvfu2/ppvfu3 (the ppv_f1-3
+//     "after the unlock" follow-ups from 1_mass.ahk); none is fine too.
+//   - overflow beyond 3 on either side folds into the last fu/ppvfu instead
+//     of being dropped.
+// Two inline markers (global to both this and the graph-format parser):
+//   "--"  (not "---") at the start of a line = a comment noting the client's
+//         expected reply — stripped, never sent.
+//   "---" alone on its own line folds that paragraph into the previous one
+//         instead of starting a new stage — e.g. keeps a multi-paragraph ppv
+//         as one send instead of spawning extra ppvfu stages.
+function parseLegacyFlat(text){
+  const rawLines = text.replace(/\r\n/g, "\n").split("\n");
+  const lines = rawLines.filter(l => {
+    const t = l.trim();
+    if (t.startsWith("---")) return true;
+    if (t.startsWith("--")) return false;
+    return true;
+  });
+
+  let i = 0;
+  while (i < lines.length && lines[i].trim() === "") i++;
+  if (i >= lines.length) throw new Error("Empty input.");
+
+  const openerMatch = lines[i].match(/^!?mm[a]?[\s:]+(.*)$/i);
+  const openerText = openerMatch ? openerMatch[1].trim() : lines[i].trim();
+  i++;
+
+  let groups = [];
+  let cur = [];
+  for (; i < lines.length; i++) {
+    if (lines[i].trim() === "") {
+      if (cur.length) { groups.push(cur); cur = []; }
+    } else {
+      cur.push(lines[i]);
+    }
+  }
+  if (cur.length) groups.push(cur);
+  if (!groups.length) throw new Error("No follow-up paragraphs found after the opener.");
+
+  const folded = [];
+  for (const grp of groups) {
+    if (grp.length && grp[0].trim() === "---") {
+      const rest = grp.slice(1);
+      if (folded.length) folded[folded.length - 1] = folded[folded.length - 1].concat([""], rest);
+      else folded.push(rest);
+    } else {
+      folded.push(grp);
+    }
+  }
+  // Strip any leftover "---" lines (e.g. one written without a blank line
+  // before it, so it never triggered the fold above) so the marker never
+  // leaks into sent message text.
+  groups = folded.map(g => g.filter(l => l.trim() !== "---")).filter(g => g.length);
+  if (!groups.length) throw new Error("No follow-up paragraphs found after the opener.");
+
+  let ppvIndex = groups.findIndex(g => /^ppv\b/i.test(g.join("\n").trim()));
+  if (ppvIndex === -1) ppvIndex = groups.length - 1;
+
+  const newGraph = { nodes: {}, edges: [] };
+  newGraph.nodes.root = { id: "root", x: 0, y: 0, stage: 0, branchTag: "", text: openerText };
+  let localCounter = 0, edgeCounter = 0, prevId = "root";
+
+  function chainStage(groupSlice, baseStage, cap){
+    const count = Math.min(cap, groupSlice.length);
+    for (let idx = 0; idx < count; idx++) {
+      const isLast = idx === count - 1;
+      const parts = isLast ? groupSlice.slice(idx) : [groupSlice[idx]];
+      const bodyText = parts.map(g => g.join("\n").trim()).join("\n\n");
+      const id = "n" + (++localCounter);
+      newGraph.nodes[id] = { id, x: 0, y: 0, stage: baseStage + idx, branchTag: "", text: bodyText };
+      newGraph.edges.push({ id: "e" + (++edgeCounter), from: prevId, to: id, label: "" });
+      prevId = id;
+    }
+  }
+
+  chainStage(groups.slice(0, ppvIndex), 1, 3); // fu1-fu3, optional
+
+  const ppvText = groups[ppvIndex].join("\n").trim().replace(/^ppv\s*/i, "");
+  const ppvId = "n" + (++localCounter);
+  newGraph.nodes[ppvId] = { id: ppvId, x: 0, y: 0, stage: 4, branchTag: "", text: ppvText };
+  newGraph.edges.push({ id: "e" + (++edgeCounter), from: prevId, to: ppvId, label: "" });
+  prevId = ppvId;
+
+  chainStage(groups.slice(ppvIndex + 1), 5, 3); // ppvfu1-ppvfu3, optional
+
+  return newGraph;
+}
+
+// Auto-detects which of the two text formats we're looking at.
+function parseAnyFormat(text){
+  const hasGraphMarkers = /^\s*\[.+\]\s*$/m.test(text) || /^\s*->/m.test(text);
+  return hasGraphMarkers ? parseImportText(text) : parseLegacyFlat(text);
+}
+
+function applyParsedGraph(newGraph){
+  graph = newGraph;
+  counter = Object.keys(graph.nodes).length + graph.edges.length + 10;
+  autoLayout();
+}
+
+// ─── Side panel (live text mirror + apply) ──────────────────────────────────
+const sideText = document.getElementById("sideText");
+const sideWarnings = document.getElementById("sideWarnings");
+
+// Regenerates the text panel from the graph. Skipped while the user is
+// actively typing in it, so it never clobbers an in-progress paste/edit.
+function refreshSideText(){
+  if (document.activeElement === sideText) return;
+  const { text, warnings } = buildExport();
+  sideText.value = text;
+  sideWarnings.textContent = warnings.length ? "⚠ " + warnings.join("\n⚠ ") : "";
+}
+
+function applyTextPanel(){
+  try {
+    const parsed = parseAnyFormat(sideText.value);
+    applyParsedGraph(parsed);
+    refreshSideText();
+  } catch (err) {
+    alert("Could not parse: " + err.message);
+  }
+}
+
+document.getElementById("btnApplyText").addEventListener("click", applyTextPanel);
+document.getElementById("btnCopyText").addEventListener("click", () => {
+  navigator.clipboard.writeText(sideText.value).then(() => {
+    const btn = document.getElementById("btnCopyText");
+    btn.textContent = "Copied!";
+    setTimeout(() => btn.textContent = "Copy", 1200);
+  });
+});
+sideText.addEventListener("keydown", e => {
+  if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) { e.preventDefault(); applyTextPanel(); }
+});
+
+// ─── Toolbar wiring ─────────────────────────────────────────────────────────
+document.getElementById("btnAddNode").addEventListener("click", () => {
+  const x = 40 + (Object.keys(graph.nodes).length % 6) * 40;
+  const y = 40 + Math.floor(Object.keys(graph.nodes).length / 6) * 220;
+  const selNode = selected && selected.type === "node" ? graph.nodes[selected.id] : null;
+  const stage = selNode ? Math.min(MAX_STAGE, selNode.stage + 1) : 1;
+  const n = addNode(canvasWrap.scrollLeft + 60 + x, canvasWrap.scrollTop + 60 + y, stage, "", "");
+  selectNode(n.id);
+});
+document.getElementById("btnAutoLayout").addEventListener("click", autoLayout);
+document.getElementById("btnClear").addEventListener("click", () => {
+  if (!confirm("Clear the entire graph? This cannot be undone.")) return;
+  graph = { nodes: {}, edges: [] };
+  counter = 0;
+  seedDefault();
+  renderAll();
+  scheduleSave();
+  refreshSideText();
+});
+
+document.getElementById("btnSaveJson").addEventListener("click", () => {
+  const data = { meta: { counter }, nodes: graph.nodes, edges: graph.edges };
+  const blob = new Blob([JSON.stringify(data, null, 2)], { type: "application/json" });
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(blob);
+  a.download = "mma_branch_flow.json";
+  a.click();
+});
+const fileInput = document.getElementById("fileInput");
+document.getElementById("btnLoadJson").addEventListener("click", () => fileInput.click());
+fileInput.addEventListener("change", () => {
+  const file = fileInput.files[0];
+  if (!file) return;
+  const reader = new FileReader();
+  reader.onload = () => {
+    try {
+      const data = JSON.parse(reader.result);
+      if (Object.keys(graph.nodes).length && !confirm("Replace the current graph with the loaded file?")) return;
+      graph.nodes = data.nodes || {};
+      graph.edges = data.edges || [];
+      if (!graph.nodes.root) throw new Error("File has no root node.");
+      counter = (data.meta && data.meta.counter) || 0;
+      renderAll();
+      scheduleSave();
+      refreshSideText();
+    } catch (err) {
+      alert("Invalid JSON file: " + err.message);
+    }
+  };
+  reader.readAsText(file);
+  fileInput.value = "";
+});
+
+const helpBox = document.getElementById("helpBox");
+document.getElementById("btnHelp").addEventListener("click", () => { helpBox.style.display = "block"; });
+document.getElementById("btnHelpClose").addEventListener("click", () => { helpBox.style.display = "none"; });
+
+// ─── Init ───────────────────────────────────────────────────────────────────
+if (!loadFromStorage() || !Object.keys(graph.nodes).length) seedDefault();
+renderAll();
+refreshSideText();
+
+})();
+</script>
+</body>
+</html>

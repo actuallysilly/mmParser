@@ -457,6 +457,29 @@ AutoParseFromClipboard(wParam, lParam, msg, hwnd) {
 }
 OnMessage(0x8010, AutoParseFromClipboard) ; 0x8010: paste clipboard into edPaste + parse (from copyDiscordMessageSeq)
 
+; ─── One-click import from the draft/archive webgui ───────────────────────────
+; The webgui's "Send to MMA" copies "#MMA-IMPORT#\n<mma text>" to the clipboard.
+; We detect the sentinel, strip it, and reuse the same parse path as the Discord
+; import above — so a single click in the browser lands the mass in the panel.
+WEB_IMPORT_SENTINEL := "#MMA-IMPORT#"
+_webImporting := false
+WebImportFromClipboard(dataType) {
+    global WEB_IMPORT_SENTINEL, _webImporting, g
+    if _webImporting || dataType != 1     ; 1 = clipboard now holds text
+        return
+    cb := A_Clipboard
+    if SubStr(cb, 1, StrLen(WEB_IMPORT_SENTINEL)) != WEB_IMPORT_SENTINEL
+        return
+    _webImporting := true
+    body := LTrim(SubStr(cb, StrLen(WEB_IMPORT_SENTINEL) + 1), "`r`n")
+    A_Clipboard := body                   ; leave a clean copy (re-fires handler, but no sentinel now)
+    ClipWait(0.5)
+    try WinActivate("ahk_id " g.Hwnd)
+    PostMessage(0x8010, 0, 0, , "ahk_id " g.Hwnd)   ; -> AutoParseFromClipboard
+    _webImporting := false
+}
+OnClipboardChange(WebImportFromClipboard)
+
 PromptSaveTarget() {
     global _mNames, _mFiles, tabs, modelCount, g
     names := []

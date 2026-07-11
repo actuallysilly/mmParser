@@ -1,0 +1,255 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>MMA · Archive</title>
+<style>
+  :root {
+    --bg: #1a1a1a; --panel: #232323; --panel2: #1e1e1e;
+    --border: rgba(255,255,255,.12); --text: #eee; --muted: #9aa0a6;
+    --accent: #7aa2f7; --accent2: #f7a27a; --good: #7ad08a;
+  }
+  * { box-sizing: border-box; }
+  html, body { height: 100%; margin: 0; }
+  body {
+    background: var(--bg); color: var(--text);
+    font-family: "Segoe UI", system-ui, sans-serif;
+    display: flex; flex-direction: column; height: 100vh; overflow: hidden;
+  }
+  #toolbar {
+    display: flex; align-items: center; gap: 8px; padding: 8px 12px;
+    background: #151515; border-bottom: 1px solid var(--border); flex-wrap: wrap;
+  }
+  #toolbar .title { font-weight: 600; letter-spacing: .3px; margin-right: 6px; }
+  #toolbar .title .sub { color: var(--muted); font-weight: 400; font-size: 12px; }
+  #toolbar .spacer { flex: 1; }
+  #toolbar button, #toolbar a {
+    background: #2b2b2b; color: var(--text); border: 1px solid var(--border);
+    border-radius: 6px; padding: 6px 11px; font-size: 12.5px; cursor: pointer;
+    text-decoration: none; font-family: inherit;
+  }
+  #toolbar button:hover, #toolbar a:hover { background: #383838; }
+  #toolbar button.primary { background: #2a4d7a; border-color: rgba(122,162,247,.5); }
+  #toolbar button.primary:hover { background: #34608f; }
+  #toolbar a.nav { background: transparent; color: var(--muted); }
+  #toolbar a.nav:hover { color: var(--text); background: #2b2b2b; }
+  #toolbar input.search { width: 220px; background: #141414; color: var(--text); border: 1px solid var(--border); border-radius: 6px; padding: 6px 9px; font-size: 12.5px; font-family: inherit; }
+  .sep { width: 1px; height: 22px; background: var(--border); margin: 0 2px; }
+  #count { font-size: 12px; color: var(--muted); }
+
+  #main { flex: 1; display: flex; min-height: 0; }
+  #list { width: 42%; min-width: 300px; overflow: auto; border-right: 1px solid var(--border); background: var(--panel2); }
+  .entry {
+    padding: 10px 14px; border-bottom: 1px solid rgba(255,255,255,.06); cursor: pointer;
+    display: flex; flex-direction: column; gap: 3px;
+  }
+  .entry:hover { background: #262626; }
+  .entry.active { background: #26364d; }
+  .entry .row { display: flex; justify-content: space-between; gap: 8px; align-items: baseline; }
+  .entry .model { font-size: 12px; font-weight: 600; color: var(--accent); }
+  .entry .ts { font-size: 11px; color: var(--muted); white-space: nowrap; }
+  .entry .prev { font-size: 12.5px; color: #cfd3d7; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+  #detail { flex: 1; display: flex; flex-direction: column; min-height: 0; min-width: 0; }
+  #detailHead { padding: 12px 16px; border-bottom: 1px solid var(--border); display: flex; justify-content: space-between; align-items: center; gap: 10px; }
+  #detailHead .who { font-weight: 600; }
+  #detailHead .when { color: var(--muted); font-size: 12px; }
+  #detailBody { flex: 1; overflow: auto; padding: 16px; margin: 0; white-space: pre-wrap; word-break: break-word;
+    font-family: Consolas, "Courier New", monospace; font-size: 13px; color: #cfe3ff; background: #101317; line-height: 1.5; }
+  #detailActions { display: flex; gap: 8px; padding: 10px 16px; border-top: 1px solid var(--border); align-items: center; }
+  button.act { background: #2b2b2b; color: var(--text); border: 1px solid var(--border); border-radius: 6px; padding: 8px 13px; font-size: 12.5px; cursor: pointer; font-family: inherit; }
+  button.act:hover { background: #383838; }
+  button.act.primary { background: #2a4d7a; border-color: rgba(122,162,247,.5); }
+  button.act.primary:hover { background: #34608f; }
+  #status { font-size: 12px; color: var(--muted); margin-left: auto; }
+  #status.ok { color: var(--good); }
+  #status.err { color: #e88; }
+
+  #empty { flex: 1; display: flex; align-items: center; justify-content: center; color: var(--muted); text-align: center; padding: 30px; line-height: 1.6; }
+  #empty code { background: #111; padding: 2px 6px; border-radius: 4px; color: #cfe3ff; }
+  #drop { border: 1px dashed var(--border); border-radius: 8px; padding: 24px 30px; }
+  #drop.over { border-color: var(--accent); background: rgba(122,162,247,.06); }
+
+  ::-webkit-scrollbar { width: 10px; height: 10px; }
+  ::-webkit-scrollbar-thumb { background: #333; border-radius: 6px; }
+  ::-webkit-scrollbar-thumb:hover { background: #444; }
+</style>
+</head>
+<body>
+  <div id="toolbar">
+    <span class="title">MMA · Archive <span class="sub">browse past masses, one-click back into MMA</span></span>
+    <span class="spacer"></span>
+    <input class="search" id="search" type="search" placeholder="Filter… (text or model)">
+    <span id="count"></span>
+    <span class="sep"></span>
+    <button class="primary" id="btnLoad">Load archive…</button>
+    <input type="file" id="fileArchive" accept=".txt,text/plain" hidden>
+    <span class="sep"></span>
+    <a class="nav" href="draft_editor.html">Draft ▸</a>
+    <a class="nav" href="branching_editor.html">Branching ▸</a>
+  </div>
+
+  <div id="main">
+    <div id="list"></div>
+    <div id="detail">
+      <div id="empty">
+        <div id="drop">
+          <div style="font-size:15px;margin-bottom:10px;color:var(--text)">No archive loaded</div>
+          Click <b>Load archive…</b> (or drop a file here) and pick<br>
+          <code>mass_archive.txt</code> from your MMA folder.<br><br>
+          <span style="font-size:12px">Browsers can't read it automatically — you choose the file once per session.</span>
+        </div>
+      </div>
+      <div id="detailHead" style="display:none">
+        <div><span class="who" id="dWho"></span> &nbsp; <span class="when" id="dWhen"></span></div>
+      </div>
+      <pre id="detailBody" style="display:none"></pre>
+      <div id="detailActions" style="display:none">
+        <button class="act primary" id="btnSend" title="Copies with an import tag; MMA grabs it automatically (MMA must be running)">Send to MMA ▸</button>
+        <button class="act" id="btnCopy" title="Plain copy — paste into MMA's paste box yourself">Copy for MMA</button>
+        <span id="status"></span>
+      </div>
+    </div>
+  </div>
+
+<script>
+"use strict";
+const SENTINEL = "#MMA-IMPORT#";
+const $ = s => document.querySelector(s);
+
+let entries = [];      // {ts, model, content, preview} newest-first
+let activeIdx = -1;
+
+// ── parse (mirrors the FIXED mass_gui OpenArchive: trim CR/LF, header regex) ──
+function parseArchive(raw) {
+  if (raw.charCodeAt(0) === 0xFEFF) raw = raw.slice(1);        // strip BOM
+  raw = raw.replace(/\r\n/g, "\n").replace(/\r/g, "\n");
+  const out = [];
+  for (let chunk of raw.split("===END===")) {
+    chunk = chunk.replace(/^\s+|\s+$/g, "");                    // trim incl. newlines
+    if (!chunk) continue;
+    const lines = chunk.split("\n");
+    const m = lines[0].trim().match(/^\[(.+?)\]\s+\[(.+?)\]$/);
+    if (!m) continue;
+    const content = lines.slice(1).join("\n").replace(/^\s+|\s+$/g, "");
+    if (!content) continue;
+    let preview = "";
+    for (const ln of content.split("\n")) { if (ln.trim()) { preview = ln.trim(); break; } }
+    out.push({ ts: m[1], model: m[2], content, preview });
+  }
+  out.reverse();  // newest first
+  return out;
+}
+
+// ── render list ──────────────────────────────────────────────────────────────
+function renderList() {
+  const q = $("#search").value.trim().toLowerCase();
+  const listEl = $("#list");
+  listEl.innerHTML = "";
+  let shown = 0;
+  entries.forEach((e, i) => {
+    if (q && !(e.content.toLowerCase().includes(q) || e.model.toLowerCase().includes(q))) return;
+    shown++;
+    const div = document.createElement("div");
+    div.className = "entry" + (i === activeIdx ? " active" : "");
+    div.innerHTML = `<div class="row"><span class="model"></span><span class="ts"></span></div><div class="prev"></div>`;
+    div.querySelector(".model").textContent = e.model;
+    div.querySelector(".ts").textContent = e.ts;
+    div.querySelector(".prev").textContent = e.preview;
+    div.addEventListener("click", () => showEntry(i));
+    listEl.appendChild(div);
+  });
+  $("#count").textContent = entries.length ? (q ? `${shown} / ${entries.length}` : `${entries.length} masses`) : "";
+  if (!shown && entries.length) {
+    const d = document.createElement("div");
+    d.style.cssText = "padding:16px;color:var(--muted);font-size:12.5px";
+    d.textContent = "No matches.";
+    listEl.appendChild(d);
+  }
+}
+
+function showEntry(i) {
+  activeIdx = i;
+  const e = entries[i];
+  $("#empty").style.display = "none";
+  $("#detailHead").style.display = "flex";
+  $("#detailBody").style.display = "block";
+  $("#detailActions").style.display = "flex";
+  $("#dWho").textContent = e.model;
+  $("#dWhen").textContent = e.ts;
+  $("#detailBody").textContent = e.content;
+  renderList();
+}
+
+// ── clipboard ────────────────────────────────────────────────────────────────
+async function copyText(text) {
+  try { if (navigator.clipboard && window.isSecureContext) { await navigator.clipboard.writeText(text); return true; } } catch (e) {}
+  try {
+    const ta = document.createElement("textarea");
+    ta.value = text; ta.style.position = "fixed"; ta.style.opacity = "0";
+    document.body.appendChild(ta); ta.focus(); ta.select();
+    const ok = document.execCommand("copy"); document.body.removeChild(ta); return ok;
+  } catch (e) { return false; }
+}
+let statusTimer = null;
+function flash(msg, cls) {
+  const s = $("#status"); s.textContent = msg; s.className = cls || "";
+  clearTimeout(statusTimer); statusTimer = setTimeout(() => { s.textContent = ""; s.className = ""; }, 4000);
+}
+$("#btnCopy").addEventListener("click", async () => {
+  if (activeIdx < 0) return;
+  const ok = await copyText(entries[activeIdx].content);
+  flash(ok ? "Copied — paste into MMA's box + Parse" : "Copy failed", ok ? "ok" : "err");
+});
+$("#btnSend").addEventListener("click", async () => {
+  if (activeIdx < 0) return;
+  const ok = await copyText(SENTINEL + "\n" + entries[activeIdx].content);
+  flash(ok ? "Sent → MMA should grab it (must be running)" : "Copy failed", ok ? "ok" : "err");
+});
+
+// ── file loading (button + drag/drop) ────────────────────────────────────────
+function ingest(text) {
+  entries = parseArchive(text);
+  activeIdx = -1;
+  $("#detailHead").style.display = "none";
+  $("#detailBody").style.display = "none";
+  $("#detailActions").style.display = "none";
+  if (!entries.length) {
+    $("#empty").style.display = "flex";
+    $("#empty").innerHTML = '<div id="drop">No valid entries found in that file.<br><span style="font-size:12px">Expected <code>[timestamp] [model]</code> blocks separated by <code>===END===</code>.</span></div>';
+  } else {
+    $("#empty").style.display = "flex";
+    $("#empty").innerHTML = '<div id="drop">Loaded — pick a mass on the left.</div>';
+    showEntry(0);
+  }
+  renderList();
+}
+function readFile(file) {
+  if (!file) return;
+  const r = new FileReader();
+  r.onload = () => ingest(r.result);
+  r.readAsText(file, "UTF-8");
+}
+$("#btnLoad").addEventListener("click", () => $("#fileArchive").click());
+$("#fileArchive").addEventListener("change", e => { readFile(e.target.files[0]); e.target.value = ""; });
+
+const detail = $("#detail");
+["dragenter", "dragover"].forEach(ev => detail.addEventListener(ev, e => {
+  e.preventDefault(); const d = $("#drop"); if (d) d.classList.add("over");
+}));
+["dragleave", "drop"].forEach(ev => detail.addEventListener(ev, e => {
+  e.preventDefault(); const d = $("#drop"); if (d) d.classList.remove("over");
+}));
+detail.addEventListener("drop", e => { if (e.dataTransfer.files[0]) readFile(e.dataTransfer.files[0]); });
+
+$("#search").addEventListener("input", renderList);
+document.addEventListener("keydown", e => {
+  if (activeIdx < 0 || !entries.length) return;
+  if (e.target.tagName === "INPUT") return;
+  if (e.key === "ArrowDown") { e.preventDefault(); if (activeIdx < entries.length - 1) showEntry(activeIdx + 1); }
+  if (e.key === "ArrowUp")   { e.preventDefault(); if (activeIdx > 0) showEntry(activeIdx - 1); }
+});
+</script>
+</body>
+</html>
