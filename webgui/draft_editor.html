@@ -101,9 +101,14 @@
   }
   #warnings { padding: 8px 12px; font-size: 12px; color: var(--warn); white-space: pre-wrap; line-height:1.5; border-bottom: 1px solid var(--border); display:none; }
   #output {
-    flex: 1; margin: 0; padding: 12px; overflow: auto; white-space: pre-wrap; word-break: break-word;
-    font-family: Consolas, "Courier New", monospace; font-size: 12.5px; color: #cfe3ff; background: #101317;
+    flex: 1; min-height: 0; margin: 0; padding: 12px; width: 100%; resize: none;
+    border: none; border-radius: 0; outline: none;
+    font-family: Consolas, "Courier New", monospace; font-size: 12.5px; line-height: 1.5;
+    color: #cfe3ff; background: #101317;
   }
+  #output:focus { box-shadow: inset 2px 0 0 var(--accent); }
+  button.act:disabled { opacity: .4; cursor: default; }
+  #btnRebuild { padding: 4px 9px; font-size: 11.5px; }
   #actions { display: flex; gap: 8px; padding: 10px 12px; border-top: 1px solid var(--border); align-items: center; flex-wrap: wrap; }
   #actions button { flex: 0 0 auto; }
   button.act {
@@ -194,9 +199,21 @@
       </div>
 
       <div id="previewPane">
-        <div class="head"><span>MMA output</span><span style="text-transform:none;letter-spacing:0;font-size:11px">positional format</span></div>
+        <div class="head">
+          <span>MMA output — editable</span>
+          <button class="act" id="btnRebuild" title="Discard raw edits and rebuild from the fields on the left" disabled>↻ from fields</button>
+        </div>
         <div id="warnings"></div>
-        <pre id="output"></pre>
+        <textarea id="output" spellcheck="true" placeholder="Write your whole mass here — or fill the fields on the left and it builds itself.
+
+!mma your opener…
+
+first follow-up
+
+second follow-up
+
+ppv
+the ppv message (multi-line is fine)"></textarea>
         <div id="actions">
           <button class="act primary" id="btnSend" title="Copies with an import tag; MMA grabs it automatically (MMA must be running)">Send to MMA ▸</button>
           <button class="act" id="btnCopy" title="Plain copy — paste into MMA's paste box yourself">Copy for MMA</button>
@@ -226,7 +243,7 @@ let activeId = state.activeId || null;
 
 function blankDraft() {
   const f = {}; FIELDS.forEach(k => f[k] = "");
-  return { name: "", model: "", fields: f };
+  return { name: "", model: "", fields: f, raw: "" };
 }
 function uid() { return Date.now().toString(36) + Math.random().toString(36).slice(2, 6); }
 
@@ -234,20 +251,41 @@ function uid() { return Date.now().toString(36) + Math.random().toString(36).sli
 const $ = s => document.querySelector(s);
 const fName = $("#fName"), fModel = $("#fModel");
 const output = $("#output"), warnings = $("#warnings"), statusEl = $("#status");
-const draftList = $("#draftList");
+const draftList = $("#draftList"), btnRebuild = $("#btnRebuild");
 const fieldEls = {};
 document.querySelectorAll("[data-f]").forEach(el => fieldEls[el.dataset.f] = el);
+let rawDirty = false;   // true once the output box is hand-edited → the raw text wins over the fields
 
-// ── read / write the form ────────────────────────────────────────────────────
-function formToDraft() {
+// ── read the form / load a draft ─────────────────────────────────────────────
+function readFields() {
   const f = {};
   FIELDS.forEach(k => f[k] = (fieldEls[k] ? fieldEls[k].value : ""));
-  return { name: fName.value.trim(), model: fModel.value.trim(), fields: f };
+  return f;
 }
-function draftToForm(d) {
+function currentDraft() {
+  return { name: fName.value.trim(), model: fModel.value.trim(), fields: readFields(), raw: output.value };
+}
+// load a draft into the form + the editable output box
+function loadDraft(d) {
   fName.value = d.name || "";
   fModel.value = d.model || "";
   FIELDS.forEach(k => { if (fieldEls[k]) fieldEls[k].value = (d.fields && d.fields[k]) || ""; });
+  const built = buildMMA(readFields());
+  if (d.raw !== undefined && d.raw !== null && d.raw !== "") {
+    output.value = d.raw;
+    rawDirty = (d.raw !== built);        // raw differs from what the fields produce → treat as a hand-edit
+  } else {
+    output.value = built;
+    rawDirty = false;
+  }
+  updateWarnings(); updateRebuildBtn(); persist();
+}
+function previewOf(d) {
+  let s = esc(d.fields && d.fields.mass ? d.fields.mass : "");
+  if (!s && d.raw) {
+    for (const ln of d.raw.split("\n")) { const t = ln.trim(); if (t) { s = t.replace(/^!?mm[a]?\s+/i, ""); break; } }
+  }
+  return s.replace(/\n+/g, " ").slice(0, 60) || "(no mass)";
 }
 
 // ── build MMA positional text (verified against FillTab) ─────────────────────
@@ -300,17 +338,20 @@ function buildWarnings(f) {
   return w;
 }
 
-// ── render ───────────────────────────────────────────────────────────────────
-function refreshPreview() {
-  const d = formToDraft();
-  state.current = d;
-  save(state);
-  const txt = buildMMA(d.fields);
-  output.textContent = txt || "(empty — fill in a mass to get started)";
-  const w = buildWarnings(d.fields);
+// ── sync / render ─────────────────────────────────────────────────────────────
+// a field changed: rebuild the output from the fields — unless the user has taken
+// the box over by hand-editing it, in which case their text wins and we leave it.
+function syncFromFields() {
+  if (!rawDirty) output.value = buildMMA(readFields());
+  updateWarnings(); persist();
+}
+function updateWarnings() {
+  const w = rawDirty ? [] : buildWarnings(readFields());  // warnings describe the fields; only meaningful in field mode
   if (w.length) { warnings.style.display = "block"; warnings.textContent = w.join("\n"); }
   else { warnings.style.display = "none"; }
 }
+function updateRebuildBtn() { btnRebuild.disabled = !rawDirty; }
+function persist() { state.current = currentDraft(); save(state); }
 
 function renderList() {
   draftList.innerHTML = "";
@@ -325,7 +366,7 @@ function renderList() {
   for (const d of sorted) {
     const item = document.createElement("div");
     item.className = "draft-item" + (d.id === activeId ? " active" : "");
-    const preview = esc(d.fields.mass).replace(/\n+/g, " ").slice(0, 60) || "(no mass)";
+    const preview = previewOf(d);
     item.innerHTML =
       `<div class="row"><span class="name"></span><button class="del" title="Delete">✕</button></div>
        <div class="meta"></div>`;
@@ -334,7 +375,7 @@ function renderList() {
     item.addEventListener("click", e => {
       if (e.target.classList.contains("del")) return;
       activeId = d.id; state.activeId = activeId;
-      draftToForm(d); refreshPreview(); renderList();
+      loadDraft(d); renderList();
     });
     item.querySelector(".del").addEventListener("click", e => {
       e.stopPropagation();
@@ -368,13 +409,13 @@ function flash(msg, cls) {
 
 // ── actions ──────────────────────────────────────────────────────────────────
 $("#btnCopy").addEventListener("click", async () => {
-  const txt = buildMMA(formToDraft().fields);
+  const txt = output.value.trim();
   if (!txt) return flash("Nothing to copy", "err");
   const ok = await copyText(txt);
   flash(ok ? "Copied — paste into MMA's box + Parse" : "Copy failed", ok ? "ok" : "err");
 });
 $("#btnSend").addEventListener("click", async () => {
-  const txt = buildMMA(formToDraft().fields);
+  const txt = output.value.trim();
   if (!txt) return flash("Nothing to send", "err");
   const ok = await copyText(SENTINEL + "\n" + txt);
   flash(ok ? "Sent → MMA should grab it (must be running)" : "Copy failed", ok ? "ok" : "err");
@@ -382,15 +423,21 @@ $("#btnSend").addEventListener("click", async () => {
 
 $("#btnNew").addEventListener("click", () => {
   activeId = null; state.activeId = null;
-  draftToForm(blankDraft()); refreshPreview(); renderList(); fName.focus();
+  loadDraft(blankDraft()); renderList(); fName.focus();
 });
 $("#btnSave").addEventListener("click", () => {
-  const d = formToDraft();
+  const d = currentDraft();
   if (!d.name) { flash("Give the draft a name first", "err"); fName.focus(); return; }
   const existing = state.drafts.find(x => x.id === activeId);
   if (existing) { Object.assign(existing, d, { updated: Date.now() }); }
   else { const nd = { id: uid(), ...d, updated: Date.now() }; state.drafts.push(nd); activeId = nd.id; state.activeId = activeId; }
   save(state); renderList(); flash("Saved", "ok");
+});
+$("#btnRebuild").addEventListener("click", () => {
+  const built = buildMMA(readFields());
+  if (!built && output.value.trim() && !confirm("The fields are empty — rebuilding will clear the text you wrote. Continue?")) return;
+  output.value = built; rawDirty = false;
+  updateWarnings(); updateRebuildBtn(); persist();
 });
 
 // export / import .json
@@ -410,9 +457,9 @@ $("#fileJson").addEventListener("change", e => {
       const incoming = Array.isArray(data) ? data : (data.drafts || []);
       let added = 0;
       for (const d of incoming) {
-        if (!d || !d.fields) continue;
-        const f = {}; FIELDS.forEach(k => f[k] = d.fields[k] || "");
-        state.drafts.push({ id: uid(), name: d.name || "imported", model: d.model || "", fields: f, updated: Date.now() });
+        if (!d || (!d.fields && !d.raw)) continue;
+        const f = {}; FIELDS.forEach(k => f[k] = (d.fields && d.fields[k]) || "");
+        state.drafts.push({ id: uid(), name: d.name || "imported", model: d.model || "", fields: f, raw: d.raw || "", updated: Date.now() });
         added++;
       }
       save(state); renderList(); flash(`Imported ${added} draft${added === 1 ? "" : "s"}`, "ok");
@@ -423,7 +470,9 @@ $("#fileJson").addEventListener("change", e => {
 });
 
 // ── wire up live editing ─────────────────────────────────────────────────────
-[fName, fModel, ...Object.values(fieldEls)].forEach(el => el.addEventListener("input", refreshPreview));
+Object.values(fieldEls).forEach(el => el.addEventListener("input", syncFromFields));
+[fName, fModel].forEach(el => el.addEventListener("input", persist));        // name/model don't affect output
+output.addEventListener("input", () => { rawDirty = true; updateWarnings(); updateRebuildBtn(); persist(); });
 document.addEventListener("keydown", e => {
   if (e.ctrlKey && e.key === "Enter") { e.preventDefault(); $("#btnSend").click(); }
   if (e.ctrlKey && e.key.toLowerCase() === "s") { e.preventDefault(); $("#btnSave").click(); }
@@ -432,8 +481,7 @@ document.addEventListener("keydown", e => {
 // ── init: restore active draft or working copy ───────────────────────────────
 (function init() {
   const act = state.drafts.find(x => x.id === activeId);
-  draftToForm(act || state.current || blankDraft());
-  refreshPreview();
+  loadDraft(act || state.current || blankDraft());
   renderList();
 })();
 </script>

@@ -27,11 +27,20 @@ your **Fast parse+autosave** setting in MMA, exactly like the Discord import.
 
 ### Draft editor
 
-Fill in the mass, up to three follow-ups (each with optional `.5`/`.7` extra
-lines), a PPV message (multi-line is fine), and up to three PPV follow-ups. The
-right pane shows the exact **positional text** MMA will parse, live. Warnings
-appear there if you leave a gap the positional format can't represent (e.g.
-`fu1.7` filled but `fu1.5` empty — it would shift up a slot).
+The right pane is an **editable textarea** holding the exact **positional text**
+MMA will parse — it's the source of truth for Copy/Send/Save. Two ways to work:
+
+- **Write it at once** — just type (or paste) the whole mass straight into the
+  box. That's the fast path if you compose masses in one go.
+- **Use the fields** — fill the mass, up to three follow-ups (each with optional
+  `.5`/`.7` extra lines), a PPV message (multi-line is fine), and up to three PPV
+  follow-ups; the box rebuilds from them live.
+
+The moment you hand-edit the box it "takes over" and field edits stop overwriting
+it (so you never lose what you typed). **↻ from fields** discards those raw edits
+and rebuilds from the fields again. Warnings appear above the box (in field mode)
+if you leave a gap the positional format can't represent — e.g. `fu1.7` filled
+but `fu1.5` empty, which would shift up a slot.
 
 - **Save draft** (Ctrl+S) keeps the current form under its name in the sidebar;
   click any saved draft to reload it. **+ New draft** starts a blank one.
