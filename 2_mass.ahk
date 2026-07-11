@@ -105,6 +105,42 @@ F11::{ ; send fu3
     }
 }
 
+F13::{ ; Scimitar SM_1 -> fu1
+    switch massNo
+    {
+        case 1:
+            sndFu(1, m1.fu1, m1.fu1_5, m1.fu1_7)
+        case 2:
+            sndFu(1, m2.fu1, m2.fu1_5, m2.fu1_7)
+        case 3:
+            sndFu(1, m3.fu1, m3.fu1_5, m3.fu1_7)
+    }
+}
+
+F14::{ ; Scimitar SM_2 -> fu2
+    switch massNo
+    {
+        case 1:
+            sndFu(2, m1.fu2, m1.fu2_5, m1.fu2_7)
+        case 2:
+            sndFu(2, m2.fu2, m2.fu2_5, m2.fu2_7)
+        case 3:
+            sndFu(2, m3.fu2, m3.fu2_5, m3.fu2_7)
+    }
+}
+
+F15::{ ; Scimitar SM_3 -> fu3
+    switch massNo
+    {
+        case 1:
+            sndFu(3, m1.fu3, m1.fu3_5, m1.fu3_7)
+        case 2:
+            sndFu(3, m2.fu3, m2.fu3_5, m2.fu3_7)
+        case 3:
+            sndFu(3, m3.fu3, m3.fu3_5, m3.fu3_7)
+    }
+}
+
 F12::{ ; send ppv1
     ppv := ""
     switch massNo{

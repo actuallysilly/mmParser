@@ -82,6 +82,12 @@ hiddenScripts     := Map()
 for _h in StrSplit(_hiddenRaw, ",")
     if Trim(_h) != ""
         hiddenScripts[Trim(_h)] := true
+; scripts auto-launched on startup (default general.ahk, preserving old behavior) + watchdog toggle
+startupScripts    := []
+for _s in StrSplit(IniRead(CFG_FILE, "Settings", "StartupScripts", "general.ahk"), ",")
+    if Trim(_s) != ""
+        startupScripts.Push(Trim(_s))
+autoRestart       := Integer(IniRead(CFG_FILE, "Settings", "AutoRestart", "0"))
 UPDATE_URL   := IniRead(CFG_FILE, "Update",   "URL",       "https://raw.githubusercontent.com/actuallysilly/mmParser/main")
 hk1_f1    := IniRead(CFG_FILE, "Hotkeys", "M1_f1",    "F1")
 hk1_f2    := IniRead(CFG_FILE, "Hotkeys", "M1_f2",    "F2")
@@ -330,6 +336,14 @@ lblCredit := g.Add("Text", "x10 y" (TOGG_Y0 + 38), "made by actually.silly")
 
 g.Show("w" INIT_W " h" INIT_H)
 g.OnEvent("Size", OnResize)
+g.OnEvent("Close", OnGuiClose)
+
+; tray: one-click clean shutdown (right-click tray, or double-click the icon)
+try {
+    A_TrayMenu.Insert("1&", "Kill all scripts && Exit", (*) => KillAllAndExit())
+    A_TrayMenu.Insert("2&")
+    A_TrayMenu.Default := "Kill all scripts && Exit"
+}
 
 ; ─── Or-Or window (hidden until or-or mode is parsed) ─────────────────────────
 
@@ -384,10 +398,10 @@ gOrOr.Add("Button", "x140 y580 w80 h28", "Close").OnEvent("Click", (*) => gOrOr.
 lblCredit.GetPos(, , &lblCreditW)
 lblCredit.Move(INIT_W - lblCreditW - 10)
 
-; auto-start general.ahk from root if not already running
-_gPath := A_ScriptDir "\general.ahk"
-if FileExist(_gPath) && !WinExist(_gPath " ahk_class AutoHotkey")
-    Run _gPath
+; auto-start configured startup scripts (defaults to general.ahk) if not already running
+LaunchStartupScripts()
+if autoRestart
+    SetTimer(WatchdogTick, 5000)
 
 SetTimer(() => CheckUpdate(true), -3000)  ; silent check 3s after startup
 
@@ -505,7 +519,7 @@ OpenArchive(*) {
     chunks  := StrSplit(raw, "===END===")
     entries := []
     for chunk in chunks {
-        chunk := Trim(chunk)
+        chunk := Trim(chunk, " `t`r`n")   ; Trim() alone keeps leading CR/LF, making lines[1] empty → only first entry parsed
         if chunk = ""
             continue
         lines := StrSplit(StrReplace(chunk, "`r`n", "`n"), "`n")
@@ -1100,6 +1114,65 @@ ToggleScript(path, btn) {
     }
 }
 
+; ─── Clean exit / startup / watchdog ──────────────────────────────────────────
+
+; X on the panel: ask whether to also tear down the running scripts.
+OnGuiClose(*) {
+    r := MsgBox("Close all running scripts too?"
+              . "`n`nYes = kill every script in this folder and exit"
+              . "`nNo = exit this panel only"
+              . "`nCancel = keep everything open", "Exit MMA", 0x23)  ; YesNoCancel + question icon
+    if r = "Cancel"
+        return true                      ; keep the window open
+    if r = "Yes"
+        KillAllScripts()
+    ExitApp
+}
+
+KillAllAndExit(*) {
+    KillAllScripts()
+    ExitApp
+}
+
+; ProcessClose every AutoHotkey script launched from this folder (except this GUI).
+KillAllScripts() {
+    global SCRIPT_DIR
+    try SetTimer(WatchdogTick, 0)        ; stop watchdog first so it can't relaunch anything
+    myPID := ProcessExist()
+    DetectHiddenWindows true
+    for hwnd in WinGetList("ahk_class AutoHotkey") {
+        pid := WinGetPID("ahk_id " hwnd)
+        if pid = myPID
+            continue
+        if InStr(WinGetTitle("ahk_id " hwnd), SCRIPT_DIR)
+            try ProcessClose(pid)
+    }
+}
+
+; startup scripts may live in the root or in acc\
+ResolveScriptPath(fname) {
+    global SCRIPT_DIR, ACC_DIR
+    if FileExist(SCRIPT_DIR "\" fname)
+        return SCRIPT_DIR "\" fname
+    if FileExist(ACC_DIR "\" fname)
+        return ACC_DIR "\" fname
+    return ""
+}
+
+; run each configured startup script that isn't already running (also used by the watchdog)
+LaunchStartupScripts() {
+    global startupScripts
+    for fname in startupScripts {
+        path := ResolveScriptPath(fname)
+        if path != "" && !WinExist(path " ahk_class AutoHotkey")
+            try Run(path)
+    }
+}
+
+WatchdogTick() {
+    LaunchStartupScripts()
+}
+
 ; ─── Set massNo ───────────────────────────────────────────────────────────────
 
 SetMassNo(fname, n, *) {
@@ -1174,6 +1247,7 @@ OpenSettings(*) {
     global hk2_f1, hk2_f2, hk2_f3, hk2_ppv, hk2_ppvfu
     global hk3_f1, hk3_f2, hk3_f3, hk3_ppv, hk3_ppvfu
     global defaultHotkeyFile, ACC_DIR, SCRIPT_DIR, mouseControl
+    global startupScripts, autoRestart
 
     _dhfList := []
     _genPath2 := SCRIPT_DIR "\general.ahk"
@@ -1271,6 +1345,33 @@ OpenSettings(*) {
         xSc += 80
     }
     y += 52
+    sg.Add("Text",   "x10  y" (y+8)  " w200", "── Run on startup ──")
+    startChks := Map()
+    _startSet := Map()
+    for _s in startupScripts
+        _startSet[_s] := true
+    _eligible := []
+    if FileExist(SCRIPT_DIR "\general.ahk")
+        _eligible.Push("general.ahk")
+    for _mf in ["1_mass.ahk", "2_mass.ahk", "3_mass.ahk"]
+        if FileExist(SCRIPT_DIR "\" _mf)
+            _eligible.Push(_mf)
+    Loop Files, ACC_DIR "\*.ahk"
+        _eligible.Push(A_LoopFileName)
+    _sx := 10, _sy := y + 28
+    for _, efn in _eligible {
+        chk := sg.Add("Checkbox", "x" _sx " y" _sy, StrReplace(efn, ".ahk", ""))
+        chk.Value := _startSet.Has(efn)
+        startChks[efn] := chk
+        _sx += 90
+        if _sx > 500 {
+            _sx := 10
+            _sy += 24
+        }
+    }
+    chkAutoRestart := sg.Add("Checkbox", "x10 y" (_sy + 30), "Auto-restart these if they die (watchdog, checks every 5s)")
+    chkAutoRestart.Value := autoRestart
+    y := _sy + 56
     sg.Add("Text",   "x10  y" (y+8)  " w580 h2 0x10")
     sg.Add("Button", "x10  y" (y+18) " w85 h28",  "Save").OnEvent("Click", SaveCfg)
     sg.Add("Button", "x105 y" (y+18) " w85 h28",  "Reset").OnEvent("Click", ResetCfg)
@@ -1285,6 +1386,7 @@ OpenSettings(*) {
         global hk2_f1, hk2_f2, hk2_f3, hk2_ppv, hk2_ppvfu
         global hk3_f1, hk3_f2, hk3_f3, hk3_ppv, hk3_ppvfu
         global defaultHotkeyFile, mouseControl, fastParseAutosave
+        global startupScripts, autoRestart
 
         newCount          := rdMC1.Value ? 1 : rdMC2.Value ? 2 : 3
         model1Name        := ed1.Value
@@ -1350,6 +1452,20 @@ OpenSettings(*) {
             if Trim(_h) != ""
                 hiddenScripts[Trim(_h)] := true
         IniWrite(_hiddenList, CFG_FILE, "Settings", "HiddenScripts")
+
+        _startupCsv := ""
+        for efn, chk in startChks
+            if chk.Value
+                _startupCsv .= (_startupCsv != "" ? "," : "") efn
+        IniWrite(_startupCsv, CFG_FILE, "Settings", "StartupScripts")
+        autoRestart := chkAutoRestart.Value ? 1 : 0
+        IniWrite(autoRestart, CFG_FILE, "Settings", "AutoRestart")
+        startupScripts := []
+        for _s in StrSplit(_startupCsv, ",")
+            if Trim(_s) != ""
+                startupScripts.Push(Trim(_s))
+        SetTimer(WatchdogTick, autoRestart ? 5000 : 0)
+        LaunchStartupScripts()
 
         c1 := UpdateMassFileHotkeys("1_mass.ahk", [hk1_f1, hk1_f2, hk1_f3, hk1_ppv, hk1_ppvfu]) || mcChanged
         c2 := UpdateMassFileHotkeys("2_mass.ahk", [hk2_f1, hk2_f2, hk2_f3, hk2_ppv, hk2_ppvfu])

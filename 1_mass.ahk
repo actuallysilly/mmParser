@@ -61,21 +61,21 @@ SndFuEditable(parts*) {
 }
 
 m1 := {
-mass: "What else should be free on Independence Day?",
-fu1: "In my humble opinion, it should definitely be my panties, and surely you agree right?",
+mass: "Does your tonge vibrate?",
+fu1: "I'm taking personal throne applications, your face has to be waterproof too, are you a good fit?",
 fu1_5: "",
 fu1_7: "",
 
-fu2: "I really want them off.. They need to disappear forever, my pussy really hates being caged up",
-fu2_5: "So will you be like a bald eagle and swiftly snatch them off me?",
+fu2: "And can you promise me that you can make me feel really really good and truly relaxed?",
+fu2_5: "I want you to be hard like the Iron Throne",
 fu2_7: "",
 
-fu3: "And then I'm going to be all exposed and vulnerable...",
-fu3_5: "Can I really trust you with my naked body tonight, or can I expect a tea party too?",
+fu3: "",
+fu3_5: "",
 fu3_7: "",
 
-ppv_base: "",
-ppv_f1: "",
+ppv_base: "Imagine the POV you'd have if I were to sit on your face and sink my bare ass cheeks down so your tongue can just vibrate away",
+ppv_f1: "Can you hard-dick-pinky-promise me that I can reasonably expect climax from you?",
 ppv_f2: "",
 ppv_f3: "",
 
@@ -241,6 +241,18 @@ DoFu3(){
         clickOn(openInNewTabButton)
 }
 
+; sends the mass body itself (the text that follows !mm / !mma) — pastes only, so
+; you can review before sending, matching the ppv-base behaviour of DoF4.
+DoMass(){
+    global massNo, m1, m2, m3
+    m := massNo = 1 ? m1 : massNo = 2 ? m2 : m3
+    if m.mass = ""
+        return
+    A_Clipboard := m.mass
+    ClipWait(0.5)
+    Send "^v"
+}
+
 IsOrOr() {
     global massNo, m1, m2, m3
     m := massNo = 1 ? m1 : massNo = 2 ? m2 : m3
@@ -374,6 +386,9 @@ if !mouseControl {
         try Hotkey _mk, "Off"
     }
 }
+
+; type __mm to paste the current mass body (what follows !mm / !mma); review, then send.
+:*X:__mm::DoMass()
 
 Bind Key("RecoverMsg",      "^+z"), (*) => RecoverLastMsg()
 Bind Key("ClickSecondGrey", SM_12), (*) => ClickSecondGrey()

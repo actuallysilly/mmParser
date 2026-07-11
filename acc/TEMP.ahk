@@ -85,3 +85,15 @@
 {
     snd("And once my tits were free and vulnerable for you, how would you deal with the responsibility of making my nipples hard?")
 }
+
+:*:...bum::
+{
+    snd("So... My bum?")
+}
+
+:*:__ramp1::
+{
+    snd("Now tell me are you going to snatch that bra off me")
+    snd("It's so fucking uncomfy I want it off asap")
+    snd("So your lips can introduce yourself to my nips as soon as possible... And make them hard and wet")
+}
