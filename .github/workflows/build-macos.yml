@@ -1,0 +1,74 @@
+name: Build macOS app
+
+# PyInstaller cannot cross-compile, and there is no Mac in this project's dev
+# setup — so the .app/.dmg is built here, on GitHub's macOS runners.
+#
+# Run it: Actions tab → "Build macOS app" → Run workflow.
+# Then download the .dmg from that run's Artifacts and send it on.
+
+on:
+  # The Actions-tab button. Note it only appears once this file is on the
+  # DEFAULT branch — on a feature branch the push trigger below is what runs.
+  workflow_dispatch:
+  push:
+    branches: [main, dev]
+    paths:
+      # Only when something that changes the app changes. Editing the AHK build
+      # or the changelog should not spend eight minutes on two macOS runners.
+      - "portable/**"
+      - ".github/workflows/build-macos.yml"
+    tags:
+      - "v*"
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # Two builds, because the wrong one fails in a confusing way on the
+          # recipient's machine ("the application cannot be opened"), not with
+          # anything that names the real cause.
+          - runner: macos-14        # Apple Silicon (M1 and later)
+            arch: AppleSilicon
+          - runner: macos-13        # Intel
+            arch: Intel
+
+    runs-on: ${{ matrix.runner }}
+    name: ${{ matrix.arch }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        working-directory: portable
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -r requirements.txt pyinstaller
+
+      - name: Run tests
+        working-directory: portable
+        # The GUI tests need a display; the runner has none, and they skip
+        # themselves. The engine and settings tests are the ones that matter here.
+        run: python -m unittest discover -v
+
+      - name: Build
+        working-directory: portable
+        run: |
+          chmod +x build_macos.sh
+          ./build_macos.sh
+
+      - name: Name the artifact by architecture
+        working-directory: portable
+        run: mv dist/MMA.dmg "dist/MMA-${{ matrix.arch }}.dmg"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: MMA-${{ matrix.arch }}
+          path: portable/dist/MMA-${{ matrix.arch }}.dmg
+          if-no-files-found: error
+          retention-days: 30

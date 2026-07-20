@@ -19,3 +19,13 @@ infloww ui elements/
 
 # Message content. Kept local; MMA regenerates it as you archive.
 mass_archive.txt
+
+# Same reason, for the portable build: masses.txt is the real message library
+# and settings.json carries the live window filter. masses.example.txt is the
+# generic seed that ships inside the app and IS meant to be public.
+portable/masses.txt
+portable/settings.json
+
+# Build output — rebuilt by build_macos.sh / the macOS workflow.
+portable/build/
+portable/dist/

@@ -1,0 +1,31 @@
+# Beach or bedroom
+!mma Beach or bedroom tonight? 🏖️
+
+I've been going back and forth on it all day
+
+Because one of them involves a lot less clothing
+
+So which is it, before I pick for you? 😌
+
+===
+
+# Example: explicit labels
+# Blank lines don't matter in this form — every line says where it goes.
+!mma This is the mass body, the bit that opens the conversation
+f1: first follow-up
+f1.5 second part of the same follow-up, sent right after
+f2: the second follow-up
+f3: the third follow-up
+
+===
+
+# Example: no mass marker at all
+# With no !mma line the first line is taken as the mass.
+Just an opener with no marker
+
+follow-up one
+and its second part
+
+follow-up two
+
+follow-up three
