@@ -7,10 +7,12 @@
     snd("I don't wanna start something and then leave you blue balled or worse.. You going off to jerk off to someone else")
 }
 
-!.::
+; key lives in hotkeys.ini under [temp]
+TempFantasy()
 {
     snd("Whats your wildest fantasy with me")
 }
+HK_Bind("temp.fantasy", TempFantasy)
 
 :*:..silence::
 {
@@ -96,4 +98,37 @@
     snd("Now tell me are you going to snatch that bra off me")
     snd("It's so fucking uncomfy I want it off asap")
     snd("So your lips can introduce yourself to my nips as soon as possible... And make them hard and wet")
+}
+
+:*:__2::
+{
+    snd("Now imagine snatching those panties off me")
+    snd("And revealing my body in it's wet and naked glory")
+    snd("So you can vividly imagine what you'd be kissing for hours as you tease me in missionary")
+}
+
+:*:__3::
+{
+    snd("You see how enticing and needy my pussylips are")
+    snd("I want you to kneel, kiss them and slowly stretch them out")
+    snd("Spend some time lingering on my labia")
+    snd("And then, when I'm leaking wetness")
+}
+
+:*:__justdoit::
+{
+    snd("Do it")
+    snd("Being spoiled makes me happy")
+    snd("It shows me you really care")
+    snd("So I can focus on you and give you all the attention of this world")
+}
+
+:*:joi5::
+{
+    snd("Now grip it TIGHT for 10 seconds and just hold (NO HAND FUCKING)")
+}
+
+:*:_overloadTest::
+{
+    snd("this is overload one")
 }

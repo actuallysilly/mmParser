@@ -1,5 +1,7 @@
 #Requires AutoHotkey v2.0
 #SingleInstance Force
+#Include "hotkeys.ahk"
+#Include "ocr_grab.ahk"
 DetectHiddenWindows true
 
 ; ─── Data ─────────────────────────────────────────────────────────────────────
@@ -46,14 +48,143 @@ keyMap := Map(
     "ppvfu1", "ppv_f1",  "ppvfu2", "ppv_f2",  "ppvfu3", "ppv_f3"
 )
 
+; ── Alt follow-ups ────────────────────────────────────────────────────────────
+; A follow-up can carry alternative versions of itself ("branches"): same slot in
+; the conversation, different wording. The base variant is fu<N>/fu<N>_5/fu<N>_7 as
+; before; each alt is one more complete variant of the whole group.
+;
+; An alt may itself be multi-part, so its parts are stored in a single field joined
+; by a literal `n — the same escape ppv_base already uses. Keeping it to one field
+; per alt is what stops the mN block from growing 27 fields wider.
+ALT_MAX    := 3                       ; alt0..alt2 per follow-up
+ALT_GROUPS := ["fu1", "fu2", "fu3"]
+
+; "fu1" -> ["fu1_alt0", "fu1_alt1", "fu1_alt2"]
+AltFields(group) {
+    global ALT_MAX
+    out := []
+    Loop ALT_MAX
+        out.Push(group "_alt" (A_Index - 1))
+    return out
+}
+
+; Every alt field, in block order. Used by the loader, the writer and the editor
+; so a new alt slot only has to be declared in ALT_MAX.
+AllAltFields() {
+    global ALT_GROUPS
+    out := []
+    for _, grp in ALT_GROUPS
+        for _, f in AltFields(grp)
+            out.Push(f)
+    return out
+}
+
+; The mN := {} field list, in block order. Single source of truth — the loader,
+; the writer and the new-file template all read it, so adding a field here is
+; enough. They used to carry three separate copies of this list.
+MassBlockProps() {
+    props := ["mass","fu1","fu1_5","fu1_7","fu2","fu2_5","fu2_7",
+              "fu3","fu3_5","fu3_7","ppv_base","ppv_f1","ppv_f2","ppv_f3",
+              "orOr","b1_label","b2_label",
+              "b2_fu1","b2_fu1_5","b2_fu1_7","b2_fu2","b2_fu2_5","b2_fu2_7",
+              "b2_fu3","b2_fu3_5","b2_fu3_7","b2_ppv_base",
+              "b2_ppv_f1","b2_ppv_f2","b2_ppv_f3"]
+    for _, f in AllAltFields()
+        props.Push(f)
+    props.Push("altGui")
+    return props
+}
+
+; Fields whose value may span lines, so newlines survive the round trip as `n.
+MassPropIsMultiline(prop) {
+    return prop = "ppv_base" || prop = "b2_ppv_base" || InStr(prop, "_alt")
+}
+
+; Parts of one stored alt, splitting the `n join back out.
+AltParts(stored) {
+    parts := []
+    for _, p in StrSplit(StrReplace(StrReplace(stored, "`r`n", "`n"), "``n", "`n"), "`n")
+        if Trim(p) != ""
+            parts.Push(Trim(p))
+    return parts
+}
+
+; Does this mass/follow-up carry at least one alt?
+MassHasAlts(mNo, group) {
+    global edCtrls
+    for _, fld in AltFields(group) {
+        ck := "m" mNo "_" fld
+        if edCtrls.Has(ck) && Trim(edCtrls[ck].Value) != ""
+            return true
+    }
+    return false
+}
+
+MakeAltGuiToggle(mNo) {
+    return AltGuiToggled.Bind(mNo)
+}
+
+AltGuiToggled(mNo, *) {
+    global altGuiChks, edCtrls
+    ck := "m" mNo "_altGui"
+    if edCtrls.Has(ck)
+        edCtrls[ck].Value := altGuiChks[mNo].Value ? "1" : "0"
+}
+
+; Mirror the stored altGui values onto the checkboxes, and echo each base variant
+; so the window is readable after a Load. Called on load and on parse.
+RefreshAltWindow() {
+    global edCtrls, altGuiChks, altBaseEcho, ALT_GROUPS
+    Loop 3 {
+        mNo := A_Index
+        ck := "m" mNo "_altGui"
+        if edCtrls.Has(ck) && altGuiChks.Has(mNo)
+            altGuiChks[mNo].Value := (Trim(edCtrls[ck].Value) = "1")
+        for _, grp in ALT_GROUPS {
+            key := mNo "_" grp
+            if !altBaseEcho.Has(key)
+                continue
+            parts := []
+            for _, sfx in ["", "_5", "_7"] {
+                bk := "m" mNo "_" grp sfx
+                if edCtrls.Has(bk) && Trim(edCtrls[bk].Value) != ""
+                    parts.Push(Trim(edCtrls[bk].Value))
+            }
+            joined := ""
+            for _, p in parts
+                joined .= (joined != "" ? "  |  " : "") p
+            altBaseEcho[key].Value := joined
+        }
+    }
+}
+
+SaveAltToFile(*) {
+    global altTabs
+    ApplyFile(["1_mass.ahk", "2_mass.ahk", "3_mass.ahk"][altTabs.Value])
+}
+
+OpenAltWindow(*) {
+    global gAlt, ALT_W, tabs, altTabs
+    RefreshAltWindow()
+    altTabs.Value := tabs.Value          ; open on the model you are looking at
+    gAlt.Show("w" ALT_W " h878")
+}
+
 AHK_CHARS  := ["``", Chr(34), ";"]   ; backtick must be first
 
+; A leading "word:" is normally stripped as a field prefix (see StripPrefix). URL
+; schemes must be exempt or "https://x" gets mangled into "//x". Add any other word
+; that must never be treated as a prefix here (compared case-insensitively).
+PREFIX_EXCEPTIONS := Map("http",1, "https",1, "ftp",1, "ftps",1, "mailto",1, "tel",1, "file",1)
+
 edCtrls    := Map()
+altBaseEcho := Map()  ; "<mNo>_<group>" → read-only echo of the base variant in the alt window
 scriptPIDs := Map()   ; path → PID for toggle tracking
 togCtrls   := []      ; [{c, x, oy}] script toggle section, y moves on resize
 topCtrls   := []      ; [{c, ox}]       — right-panel top labels, x-slide on resize
 btnCtrls   := []      ; [{c, ox, oy}]   — right-panel buttons, x+y move on resize
 resizables := []      ; edit controls inside tabs, width grows on resize
+_lastImportModel := 0 ; slot the last import was routed to; fast-parse reuses it
 
 ; ─── Layout constants ─────────────────────────────────────────────────────────
 
@@ -77,6 +208,9 @@ openTabFu3        := Integer(IniRead(CFG_FILE, "Settings", "OpenTabFu3",        
 openTabPpv        := Integer(IniRead(CFG_FILE, "Settings", "OpenTabPpv",        "0"))
 walletCheckFu3    := Integer(IniRead(CFG_FILE, "Settings", "WalletCheckFu3",    "0"))
 fastParseAutosave := Integer(IniRead(CFG_FILE, "Settings", "FastParseAutosave", "0"))
+; On by default: the follow-up keys keep sending the main branch as they always
+; have, and ctrl+key is what opens the alt chooser. Off makes the plain key prompt.
+promptAltCtrl     := Integer(IniRead(CFG_FILE, "Settings", "PromptAltCtrl", "1"))
 _hiddenRaw        := IniRead(CFG_FILE, "Settings", "HiddenScripts", "")
 hiddenScripts     := Map()
 for _h in StrSplit(_hiddenRaw, ",")
@@ -88,34 +222,35 @@ for _s in StrSplit(IniRead(CFG_FILE, "Settings", "StartupScripts", "general.ahk"
     if Trim(_s) != ""
         startupScripts.Push(Trim(_s))
 autoRestart       := Integer(IniRead(CFG_FILE, "Settings", "AutoRestart", "0"))
+; The Python automation listener (infloww ui elements\automation.py) runs the
+; [automation] hotkeys. On by default: those keys are declared in hotkeys.ahk and
+; shown in the Hotkeys GUI, so if the listener isn't up they'd look bound but do
+; nothing. See LaunchAutomationListener().
+automationListener := Integer(IniRead(CFG_FILE, "Settings", "AutomationListener", "1"))
+; The pinger (pinger\pinger.pyw) beeps when an Infloww fan tab goes unread. Off by
+; default — it makes noise, so it should be an opt-in. See LaunchPinger().
+pinger            := Integer(IniRead(CFG_FILE, "Settings", "Pinger", "0"))
 UPDATE_URL   := IniRead(CFG_FILE, "Update",   "URL",       "https://raw.githubusercontent.com/actuallysilly/mmParser/main")
-hk1_f1    := IniRead(CFG_FILE, "Hotkeys", "M1_f1",    "F1")
-hk1_f2    := IniRead(CFG_FILE, "Hotkeys", "M1_f2",    "F2")
-hk1_f3    := IniRead(CFG_FILE, "Hotkeys", "M1_f3",    "F3")
-hk1_ppv   := IniRead(CFG_FILE, "Hotkeys", "M1_ppv",   "F4")
-hk1_ppvfu := IniRead(CFG_FILE, "Hotkeys", "M1_ppvfu", "F5")
-hk2_f1    := IniRead(CFG_FILE, "Hotkeys", "M2_f1",    "F9")
-hk2_f2    := IniRead(CFG_FILE, "Hotkeys", "M2_f2",    "F10")
-hk2_f3    := IniRead(CFG_FILE, "Hotkeys", "M2_f3",    "F11")
-hk2_ppv   := IniRead(CFG_FILE, "Hotkeys", "M2_ppv",   "F12")
-hk2_ppvfu := IniRead(CFG_FILE, "Hotkeys", "M2_ppvfu", "!F12")
-hk3_f1    := IniRead(CFG_FILE, "Hotkeys", "M3_f1",    "")
-hk3_f2    := IniRead(CFG_FILE, "Hotkeys", "M3_f2",    "")
-hk3_f3    := IniRead(CFG_FILE, "Hotkeys", "M3_f3",    "")
-hk3_ppv   := IniRead(CFG_FILE, "Hotkeys", "M3_ppv",   "")
-hk3_ppvfu := IniRead(CFG_FILE, "Hotkeys", "M3_ppvfu", "")
+; Hotkeys used to be mirrored here as hk1_f1..hk3_ppvfu and written into the mass
+; files as literal `F9::` lines. They now live in hotkeys.ini and are read by the
+; scripts themselves — see hotkeys.ahk and the "Hotkeys…" button in Settings.
 TOGGLE_H     := 90           ; height reserved below tabs for script toggles (2 rows)
-RIGHT_W      := 468          ; paste+buttons panel (20% wider, right-anchored)
-INIT_W       := 1178         ; grew by same amount to keep tab width unchanged
+PASTE_SPLIT  := 0.66         ; fraction of width left of the right (paste) panel
+INIT_W       := 1500         ; wide by default so the follow-up lines are long
 INIT_H       := 700
 TAB_X        := 10           ; tabs on the LEFT
 TAB_Y        := 10
 FIELD_Y0     := TAB_Y + 30  ; tab header ~30 px
-LABEL_X      := TAB_X + 12  ; = 22
-EDIT_X       := TAB_X + 82  ; = 92
-PX0          := INIT_W - RIGHT_W        ; = 710  initial right-panel x
-INIT_TAB_W   := PX0 - TAB_X - 10       ; = 690
-INIT_EDIT_W  := INIT_TAB_W - (EDIT_X - TAB_X) - 15   ; = 593
+; A narrow left gutter holds the follow-up single/editable toggles, stacked per
+; f-group; labels + edit boxes are shifted right just enough to clear it.
+TOG_COL_X    := TAB_X + 6   ; = 16   left toggle column x
+FU_CHK_W     := 58          ; single/edit checkbox width
+LABEL_X      := TAB_X + 70  ; = 80   shifted right to clear the toggle column
+EDIT_X       := TAB_X + 140 ; = 150
+PX0          := Round(INIT_W * PASTE_SPLIT)   ; right-panel x, kept in sync with resize
+RIGHT_W      := INIT_W - PX0                  ; paste+buttons panel width
+INIT_TAB_W   := PX0 - TAB_X - 10
+INIT_EDIT_W  := INIT_TAB_W - (EDIT_X - TAB_X) - 15
 PASTE_H0     := Floor((INIT_H - 20) * 0.52)
 BTN_ORIG_Y0  := 26 + PASTE_H0 + 12
 
@@ -235,9 +370,17 @@ Loop modelCount {
 tabs := g.Add("Tab3", "x" TAB_X " y" TAB_Y " w" INIT_TAB_W " h" (INIT_H - TAB_Y - 10 - TOGGLE_H),
               ["Mass 1", "Mass 2", "Mass 3"])
 
+; Follow-up toggles live in a left column, stacked per f-group (see the fu branch).
+;   editFuChks[f] = [one mirror per mass]  — global "editable" toggle, kept in sync
+;   fuChks[m][f]  = per-mass "single" toggle
+; They sit at a fixed left x, so they need no repositioning on resize.
+editFuChks := [[], [], []]
+fuChks     := []
+
 Loop 3 {
     mNo := A_Index
     tabs.UseTab(mNo)
+    fuChks.Push([])
     y := FIELD_Y0
     for _, fd in fieldDefs {
         prop  := fd[1]
@@ -253,6 +396,19 @@ Loop 3 {
             ec := g.Add("Edit", "x" EDIT_X " y" (y-2) " w" INIT_EDIT_W " h22")
             edCtrls["m" mNo "_" prop] := ec
             resizables.Push(ec)
+            ; f1/f2/f3 primary rows get a stacked single/editable pair in the left gutter,
+            ; aligned to this row (single) and the row below it (editable).
+            if (prop = "fu1" || prop = "fu2" || prop = "fu3") {
+                f    := Integer(SubStr(prop, 3))   ; "fu1" -> 1
+                sChk := g.Add("Checkbox", "x" TOG_COL_X " y" (y-2) " w" FU_CHK_W " h22", "single")
+                sChk.Value := IniRead(CFG_FILE, "Settings", "FuSingle_" mNo "_" f, "0") = "1"
+                sChk.OnEvent("Click", MakeFuToggle(mNo, f))
+                fuChks[mNo].Push(sChk)
+                eChk := g.Add("Checkbox", "x" TOG_COL_X " y" (y+25) " w" FU_CHK_W " h22", "edit")
+                eChk.Value := IniRead(CFG_FILE, "Settings", "EditableFu" f, "0") = "1"
+                eChk.OnEvent("Click", MakeEditFuToggle(f))
+                editFuChks[f].Push(eChk)
+            }
             y += 27
             if sep
                 y += 6
@@ -286,36 +442,20 @@ c := g.Add("Button", "x" (TAB_X+430) " y" TOGG_Y0 " w90 h28", "New Script")
 c.OnEvent("Click", NewAccScript)
 togCtrls.Push({c: c, x: TAB_X+430, oy: 0})
 
-editFuChks := []
-_edLbl := g.Add("Text", "x" (TAB_X+534) " y" (TOGG_Y0-11) " w18 Right", "Ed")
-togCtrls.Push({c: _edLbl, x: TAB_X+534, oy: -11})
-Loop 3 {
-    _f := A_Index
-    _xFu := TAB_X + 556 + (_f - 1) * 38
-    _eChk := g.Add("Checkbox", "x" _xFu " y" (TOGG_Y0-13) " w34", "F" _f)
-    _eChk.Value := IniRead(CFG_FILE, "Settings", "EditableFu" _f, "0") = "1"
-    _eChk.OnEvent("Click", MakeEditFuToggle(_f))
-    togCtrls.Push({c: _eChk, x: _xFu, oy: -13})
-    editFuChks.Push(_eChk)
-}
+c := g.Add("Button", "x" (TAB_X+530) " y" TOGG_Y0 " w100 h28", "Hotstrings")
+c.OnEvent("Click", OpenHotstrings)
+togCtrls.Push({c: c, x: TAB_X+530, oy: 0})
 
-fuChks := []
-Loop 3 {
-    m := A_Index
-    _oy := 4 + (m - 1) * 17
-    lbl := g.Add("Text", "x" (TAB_X+534) " y" (TOGG_Y0+_oy+2) " w18 Right", "M" m)
-    togCtrls.Push({c: lbl, x: TAB_X+534, oy: _oy+2})
-    fuChks.Push([])
-    Loop 3 {
-        f := A_Index
-        _xFu := TAB_X + 556 + (f - 1) * 38
-        chk := g.Add("Checkbox", "x" _xFu " y" (TOGG_Y0+_oy) " w34", "F" f)
-        chk.Value := IniRead(CFG_FILE, "Settings", "FuSingle_" m "_" f, "0") = "1"
-        chk.OnEvent("Click", MakeFuToggle(m, f))
-        togCtrls.Push({c: chk, x: _xFu, oy: _oy})
-        fuChks[m].Push(chk)
-    }
-}
+; Label carries the state, so the button is also the running indicator.
+btnPinger := g.Add("Button", "x" (TAB_X+640) " y" TOGG_Y0 " w95 h28", "Pinger: OFF")
+btnPinger.OnEvent("Click", TogglePinger)
+togCtrls.Push({c: btnPinger, x: TAB_X+640, oy: 0})
+
+c := g.Add("Button", "x" (TAB_X+745) " y" TOGG_Y0 " w95 h28", "Alt FUs…")
+c.OnEvent("Click", OpenAltWindow)
+togCtrls.Push({c: c, x: TAB_X+745, oy: 0})
+
+; (single/editable follow-up toggles moved inline onto the f1/f2/f3 rows above)
 
 togX := TAB_X
 Loop Files, ACC_DIR "\*.ahk" {
@@ -395,11 +535,74 @@ oorTabs.UseTab()
 gOrOr.Add("Button", "x10 y580 w120 h28", "Save to file").OnEvent("Click", (*) => ApplyFile(["1_mass.ahk","2_mass.ahk","3_mass.ahk"][oorTabs.Value]))
 gOrOr.Add("Button", "x140 y580 w80 h28", "Close").OnEvent("Click", (*) => gOrOr.Hide())
 
+; ─── Alt follow-up window (hidden; alts never show in the main panel) ─────────
+; Parsing an alt: line writes straight into these controls, so a pasted mass
+; registers its alternatives quietly. This window is the only place to see or
+; edit them.
+
+ALT_W       := 780
+ALT_LABEL_X := 12
+ALT_EDIT_X  := 92
+ALT_EDIT_W  := ALT_W - ALT_EDIT_X - 34
+
+gAlt := Gui("+Resize +MinSize560x420", "Alt follow-ups")
+gAlt.BackColor := "15141C"
+gAlt.SetFont("s9 cE6E4EE", "Segoe UI")
+altTabs := gAlt.Add("Tab3", "x10 y10 w" (ALT_W-20) " h812", ["M1", "M2", "M3"])
+altGuiChks := Map()
+
+Loop 3 {
+    mNo := A_Index
+    altTabs.UseTab(mNo)
+    y := 42
+
+    ; per-mass chooser style. Off = TAB staging in the chatbox (the default).
+    chk := gAlt.Add("Checkbox", "x" ALT_LABEL_X " y" y " w220 cE6E4EE", "alt: gui  (modal instead of TAB)")
+    altGuiChks[mNo] := chk
+    ec := gAlt.Add("Edit", "x" ALT_EDIT_X " y" y " w0 h0")     ; value holder for altGui
+    edCtrls["m" mNo "_altGui"] := ec
+    chk.OnEvent("Click", MakeAltGuiToggle(mNo))
+    y += 34
+
+    for _, grp in ALT_GROUPS {
+        gAlt.SetFont("s10 Bold cB89CFF", "Segoe UI")
+        gAlt.Add("Text", "x" ALT_LABEL_X " y" y " w200", StrUpper(grp))
+        gAlt.SetFont("s9 Norm cE6E4EE", "Segoe UI")
+        y += 22
+
+        ; the base variant, shown read-only so you can see what you are alternating
+        gAlt.Add("Text", "x" ALT_LABEL_X " y" (y+3) " w74 Right c8E8AA6", "base:")
+        ec := gAlt.Add("Edit", "x" ALT_EDIT_X " y" y " w" ALT_EDIT_W " h20 ReadOnly Background201E2B")
+        altBaseEcho[mNo "_" grp] := ec
+        y += 26
+
+        for ai, fld in AltFields(grp) {
+            gAlt.Add("Text", "x" ALT_LABEL_X " y" (y+3) " w74 Right c8E8AA6", "alt" (ai-1) ":")
+            ec := gAlt.Add("Edit", "x" ALT_EDIT_X " y" y " w" ALT_EDIT_W " h56 Multi +VScroll Background201E2B")
+            edCtrls["m" mNo "_" fld] := ec
+            y += 60
+        }
+        y += 10
+    }
+}
+altTabs.UseTab()
+
+gAlt.SetFont("s9 cE6E4EE", "Segoe UI")
+gAlt.Add("Button", "x10 y834 w120 h28", "Save to file").OnEvent("Click", SaveAltToFile)
+gAlt.Add("Button", "x140 y834 w80 h28", "Close").OnEvent("Click", (*) => gAlt.Hide())
+gAlt.Add("Text", "x240 y840 w520 c8E8AA6",
+         "An alt may span lines — each line is sent as its own message, like the base.")
+ArchiveDarkTheme(gAlt, [])
+
 lblCredit.GetPos(, , &lblCreditW)
 lblCredit.Move(INIT_W - lblCreditW - 10)
 
 ; auto-start configured startup scripts (defaults to general.ahk) if not already running
 LaunchStartupScripts()
+LaunchAutomationListener()
+if pinger
+    LaunchPinger()
+SetTimer(RefreshPingerLabel, -800)   ; after python has claimed the event
 if autoRestart
     SetTimer(WatchdogTick, 5000)
 
@@ -409,7 +612,7 @@ SetTimer(() => CheckUpdate(true), -3000)  ; silent check 3s after startup
 
 ApplyLayout(W, H) {
     global
-    pasteX     := Round(W * 0.6)
+    pasteX     := Round(W * PASTE_SPLIT)
     newPasteH  := Floor((H - 20) * 0.52)
     for _, tc in topCtrls
         tc.c.Move(pasteX + tc.ox)
@@ -447,12 +650,21 @@ OnMessage(0x0005, OnWMSize)
 
 AutoParseFromClipboard(wParam, lParam, msg, hwnd) {
     global
-    edPaste.Value := A_Clipboard
-    if fastParseAutosave {
+    raw      := A_Clipboard
+    detected := ExtractModelName(&raw)          ; strips a leading @model line if present
+    edPaste.Value := raw
+    slot := detected != "" ? MatchModelName(detected) : 0
+    ; Fast mode auto-saves only when we know the model: a matched name, or the model
+    ; the last import was routed to. Otherwise ask — never silently dump into mass 1.
+    if (fastParseAutosave && slot) {
         ParseCurrent()
-        ApplyFile(_mFiles[tabs.Value], true)
+        ApplyFile(_mFiles[slot], true)
+        _lastImportModel := slot
+    } else if (fastParseAutosave && detected = "" && _lastImportModel) {
+        ParseCurrent()
+        ApplyFile(_mFiles[_lastImportModel], true)
     } else {
-        PromptSaveTarget()
+        PromptSaveTarget(detected)
     }
 }
 OnMessage(0x8010, AutoParseFromClipboard) ; 0x8010: paste clipboard into edPaste + parse (from copyDiscordMessageSeq)
@@ -480,68 +692,148 @@ WebImportFromClipboard(dataType) {
 }
 OnClipboardChange(WebImportFromClipboard)
 
-PromptSaveTarget() {
-    global _mNames, _mFiles, tabs, modelCount, g
-    names := []
-    Loop modelCount
-        names.Push(_mNames[A_Index])
+; ─── Model name repository ────────────────────────────────────────────────────
+; An imported mass can be tagged with a model name that differs from the slot's own
+; name (e.g. "AW" for the "ALIW" model). We keep a small alias table in the cfg
+; [ModelAliases] (name -> slot) so the import prompt can match a known name to its
+; model automatically, or remember a new one.
 
-    pg := Gui("+Owner" g.Hwnd, "Save parsed message")
+ModelNameForSlot(slot) {
+    global model1Name, model2Name, model3Name
+    return slot = 1 ? model1Name : slot = 2 ? model2Name : model3Name
+}
+
+; Returns the slot (1..modelCount) a name maps to, or 0 if unknown.
+MatchModelName(name) {
+    global CFG_FILE, modelCount
+    name := Trim(name)
+    if name = ""
+        return 0
+    Loop modelCount                                   ; a slot's own name always matches
+        if StrLower(ModelNameForSlot(A_Index)) = StrLower(name)
+            return A_Index
+    slot := IniRead(CFG_FILE, "ModelAliases", name, "")   ; ini keys are case-insensitive
+    if (IsInteger(slot) && Integer(slot) >= 1 && Integer(slot) <= modelCount)
+        return Integer(slot)
+    return 0
+}
+
+RememberModelName(name, slot) {
+    global CFG_FILE
+    name := Trim(name)
+    if (name != "" && slot >= 1)
+        IniWrite(slot, CFG_FILE, "ModelAliases", name)
+}
+
+; Model names + saved aliases, for the prompt's combo box.
+KnownModelNames() {
+    global CFG_FILE, modelCount
+    names := [], seen := Map()
+    add(nm) {
+        if (Trim(nm) != "" && !seen.Has(StrLower(nm))) {
+            names.Push(nm)
+            seen[StrLower(nm)] := true
+        }
+    }
+    Loop modelCount
+        add(ModelNameForSlot(A_Index))
+    sect := ""
+    try sect := IniRead(CFG_FILE, "ModelAliases")
+    for line in StrSplit(sect, "`n") {
+        p := InStr(line, "=")
+        if p
+            add(Trim(SubStr(line, 1, p - 1)))
+    }
+    return names
+}
+
+; If the text opens with an explicit "@model: NAME" marker line, consume it (strip
+; from raw) and return the name. Gives the Discord/webgui flows a clean way to tag
+; the model later; absent -> "". raw is modified in place.
+ExtractModelName(&raw) {
+    lines := StrSplit(StrReplace(StrReplace(raw, "`r`n", "`n"), "`r", "`n"), "`n")
+    for i, ln in lines {
+        t := Trim(ln)
+        if t = ""
+            continue
+        if RegExMatch(t, "i)^@(?:mma-)?model\s*[:=]?\s*(.+)$", &m) {
+            name := Trim(m[1])
+            lines.RemoveAt(i)
+            raw := ""
+            for _, l in lines
+                raw .= (raw = "" ? "" : "`n") l
+            return name
+        }
+        return ""   ; first real line isn't a marker
+    }
+    return ""
+}
+
+PromptSaveTarget(detectedName := "") {
+    global _mFiles, tabs, modelCount, g, _lastImportModel
+    modelItems := []
+    Loop modelCount
+        modelItems.Push(A_Index ": " ModelNameForSlot(A_Index))
+
+    pg := Gui("+Owner" g.Hwnd, "Import — route to model")
     pg.SetFont("s9", "Segoe UI")
-    pg.Add("Text", "x10 y14 w45", "Model:")
-    ddlModel := pg.Add("DropDownList", "x60 y11 w150", names)
-    ddlModel.Value := 1
-    pg.Add("Text", "x10 y46 w45", "Mass #:")
-    rd1 := pg.Add("Radio", "x60 y44 Group", "1")
-    rd2 := pg.Add("Radio", "x105 y44", "2")
-    rd3 := pg.Add("Radio", "x150 y44", "3")
+
+    pg.Add("Text", "x10 y14 w45", "Name:")
+    cbName := pg.Add("ComboBox", "x60 y11 w150", KnownModelNames())
+    cbName.Text := detectedName
+
+    pg.Add("Text", "x10 y46 w45", "Model:")
+    ddlModel := pg.Add("DropDownList", "x60 y43 w150", modelItems)
+    _pre := MatchModelName(detectedName)
+    ddlModel.Value := _pre ? _pre : (_lastImportModel ? _lastImportModel : 1)
+
+    chkRemember := pg.Add("Checkbox", "x60 y72", "Remember this name for the model")
+
+    pg.Add("Text", "x10 y100 w45", "Mass #:")
+    rd1 := pg.Add("Radio", "x60 y98 Group", "1")
+    rd2 := pg.Add("Radio", "x105 y98", "2")
+    rd3 := pg.Add("Radio", "x150 y98", "3")
     rd1.Value := true
-    pg.Add("Button", "x10  y78 w95 h26 Default", "Parse + Save").OnEvent("Click", DoSave)
-    pg.Add("Button", "x115 y78 w95 h26", "Cancel").OnEvent("Click", (*) => pg.Destroy())
-    pg.Show("w230 h116")
+
+    pg.Add("Button", "x10  y130 w110 h26 Default", "Parse + Save").OnEvent("Click", DoSave)
+    pg.Add("Button", "x130 y130 w80 h26", "Cancel").OnEvent("Click", (*) => pg.Destroy())
+
+    cbName.OnEvent("Change", NameChanged)   ; auto-pick the model when the name is known
+    pg.Show("w230 h172")
+
+    NameChanged(*) {
+        s := MatchModelName(cbName.Text)
+        if s
+            ddlModel.Value := s
+    }
 
     DoSave(*) {
+        slot := ddlModel.Value
+        if (chkRemember.Value && Trim(cbName.Text) != "")
+            RememberModelName(cbName.Text, slot)
+        _lastImportModel := slot
         tabs.Value := rd1.Value ? 1 : rd2.Value ? 2 : 3
         ParseCurrent()
-        ApplyFile(_mFiles[ddlModel.Value], true)
+        ApplyFile(_mFiles[slot], true)
         pg.Destroy()
     }
 }
 
-ParseCurrent(*) {
-    global
-    raw := StrReplace(StrReplace(edPaste.Value, "`r`n", "`n"), "`r", "`n")
-    mNo := tabs.Value
-    pfx := "m" mNo "_"
-    for k, c in edCtrls
-        if SubStr(k, 1, 3) = pfx
-            c.Value := ""
-    FillTab(StrSplit(raw, "`n"), mNo)
-    if chkArchive.Value && Trim(raw) != "" {
-        mName := mNo = 1 ? model1Name : mNo = 2 ? model2Name : model3Name
-        ts    := FormatTime(, "yyyy-MM-dd HH:mm:ss")
-        FileAppend "[" ts "] [" mName "]`n" raw "`n===END===`n`n", A_ScriptDir "\mass_archive.txt", "UTF-8"
-    }
+; ─── Archive ──────────────────────────────────────────────────────────────────
+; One parser for both readers — the viewer below and the duplicate check. They
+; used to be the same code twice, which is how they would drift apart.
+
+ArchiveFile() {
+    return A_ScriptDir "\mass_archive.txt"
 }
 
-ClearAll(*) {
-    global
-    edPaste.Value := ""
-    for _, c in edCtrls
-        c.Value := ""
-}
-
-OpenArchive(*) {
-    global edPaste
-    archiveFile := A_ScriptDir "\mass_archive.txt"
-    if !FileExist(archiveFile) {
-        MsgBox "No archive file found."
-        return
-    }
-    raw     := FileRead(archiveFile, "UTF-8")
-    chunks  := StrSplit(raw, "===END===")
+ReadArchiveEntries() {
+    path := ArchiveFile()
     entries := []
-    for chunk in chunks {
+    if !FileExist(path)
+        return entries
+    raw := FileRead(path, "UTF-8")
+    for chunk in StrSplit(raw, "===END===") {
         chunk := Trim(chunk, " `t`r`n")   ; Trim() alone keeps leading CR/LF, making lines[1] empty → only first entry parsed
         if chunk = ""
             continue
@@ -565,36 +857,292 @@ OpenArchive(*) {
         }
         entries.Push({ts: hm[1], model: hm[2], content: content, preview: preview})
     }
+    return entries
+}
+
+; Compare on meaning, not layout: trailing spaces and blank lines vary between
+; two pastes of the same mass. Case is left alone — changing it is a real edit.
+NormalizeMass(s) {
+    s := StrReplace(StrReplace(s, "`r`n", "`n"), "`r", "`n")
+    out := ""
+    for ln in StrSplit(s, "`n") {
+        t := Trim(ln)
+        if t != ""
+            out .= t "`n"
+    }
+    return out
+}
+
+; "2026-06-22 10:48:04" -> "20260622000000". Date only: the window is in whole
+; calendar days, so the time of day must not affect the comparison.
+ArchiveDayStamp(ts) {
+    d := RegExReplace(SubStr(Trim(ts), 1, 10), "[^0-9]", "")
+    return StrLen(d) = 8 ? d "000000" : ""
+}
+
+; True if this exact mass is already archived for this model within the last
+; ArchiveDupDays days. Re-parsing the same paste is routine (fixing one line and
+; hitting parse again), and every parse used to append: 21 of the first 59
+; entries were duplicates, one mass stored 9 times in under two minutes.
+ArchiveHasRecentDuplicate(mName, raw) {
+    global CFG_FILE
+    window := Integer(IniRead(CFG_FILE, "Settings", "ArchiveDupDays", "1"))
+    if window < 0
+        return false
+    want  := NormalizeMass(raw)
+    today := ArchiveDayStamp(FormatTime(, "yyyy-MM-dd"))
+    if want = "" || today = ""
+        return false
+    for e in ReadArchiveEntries() {
+        if !(StrLower(Trim(e.model)) = StrLower(Trim(mName)))
+            continue
+        if NormalizeMass(e.content) != want
+            continue
+        stamp := ArchiveDayStamp(e.ts)
+        if stamp = ""
+            continue
+        age := DateDiff(today, stamp, "Days")
+        if (age >= 0 && age <= window)
+            return true
+    }
+    return false
+}
+
+ClearArchiveTip() {
+    ToolTip()
+}
+
+ParseCurrent(*) {
+    global
+    raw := StrReplace(StrReplace(edPaste.Value, "`r`n", "`n"), "`r", "`n")
+    mNo := tabs.Value
+    pfx := "m" mNo "_"
+    for k, c in edCtrls
+        if SubStr(k, 1, 3) = pfx
+            c.Value := ""
+    FillTab(StrSplit(raw, "`n"), mNo)
+    RefreshAltWindow()          ; alts never surface in the main panel; keep their window honest
+    if chkArchive.Value && Trim(raw) != "" {
+        mName := mNo = 1 ? model1Name : mNo = 2 ? model2Name : model3Name
+        if ArchiveHasRecentDuplicate(mName, raw) {
+            ; "quietly disallow" — no dialog to dismiss, but not invisible either,
+            ; or an unsaved mass looks identical to a saved one.
+            ToolTip("Archive: already saved, skipped")
+            SetTimer(ClearArchiveTip, -1500)
+        } else {
+            ts := FormatTime(, "yyyy-MM-dd HH:mm:ss")
+            FileAppend "[" ts "] [" mName "]`n" raw "`n===END===`n`n", ArchiveFile(), "UTF-8"
+        }
+    }
+}
+
+ClearAll(*) {
+    global
+    edPaste.Value := ""
+    for _, c in edCtrls
+        c.Value := ""
+}
+
+; Windows only themes these controls if asked; without it a dark BackColor still
+; leaves white scrollbars and a white ListView header.
+ArchiveDarkTheme(guiObj, ctrls) {
+    static LVM_GETHEADER := 0x101F
+    for attr in [20, 19]              ; DWMWA_USE_IMMERSIVE_DARK_MODE (20 new, 19 old)
+        try DllCall("dwmapi\DwmSetWindowAttribute", "ptr", guiObj.Hwnd, "int", attr, "int*", 1, "int", 4)
+    for c in ctrls {
+        try DllCall("uxtheme\SetWindowTheme", "ptr", c.Hwnd, "str", "DarkMode_Explorer", "ptr", 0)
+        ; The column header is a separate SysHeader32 child and does NOT inherit the
+        ; list's theme — themed alone it stays white on the dark list.
+        if c.Type = "ListView" {
+            hHdr := SendMessage(LVM_GETHEADER, 0, 0, c)
+            if hHdr
+                try DllCall("uxtheme\SetWindowTheme", "ptr", hHdr, "str", "DarkMode_ItemsView", "ptr", 0)
+        }
+    }
+}
+
+ArchiveCueBanner(ctrl, text) {
+    static EM_SETCUEBANNER := 0x1501
+    SendMessage(EM_SETCUEBANNER, 1, StrPtr(text), ctrl)
+}
+
+; A mass is multi-line; the list column needs one line.
+ArchiveFlatten(s) {
+    s := StrReplace(StrReplace(s, "`r`n", " "), "`n", " ")
+    return RegExReplace(Trim(s), "\s+", " ")
+}
+
+OpenArchive(*) {
+    global edPaste, g
+    if !FileExist(ArchiveFile()) {
+        MsgBox "No archive file found."
+        return
+    }
+    entries := ReadArchiveEntries()
     if !entries.Length {
         MsgBox "Archive is empty."
         return
     }
-    ag := Gui("+Owner" g.Hwnd, "Mass Archive")
-    ag.BackColor := "1a1a1a"
-    ag.SetFont("s9 cWhite", "Segoe UI")
-    ag.MarginX := 10
-    ag.MarginY := 10
-    lv := ag.Add("ListView", "w660 h380 -Multi Background1a1a1a cWhite", ["Timestamp", "Model", "Preview"])
-    lv.ModifyCol(1, 160)
-    lv.ModifyCol(2, 80)
-    lv.ModifyCol(3, 400)
-    Loop entries.Length {
-        e := entries[entries.Length - A_Index + 1]
-        lv.Add("", e.ts, e.model, e.preview)
-    }
-    revEntries := []
+
+    ; newest first — the one you want is nearly always the most recent
+    all := []
     Loop entries.Length
-        revEntries.Push(entries[entries.Length - A_Index + 1])
-    ag.Add("Button", "w100 y+8", "Load").OnEvent("Click", DoLoad)
-    ag.Add("Button", "w80 x+6",  "Close").OnEvent("Click", (*) => ag.Destroy())
-    ag.Show("w680")
-    lv.OnEvent("DoubleClick", DoLoad)
-    DoLoad(*) {
+        all.Push(entries[entries.Length - A_Index + 1])
+
+    ; same palette as hotstrings_gui.ahk (dark violet, Infloww family)
+    BG      := "15141C"
+    SURFACE := "201E2B"
+    LISTBG  := "1B1A24"
+    FIELDBG := "2A2836"
+    TXT     := "E6E4EE"
+    MUTED   := "8E8AA6"
+    ACCENT  := "B89CFF"
+
+    ag := Gui("+Owner" g.Hwnd " +Resize +MinSize640x420", "Mass Archive")
+    ag.BackColor := BG
+    ag.MarginX := 0
+    ag.MarginY := 0
+
+    ag.SetFont("s14 Bold c" ACCENT, "Segoe UI")
+    ag.Add("Text", "x16 y13 w420", Chr(0x2726) "  Mass Archive")
+    ag.SetFont("s10 Norm c" MUTED, "Segoe UI")
+    lblCount := ag.Add("Text", "x440 y21 w264 Right", "")
+
+    ag.SetFont("s11 c" TXT, "Segoe UI")
+    edSearch := ag.Add("Edit", "x16 y48 w688 h30 Background" FIELDBG)
+    ArchiveCueBanner(edSearch, "Search model or message text" Chr(0x2026)
+                             . "   (spaces = all terms must match)")
+
+    ag.SetFont("s10 c" TXT, "Segoe UI")
+    lv := ag.Add("ListView", "x16 y88 w688 h230 -Multi Background" LISTBG,
+                 ["When", "Model", "Preview", "idx"])
+    lv.ModifyCol(1, 140)
+    lv.ModifyCol(2, 80)
+    lv.ModifyCol(3, 430)              ; leaves room for the vertical scrollbar
+    lv.ModifyCol(4, 0)                ; hidden: index into `all`, rides with its row
+
+    edDetail := ag.Add("Edit", "x16 y328 w688 h150 ReadOnly +VScroll Background" SURFACE)
+
+    ag.SetFont("s9 c" TXT, "Segoe UI")
+    btnLoad  := ag.Add("Button", "x16  y490 w110 h28", "Load")
+    btnCopy  := ag.Add("Button", "x132 y490 w110 h28", "Copy")
+    btnClose := ag.Add("Button", "x614 y490 w90  h28", "Close")
+
+    edSearch.OnEvent("Change",      DoSearch)
+    lv.OnEvent("ItemFocus",         DoFocus)
+    lv.OnEvent("DoubleClick",       DoLoad)
+    btnLoad.OnEvent("Click",        DoLoad)
+    btnCopy.OnEvent("Click",        DoCopy)
+    btnClose.OnEvent("Click",       DoClose)
+    ag.OnEvent("Close",             DoClose)
+    ag.OnEvent("Escape",            DoClose)
+    ag.OnEvent("Size",              DoSize)
+
+    ArchiveDarkTheme(ag, [lv, edDetail, edSearch])
+    Populate("")
+    ag.Show("w720 h532")
+    return
+
+    Populate(query) {
+        terms := []
+        for t in StrSplit(Trim(query), " ")
+            if t != ""
+                terms.Push(t)
+
+        lv.Opt("-Redraw")
+        lv.Delete()
+        shown := 0
+        for i, e in all {
+            if Matches(e, terms) {
+                lv.Add(, e.ts, e.model, ArchiveFlatten(e.preview), i)
+                shown++
+            }
+        }
+        lv.Opt("+Redraw")
+
+        lblCount.Value := (shown = all.Length)
+            ? all.Length " masses"
+            : shown " of " all.Length " shown"
+
+        if shown {
+            lv.Modify(1, "Select Focus Vis")
+            DoFocus(lv, 1)
+        } else {
+            edDetail.Value := "No matches."
+        }
+    }
+
+    ; Search the whole mass, not just the preview — the line you remember is
+    ; usually in the middle of it, which is the point of having a search box.
+    Matches(e, terms) {
+        if !terms.Length
+            return true
+        hay := e.ts " " e.model " " e.content
+        for t in terms
+            if !InStr(hay, t, false)
+                return false
+        return true
+    }
+
+    Selected() {
         row := lv.GetNext(0)
         if !row
+            return 0
+        idx := Integer(lv.GetText(row, 4))
+        return (idx >= 1 && idx <= all.Length) ? idx : 0
+    }
+
+    DoSearch(*) {
+        Populate(edSearch.Value)
+    }
+
+    DoFocus(ctrl, row) {
+        if !row || row > ctrl.GetCount()
             return
-        edPaste.Value := revEntries[row].content
+        idx := Integer(ctrl.GetText(row, 4))
+        if idx < 1 || idx > all.Length
+            return
+        e := all[idx]
+        edDetail.Value := e.ts "   " Chr(0x2022) "   " e.model "`r`n`r`n" e.content
+    }
+
+    DoLoad(*) {
+        idx := Selected()
+        if !idx
+            return
+        edPaste.Value := all[idx].content
+        DoClose()
+    }
+
+    DoCopy(*) {
+        idx := Selected()
+        if !idx
+            return
+        A_Clipboard := all[idx].content
+        ToolTip("Copied to clipboard")
+        SetTimer(ClearArchiveTip, -1200)
+    }
+
+    DoClose(*) {
         ag.Destroy()
+    }
+
+    DoSize(guiObj, minMax, W, H) {
+        if minMax = -1                ; minimised: dimensions are meaningless
+            return
+        pad  := 16
+        cw   := W - pad * 2
+        listH := H - 302              ; footer + detail keep fixed heights
+        if listH < 80
+            listH := 80
+        lblCount.Move(pad + 240, 21, cw - 240)
+        edSearch.Move(pad, 48, cw)
+        lv.Move(pad, 88, cw, listH)
+        lv.ModifyCol(3, cw - 258)     ; 140 + 80 cols + scrollbar
+        edDetail.Move(pad, 88 + listH + 10, cw, H - (88 + listH + 10) - 54)
+        btnLoad.Move(pad, H - 42)
+        btnCopy.Move(pad + 116, H - 42)
+        btnClose.Move(W - pad - 90, H - 42)
     }
 }
 
@@ -650,10 +1198,15 @@ EscQ(s) {
 }
 
 StripPrefix(s) {
+    global PREFIX_EXCEPTIONS
     if RegExMatch(s, "i)^[Ff][Uu]?\s?\d+(?:\.\d+)?[:\s]+", &m)
         return SubStr(s, m.Len + 1)
-    if RegExMatch(s, "^\S+:(?![)(])\s*", &m)
+    if RegExMatch(s, "^\S+:(?![)(])\s*", &m) {
+        scheme := SubStr(s, 1, InStr(s, ":") - 1)   ; word before the first colon
+        if PREFIX_EXCEPTIONS.Has(StrLower(scheme))  ; e.g. https:  → leave the URL intact
+            return s
         return SubStr(s, m.Len + 1)
+    }
     return s
 }
 
@@ -954,14 +1507,91 @@ FillTab(lines, mNo) {
         if fIdx > 3
             continue
         slots := fSlotGroups[fIdx]
+        split := SplitAltLines(grp)
+
         for si, slot in slots {
-            if si > grp.Length
+            if si > split.baseParts.Length
                 break
             ck := "m" mNo "_" slot
             if edCtrls.Has(ck)
-                edCtrls[ck].Value := StripPrefix(Trim(grp[si]))
+                edCtrls[ck].Value := StripPrefix(Trim(split.baseParts[si]))
+        }
+
+        altFlds := AltFields(ALT_GROUPS[fIdx])
+        for ai, parts in split.alts {
+            if ai > altFlds.Length          ; more alts than slots — keep the first ALT_MAX
+                break
+            ck := "m" mNo "_" altFlds[ai]
+            if !edCtrls.Has(ck)
+                continue
+            joined := ""
+            for _, p in parts
+                joined .= (joined != "" ? "`r`n" : "") p
+            edCtrls[ck].Value := joined
         }
     }
+}
+
+; Split one follow-up group into its base variant and its alternatives.
+;
+;   alt:   -> each line is its OWN alternative (the common case, one-liners)
+;   alt0:  -> numbered; lines sharing a number join into one MULTI-PART alternative
+;
+; Both forms can be mixed; an unnumbered alt: always takes the next free slot.
+; That distinction is the whole point — without it "alt:" twice is ambiguous
+; between two single-part alts and one two-part alt.
+; NOTE: the returned field is `baseParts`, not `base` — in an AHK v2 object literal
+; `{base: x}` sets the object's PROTOTYPE, so returning {base: someArray} throws
+; "Invalid base." at the call site rather than storing a field.
+SplitAltLines(grp) {
+    baseLines := []
+    alts := Map()
+    order := []
+    maxIdx := 0
+
+    for _, rawLn in grp {
+        t := Trim(rawLn)
+        if t = ""
+            continue
+        if RegExMatch(t, "i)^alt\s*(\d*)\s*:\s*(.*)$", &am) {
+            body := Trim(am[2])
+            if body = ""
+                continue
+            idx := (am[1] = "") ? maxIdx + 1 : Integer(am[1]) + 1   ; alt0 -> slot 1
+            if idx < 1
+                idx := 1
+            if !alts.Has(idx) {
+                alts[idx] := []
+                order.Push(idx)
+            }
+            alts[idx].Push(body)
+            if idx > maxIdx
+                maxIdx := idx
+        } else {
+            baseLines.Push(t)
+        }
+    }
+
+    ; compact to a dense array in first-seen order, so a stray alt5: does not
+    ; leave four empty slots in front of it
+    sorted := []
+    for _, idx in order
+        sorted.Push(idx)
+    Loop sorted.Length - 1 {                  ; tiny list; insertion sort keeps it obvious
+        i := A_Index + 1
+        v := sorted[i]
+        j := i - 1
+        while (j >= 1 && sorted[j] > v) {
+            sorted[j + 1] := sorted[j]
+            j--
+        }
+        sorted[j + 1] := v
+    }
+    out := []
+    for _, idx in sorted
+        out.Push(alts[idx])
+
+    return {baseParts: baseLines, alts: out}
 }
 
 ; ─── Load from file ───────────────────────────────────────────────────────────
@@ -974,12 +1604,7 @@ LoadFile(fname) {
         return
     }
     content := FileRead(path, "UTF-8")
-    props   := ["mass","fu1","fu1_5","fu1_7","fu2","fu2_5","fu2_7",
-                "fu3","fu3_5","fu3_7","ppv_base","ppv_f1","ppv_f2","ppv_f3",
-                "orOr","b1_label","b2_label",
-                "b2_fu1","b2_fu1_5","b2_fu1_7","b2_fu2","b2_fu2_5","b2_fu2_7",
-                "b2_fu3","b2_fu3_5","b2_fu3_7","b2_ppv_base",
-                "b2_ppv_f1","b2_ppv_f2","b2_ppv_f3"]
+    props   := MassBlockProps()
     Loop 3 {
         mNo := A_Index
         if !RegExMatch(content, "m" mNo " := \{([^}]*)\}", &blk)
@@ -987,14 +1612,17 @@ LoadFile(fname) {
         blockText := blk[1]
         for _, prop in props {
             ck := "m" mNo "_" prop
-            if RegExMatch(blockText, prop ": " Chr(34) "((?:[^" Chr(34) Chr(96) "]|" Chr(96) ".)*)" Chr(34), &mv) && edCtrls.Has(ck) {
+            ; alt fields are longest-first in MassBlockProps so "fu1_alt0" cannot be
+            ; matched by the "fu1" pattern; anchor anyway to be certain.
+            if RegExMatch(blockText, "(?:^|\R)\s*" prop ": " Chr(34) "((?:[^" Chr(34) Chr(96) "]|" Chr(96) ".)*)" Chr(34), &mv) && edCtrls.Has(ck) {
                 v := mv[1]
-                if (prop = "ppv_base" || prop = "b2_ppv_base")
+                if MassPropIsMultiline(prop)
                     v := StrReplace(v, "``n", "`r`n")
                 edCtrls[ck].Value := UnescQ(v)
             }
         }
     }
+    RefreshAltWindow()
     _nameMap := Map("1_mass.ahk", model1Name, "2_mass.ahk", model2Name, "3_mass.ahk", model3Name)
     lblLoaded.Text := (_nameMap.Has(fname) ? _nameMap[fname] : fname) " loaded"
 }
@@ -1044,12 +1672,16 @@ BuildMassTemplate(fname) {
     q := Chr(34)
     SplitPath fname, , , , &base
     num := RegExReplace(base, "\D", "")
-    if num = "3"
-        hk := [hk3_f1, hk3_f2, hk3_f3, hk3_ppv, hk3_ppvfu]
-    else if num = "2"
-        hk := [hk2_f1, hk2_f2, hk2_f3, hk2_ppv, hk2_ppvfu]
-    else
-        hk := [hk1_f1, hk1_f2, hk1_f3, hk1_ppv, hk1_ppvfu]
+
+    ; The generated HK_Bind calls only work for slots hotkeys.ahk declares. Without
+    ; this the file would build fine and then bind nothing, logging to error_log
+    ; where nobody looks.
+    if !HK_META.Has("mass." num ".fu1") {
+        MsgBox "No hotkeys are declared for model slot " num ".`n`n"
+             . "Add a [mass." num "] section to hotkeys.ini and HK_Def lines to "
+             . "hotkeys.ahk first, otherwise " fname " will load but none of its "
+             . "hotkeys will work.",, 0x30
+    }
 
     out := "#Requires AutoHotkey v2.0`n#SingleInstance Force`n#Include " q "utils.ahk" q "`n`nmassNo := 1`nmodelFileNo := " num "`n`n"
     Loop 3
@@ -1079,36 +1711,42 @@ BuildMassTemplate(fname) {
         return s
     }
 
-    sc := Chr(59)
-    out .= hk[1] "::{ " sc " send fu1`n    switch massNo`n    {`n" BuildSwitchFu(1, "fu1","fu1_5","fu1_7") "    }`n}`n`n"
-    out .= hk[2] "::{ " sc " send fu2`n    switch massNo`n    {`n" BuildSwitchFu(2, "fu2","fu2_5","fu2_7") "    }`n}`n`n"
-    out .= hk[3] "::{ " sc " send fu3`n    switch massNo`n    {`n" BuildSwitchFu(3, "fu3","fu3_5","fu3_7") "    }`n}`n`n"
+    ; Named functions + HK_Bind, never literal keys: the keys belong to
+    ; hotkeys.ini under [mass.<n>], so a generated file never needs rewriting to
+    ; change one.
+    out .= "DoFu1(){`n    switch massNo`n    {`n" BuildSwitchFu(1, "fu1","fu1_5","fu1_7") "    }`n}`n`n"
+    out .= "DoFu2(){`n    switch massNo`n    {`n" BuildSwitchFu(2, "fu2","fu2_5","fu2_7") "    }`n}`n`n"
+    out .= "DoFu3(){`n    switch massNo`n    {`n" BuildSwitchFu(3, "fu3","fu3_5","fu3_7") "    }`n}`n`n"
 
-    out .= hk[4] "::{ " sc " send ppv1`n    ppv := `"`"`n    switch massNo{`n"
+    out .= "DoPpv(){`n    ppv := `"`"`n    switch massNo{`n"
     Loop 3
         out .= "        case " A_Index ": ppv := m" A_Index ".ppv_base`n"
     out .= "    }`n    A_Clipboard := ppv`n    ClipWait(0.1)`n    Send " q "^v" q "`n}`n`n"
 
-    out .= hk[5] "::{ " sc " send ppv2`n    switch massNo`n    {`n" BuildSwitch("ppv_f1","ppv_f2","ppv_f3") "    }`n}`n"
+    out .= "DoPpvFus(){`n    switch massNo`n    {`n" BuildSwitch("ppv_f1","ppv_f2","ppv_f3") "    }`n}`n`n"
+
+    for _, slot in ["fu1", "fu2", "fu3", "smFu1", "smFu2", "smFu3", "ppv", "ppvFus"] {
+        fn := (slot = "ppv") ? "DoPpv"
+            : (slot = "ppvFus") ? "DoPpvFus"
+            : "DoFu" SubStr(slot, -1)
+        out .= "HK_Bind(" q "mass." num "." slot q ", " fn ")`n"
+    }
+    out .= "`nStartFuGating(HK_ModelSendIds(modelFileNo))`n"
     return out
 }
 
 
 BuildBlock(mNo) {
     global
-    props  := ["mass","fu1","fu1_5","fu1_7","fu2","fu2_5","fu2_7",
-               "fu3","fu3_5","fu3_7","ppv_base","ppv_f1","ppv_f2","ppv_f3",
-               "orOr","b1_label","b2_label",
-               "b2_fu1","b2_fu1_5","b2_fu1_7","b2_fu2","b2_fu2_5","b2_fu2_7",
-               "b2_fu3","b2_fu3_5","b2_fu3_7","b2_ppv_base",
-               "b2_ppv_f1","b2_ppv_f2","b2_ppv_f3"]
-    breaks := Map("fu1_7", 1, "fu2_7", 1, "fu3_7", 1, "ppv_f3", 1, "b2_fu1_7", 1, "b2_fu2_7", 1, "b2_fu3_7", 1)
+    props  := MassBlockProps()
+    breaks := Map("fu1_7", 1, "fu2_7", 1, "fu3_7", 1, "ppv_f3", 1, "b2_fu1_7", 1, "b2_fu2_7", 1, "b2_fu3_7", 1,
+                  "fu1_alt2", 1, "fu2_alt2", 1, "fu3_alt2", 1, "b2_ppv_f3", 1)
     out    := "m" mNo " := {`n"
     Loop props.Length {
         p     := props[A_Index]
         val   := edCtrls.Has("m" mNo "_" p) ? edCtrls["m" mNo "_" p].Value : ""
         val   := EscQ(val)
-        if (p = "ppv_base" || p = "b2_ppv_base")
+        if MassPropIsMultiline(p)
             val := StrReplace(StrReplace(val, "`r`n", "``n"), "`n", "``n")
         comma := A_Index < props.Length ? "," : ""
         out   .= p ': "' val '"' comma "`n"
@@ -1161,6 +1799,8 @@ KillAllAndExit(*) {
 KillAllScripts() {
     global SCRIPT_DIR
     try SetTimer(WatchdogTick, 0)        ; stop watchdog first so it can't relaunch anything
+    StopAutomationListener()             ; not an AHK window, so the loop below misses it
+    StopPinger()                         ; likewise
     myPID := ProcessExist()
     DetectHiddenWindows true
     for hwnd in WinGetList("ahk_class AutoHotkey") {
@@ -1192,8 +1832,118 @@ LaunchStartupScripts() {
     }
 }
 
+; ── the Python automation listener ────────────────────────────────────────────
+;  automation.py serves the [automation] hotkeys. It cannot ride on startupScripts:
+;  that path tests WinExist("… ahk_class AutoHotkey") and KillAllScripts only closes
+;  AutoHotkey windows, neither of which sees a Python process.
+;
+;  It signs its presence with a named event, so we can ask "is it up?" with one
+;  DllCall instead of shelling out to `--status` (which would spawn a whole Python
+;  every watchdog tick, every 5 seconds).
+;
+;  Launched via the .vbs so there is no console window; it is single-instance on its
+;  own (a named mutex), so a double-launch is harmless — the second copy just exits.
+
+; Open the listener's own named event. Its mere existence means "a listener is up";
+; setting it means "please exit". Must match STOP_EVENT_NAME in automation.py.
+_AutomationOpenEvent() {
+    static EVENT_MODIFY_STATE := 0x0002
+    static EVENT_NAME := "Global\MMA.automation.listener.stop"
+    return DllCall("OpenEventW", "UInt", EVENT_MODIFY_STATE, "Int", false,
+                   "Str", EVENT_NAME, "Ptr")
+}
+
+AutomationListenerRunning() {
+    h := _AutomationOpenEvent()
+    if !h
+        return false
+    DllCall("CloseHandle", "Ptr", h)
+    return true
+}
+
+LaunchAutomationListener() {
+    global SCRIPT_DIR, automationListener
+    if !automationListener || AutomationListenerRunning()
+        return
+    vbs := SCRIPT_DIR "\infloww ui elements\automation_listen.vbs"
+    if FileExist(vbs)
+        try Run('wscript.exe "' vbs '"', SCRIPT_DIR, "Hide")
+}
+
+; Ask it to exit cleanly (it has no console to Ctrl+C, and it is not an AHK window
+; so KillAllScripts cannot see it).
+StopAutomationListener() {
+    h := _AutomationOpenEvent()
+    if !h
+        return
+    DllCall("SetEvent", "Ptr", h)
+    DllCall("CloseHandle", "Ptr", h)
+}
+
+; ─── Pinger ───────────────────────────────────────────────────────────────────
+; Beeps when an Infloww fan tab goes unread. Same shape as the automation
+; listener above: a python process with no console and no AHK window, so the
+; named event is both the "is it up?" probe and the only way to close it.
+
+_PingerOpenEvent() {
+    static EVENT_MODIFY_STATE := 0x0002
+    static EVENT_NAME := "Global\MMA.pinger.stop"
+    return DllCall("OpenEventW", "UInt", EVENT_MODIFY_STATE, "Int", false,
+                   "Str", EVENT_NAME, "Ptr")
+}
+
+PingerRunning() {
+    h := _PingerOpenEvent()
+    if !h
+        return false
+    DllCall("CloseHandle", "Ptr", h)
+    return true
+}
+
+LaunchPinger() {
+    global SCRIPT_DIR
+    if PingerRunning()
+        return
+    vbs := SCRIPT_DIR "\pinger\pinger_start.vbs"
+    if FileExist(vbs)
+        try Run('wscript.exe "' vbs '"', SCRIPT_DIR, "Hide")
+}
+
+StopPinger() {
+    h := _PingerOpenEvent()
+    if !h
+        return
+    DllCall("SetEvent", "Ptr", h)
+    DllCall("CloseHandle", "Ptr", h)
+}
+
+TogglePinger(*) {
+    global pinger, CFG_FILE
+    if PingerRunning() {
+        StopPinger()
+        pinger := 0
+    } else {
+        LaunchPinger()
+        pinger := 1
+    }
+    IniWrite(pinger, CFG_FILE, "Settings", "Pinger")
+    ; the python side takes a moment to claim or release the event
+    SetTimer(RefreshPingerLabel, -600)
+}
+
+RefreshPingerLabel() {
+    global btnPinger
+    if IsSet(btnPinger) && btnPinger
+        try btnPinger.Text := PingerRunning() ? "Pinger: ON" : "Pinger: OFF"
+}
+
 WatchdogTick() {
+    global pinger
     LaunchStartupScripts()
+    LaunchAutomationListener()
+    if pinger
+        LaunchPinger()
+    RefreshPingerLabel()
 }
 
 ; ─── Set massNo ───────────────────────────────────────────────────────────────
@@ -1230,30 +1980,6 @@ ReadMassNo(fname) {
 
 ; ─── Settings ─────────────────────────────────────────────────────────────────
 
-UpdateMassFileHotkeys(fname, newHK) {
-    global SCRIPT_DIR
-    path := SCRIPT_DIR "\" fname
-    if !FileExist(path)
-        return false
-    content := FileRead(path, "UTF-8")
-    labels  := ["fu1", "fu2", "fu3", "ppv1", "ppv2"]
-    changed := false
-    sc := Chr(59)
-    for i, lbl in labels {
-        newContent := RegExReplace(content, "m)^\S+(::\{ " sc " send " lbl ")", newHK[i] "$1", &n)
-        if n {
-            content := newContent
-            changed  := true
-        }
-    }
-    if changed {
-        f := FileOpen(path, "w", "UTF-8")
-        f.Write(content)
-        f.Close()
-    }
-    return changed
-}
-
 UpdateModelButtons() {
     global modelCount, model1Name, model2Name, model3Name, btnLoadM, btnSaveM
     _mNames := [model1Name, model2Name, model3Name]
@@ -1264,13 +1990,22 @@ UpdateModelButtons() {
     }
 }
 
+; Launch the standalone Hotstrings manager (hotstrings_gui.ahk). It's #SingleInstance,
+; so clicking again just refreshes it rather than piling up windows.
+OpenHotstrings(*) {
+    global SCRIPT_DIR
+    path := SCRIPT_DIR "\hotstrings_gui.ahk"
+    if !FileExist(path) {
+        MsgBox "hotstrings_gui.ahk isn't in " SCRIPT_DIR, "Hotstrings", 0x30
+        return
+    }
+    try Run(A_AhkPath ' "' path '"')
+}
+
 OpenSettings(*) {
     global model1Name, model2Name, model3Name, modelCount, CFG_FILE, g
-    global hk1_f1, hk1_f2, hk1_f3, hk1_ppv, hk1_ppvfu
-    global hk2_f1, hk2_f2, hk2_f3, hk2_ppv, hk2_ppvfu
-    global hk3_f1, hk3_f2, hk3_f3, hk3_ppv, hk3_ppvfu
     global defaultHotkeyFile, ACC_DIR, SCRIPT_DIR, mouseControl
-    global startupScripts, autoRestart
+    global startupScripts, autoRestart, automationListener, pinger, promptAltCtrl
 
     _dhfList := []
     _genPath2 := SCRIPT_DIR "\general.ahk"
@@ -1314,29 +2049,13 @@ OpenSettings(*) {
     if ddlDef.Value = 0
         ddlDef.Value := 1
 
-    ; ── Hotkey config ──────────────────────────────────────────────────────────
+    ; ── Hotkeys ────────────────────────────────────────────────────────────────
+    ; Every hotkey in MMA — not just the 15 model-send keys this grid used to
+    ; show — is edited in its own window now, backed by hotkeys.ini.
     sg.Add("Text", "x10 y115 w590", "── Hotkeys ─────────────────────────────────────────────────────────────────")
-    sg.Add("Text", "x70  y138", "M1")
-    sg.Add("Text", "x230 y138", "M2")
-    sg.Add("Text", "x390 y138", "M3")
-
-    hkRows := [
-        ["f1:",    hk1_f1,    hk2_f1,    hk3_f1],
-        ["f2:",    hk1_f2,    hk2_f2,    hk3_f2],
-        ["f3:",    hk1_f3,    hk2_f3,    hk3_f3],
-        ["ppv:",   hk1_ppv,   hk2_ppv,   hk3_ppv],
-        ["ppvfu:", hk1_ppvfu, hk2_ppvfu, hk3_ppvfu],
-    ]
-    edHK1 := [], edHK2 := [], edHK3 := []
-    y := 162
-    for _, row in hkRows {
-        sg.Add("Text", "x10 y" (y+3) " w55 Right", row[1])
-        edHK1.Push(sg.Add("Edit", "x70  y" y " w100", row[2]))
-        edHK2.Push(sg.Add("Edit", "x230 y" y " w100", row[3]))
-        edHK3.Push(sg.Add("Edit", "x390 y" y " w100", row[4]))
-        y += 30
-    }
-
+    sg.Add("Button", "x10 y138 w150 h28", "Hotkeys…").OnEvent("Click", (*) => OpenHotkeysGui())
+    sg.Add("Text", "x170 y144 w420", "Every hotkey, grouped by feature. Applies live.")
+    y := 176
     sg.Add("Text",   "x10  y" (y+8)  " w580 h2 0x10")
     y += 22
     sg.Add("Text",   "x10  y" (y+8)  " w200", "── Open new tab after send ──")
@@ -1354,7 +2073,11 @@ OpenSettings(*) {
     chkWallet.OnEvent("Click", (*) => _BroadcastWallet(chkWallet.Value ? 1 : 0))
     chkFastSave := sg.Add("Checkbox", "x10 y" (y+52), "Fast parse+autosave (auto-saves current model, no prompts)")
     chkFastSave.Value := fastParseAutosave
-    y += 80
+    ; On  = the plain follow-up key always sends the main branch, ctrl+key picks.
+    ; Off = the plain key prompts whenever the follow-up has alts.
+    chkPromptAlt := sg.Add("Checkbox", "x10 y" (y+74) " w560", "Prompt for Alt-FUs using ctrl+hotkey (off = the plain key always prompts)")
+    chkPromptAlt.Value := promptAltCtrl
+    y += 102
     sg.Add("Text",   "x10  y" (y+8)  " w580 h2 0x10")
     y += 22
     sg.Add("Text",   "x10  y" (y+8)  " w200", "── Visible scripts ──")
@@ -1394,7 +2117,17 @@ OpenSettings(*) {
     }
     chkAutoRestart := sg.Add("Checkbox", "x10 y" (_sy + 30), "Auto-restart these if they die (watchdog, checks every 5s)")
     chkAutoRestart.Value := autoRestart
-    y := _sy + 56
+    chkAutomation := sg.Add("Checkbox", "x10 y" (_sy + 54), "Run the automation listener (serves the [automation] hotkeys)")
+    chkAutomation.Value := automationListener
+    chkPinger := sg.Add("Checkbox", "x10 y" (_sy + 78), "Run the pinger (beeps when an Infloww tab goes unread)")
+    chkPinger.Value := pinger
+    ; Read the live process, not the setting — they disagree whenever the pinger
+    ; was toggled from the main window, or died on its own.
+    lblPinger := sg.Add("Text", "x360 y" (_sy + 78) " w230", "")
+    PaintPingerStatus()
+    sg.OnEvent("Close", StopPingerStatusTimer)
+    SetTimer(PaintPingerStatus, 1500)
+    y := _sy + 104
     sg.Add("Text",   "x10  y" (y+8)  " w580 h2 0x10")
     sg.Add("Button", "x10  y" (y+18) " w85 h28",  "Save").OnEvent("Click", SaveCfg)
     sg.Add("Button", "x105 y" (y+18) " w85 h28",  "Reset").OnEvent("Click", ResetCfg)
@@ -1403,13 +2136,32 @@ OpenSettings(*) {
     sg.Add("Button", "x490 y" (y+18) " w100 h28", "Check Update").OnEvent("Click", (*) => CheckUpdate())
     sg.Show("w600 h" (y + 62))
 
+    ; The sign that it is actually up. Polls the named event the pinger holds, so
+    ; it stays honest if the process dies or is toggled from the main window.
+    PaintPingerStatus(*) {
+        ; "Wipe Temp" destroys the window without firing Close, so the timer can
+        ; outlive the control. Touching a destroyed control throws — stop instead.
+        try {
+            if PingerRunning() {
+                lblPinger.SetFont("cGreen")
+                lblPinger.Text := "● running"
+            } else {
+                lblPinger.SetFont("cGray")
+                lblPinger.Text := "○ not running"
+            }
+        } catch {
+            SetTimer(PaintPingerStatus, 0)
+        }
+    }
+
+    StopPingerStatusTimer(*) {
+        SetTimer(PaintPingerStatus, 0)
+    }
+
     SaveCfg(*) {
         global model1Name, model2Name, model3Name, modelCount, CFG_FILE
-        global hk1_f1, hk1_f2, hk1_f3, hk1_ppv, hk1_ppvfu
-        global hk2_f1, hk2_f2, hk2_f3, hk2_ppv, hk2_ppvfu
-        global hk3_f1, hk3_f2, hk3_f3, hk3_ppv, hk3_ppvfu
         global defaultHotkeyFile, mouseControl, fastParseAutosave
-        global startupScripts, autoRestart
+        global startupScripts, autoRestart, automationListener, pinger, promptAltCtrl
 
         newCount          := rdMC1.Value ? 1 : rdMC2.Value ? 2 : 3
         model1Name        := ed1.Value
@@ -1430,28 +2182,6 @@ OpenSettings(*) {
         _f.Close()
         UpdateModelButtons()
 
-        hk1_f1    := edHK1[1].Value , hk2_f1    := edHK2[1].Value , hk3_f1    := edHK3[1].Value
-        hk1_f2    := edHK1[2].Value , hk2_f2    := edHK2[2].Value , hk3_f2    := edHK3[2].Value
-        hk1_f3    := edHK1[3].Value , hk2_f3    := edHK2[3].Value , hk3_f3    := edHK3[3].Value
-        hk1_ppv   := edHK1[4].Value , hk2_ppv   := edHK2[4].Value , hk3_ppv   := edHK3[4].Value
-        hk1_ppvfu := edHK1[5].Value , hk2_ppvfu := edHK2[5].Value , hk3_ppvfu := edHK3[5].Value
-
-        IniWrite(hk1_f1,    CFG_FILE, "Hotkeys", "M1_f1")
-        IniWrite(hk1_f2,    CFG_FILE, "Hotkeys", "M1_f2")
-        IniWrite(hk1_f3,    CFG_FILE, "Hotkeys", "M1_f3")
-        IniWrite(hk1_ppv,   CFG_FILE, "Hotkeys", "M1_ppv")
-        IniWrite(hk1_ppvfu, CFG_FILE, "Hotkeys", "M1_ppvfu")
-        IniWrite(hk2_f1,    CFG_FILE, "Hotkeys", "M2_f1")
-        IniWrite(hk2_f2,    CFG_FILE, "Hotkeys", "M2_f2")
-        IniWrite(hk2_f3,    CFG_FILE, "Hotkeys", "M2_f3")
-        IniWrite(hk2_ppv,   CFG_FILE, "Hotkeys", "M2_ppv")
-        IniWrite(hk2_ppvfu, CFG_FILE, "Hotkeys", "M2_ppvfu")
-        IniWrite(hk3_f1,    CFG_FILE, "Hotkeys", "M3_f1")
-        IniWrite(hk3_f2,    CFG_FILE, "Hotkeys", "M3_f2")
-        IniWrite(hk3_f3,    CFG_FILE, "Hotkeys", "M3_f3")
-        IniWrite(hk3_ppv,   CFG_FILE, "Hotkeys", "M3_ppv")
-        IniWrite(hk3_ppvfu, CFG_FILE, "Hotkeys", "M3_ppvfu")
-
         newMC := chkMC.Value ? 1 : 0
         mcChanged := (newMC != mouseControl)
         mouseControl := newMC
@@ -1466,6 +2196,8 @@ OpenSettings(*) {
         IniWrite(walletCheckFu3, CFG_FILE, "Settings", "WalletCheckFu3")
         fastParseAutosave := chkFastSave.Value ? 1 : 0
         IniWrite(fastParseAutosave, CFG_FILE, "Settings", "FastParseAutosave")
+        promptAltCtrl := chkPromptAlt.Value ? 1 : 0
+        IniWrite(promptAltCtrl, CFG_FILE, "Settings", "PromptAltCtrl")
         _hiddenList := ""
         for fname, chk in accChks
             if !chk.Value
@@ -1483,16 +2215,29 @@ OpenSettings(*) {
         IniWrite(_startupCsv, CFG_FILE, "Settings", "StartupScripts")
         autoRestart := chkAutoRestart.Value ? 1 : 0
         IniWrite(autoRestart, CFG_FILE, "Settings", "AutoRestart")
+        automationListener := chkAutomation.Value ? 1 : 0
+        IniWrite(automationListener, CFG_FILE, "Settings", "AutomationListener")
         startupScripts := []
         for _s in StrSplit(_startupCsv, ",")
             if Trim(_s) != ""
                 startupScripts.Push(Trim(_s))
         SetTimer(WatchdogTick, autoRestart ? 5000 : 0)
         LaunchStartupScripts()
+        ; apply the toggle now, both ways - unticking it should stop the running one
+        if automationListener
+            LaunchAutomationListener()
+        else
+            StopAutomationListener()
 
-        c1 := UpdateMassFileHotkeys("1_mass.ahk", [hk1_f1, hk1_f2, hk1_f3, hk1_ppv, hk1_ppvfu]) || mcChanged
-        c2 := UpdateMassFileHotkeys("2_mass.ahk", [hk2_f1, hk2_f2, hk2_f3, hk2_ppv, hk2_ppvfu])
-        c3 := hk3_f1 != "" ? UpdateMassFileHotkeys("3_mass.ahk", [hk3_f1, hk3_f2, hk3_f3, hk3_ppv, hk3_ppvfu]) : false
+        pinger := chkPinger.Value ? 1 : 0
+        IniWrite(pinger, CFG_FILE, "Settings", "Pinger")
+        if pinger
+            LaunchPinger()
+        else
+            StopPinger()
+        SetTimer(RefreshPingerLabel, -600)
+
+        StopPingerStatusTimer()
         sg.Destroy()
 
         if newCount != modelCount {
@@ -1501,50 +2246,47 @@ OpenSettings(*) {
             return
         }
 
-        if (c1 || c2 || c3) {
-            msg := "Hotkeys updated in:"
-            if c1
-                msg .= "`n  1_mass.ahk"
-            if c2
-                msg .= "`n  2_mass.ahk"
-            if c3
-                msg .= "`n  3_mass.ahk"
-            if MsgBox(msg "`nReload now?", "Done", 0x24) = "Yes" {
-                fnames := []
-                if c1
-                    fnames.Push("1_mass.ahk")
-                if c2
-                    fnames.Push("2_mass.ahk")
-                if c3
-                    fnames.Push("3_mass.ahk")
-                for fname in fnames {
-                    p := SCRIPT_DIR "\" fname
-                    if WinExist(p " ahk_class AutoHotkey") {
-                        ProcessClose WinGetPID(p " ahk_class AutoHotkey")
-                        Sleep 150
-                        Run p
-                    }
-                }
-            }
-        }
+        ; Mouse control is read once at load, so the model scripts must restart to
+        ; see it change. Hotkeys no longer need this — they reload live from
+        ; hotkeys.ini via HK_Reload().
+        if mcChanged
+            RestartMassScripts()
     }
 
+    ; Hotkeys are not reset here — the Hotkeys window has its own per-row and
+    ; "Reset all" controls, backed by hotkeys.default.ini.
     ResetCfg(*) {
         ed1.Value := "Model 1"
         ed2.Value := "Model 2"
         ed3.Value := "Model 3"
         edWT.Value := "350"
         rdMC2.Value := true
-        defs1 := ["F1", "F2", "F3", "F4",  "F5"]
-        defs2 := ["F9", "F10","F11","F12", "!F12"]
-        defs3 := ["",   "",   "",   "",    ""]
-        for i, e in edHK1
-            e.Value := defs1[i]
-        for i, e in edHK2
-            e.Value := defs2[i]
-        for i, e in edHK3
-            e.Value := defs3[i]
     }
+}
+
+; Restart the running model scripts (used when a load-time setting changes).
+RestartMassScripts() {
+    global SCRIPT_DIR, modelCount
+    if MsgBox("Mouse control changed.`nRestart the model scripts now?", "Done", 0x24) != "Yes"
+        return
+    Loop modelCount {
+        p := SCRIPT_DIR "\" A_Index "_mass.ahk"
+        if WinExist(p " ahk_class AutoHotkey") {
+            ProcessClose WinGetPID(p " ahk_class AutoHotkey")
+            Sleep 150
+            Run p
+        }
+    }
+}
+
+OpenHotkeysGui(*) {
+    global SCRIPT_DIR
+    p := SCRIPT_DIR "\hotkeys_gui.ahk"
+    if !FileExist(p) {
+        MsgBox "hotkeys_gui.ahk is missing.",, 0x10
+        return
+    }
+    Run p
 }
 
 FetchURL(url) {
@@ -1736,11 +2478,13 @@ ToggleFuCell(m, f) {
     IniWrite(fuChks[m][f].Value ? "1" : "0", CFG_FILE, "Settings", "FuSingle_" m "_" f)
 }
 
-MakeEditFuToggle(f) => (*) => ToggleEditFuCell(f)
+MakeEditFuToggle(f) => (ctrl, *) => ToggleEditFuCell(f, ctrl)
 
-ToggleEditFuCell(f) {
+ToggleEditFuCell(f, ctrl) {
     global editFuChks, CFG_FILE
-    val := editFuChks[f].Value ? 1 : 0
+    val := ctrl.Value ? 1 : 0
+    for _, c in editFuChks[f]   ; "editable" is global — sync the per-tab mirrors
+        c.Value := val
     IniWrite(val, CFG_FILE, "Settings", "EditableFu" f)
     _BroadcastEditableFu(f, val)
 }
@@ -1834,7 +2578,8 @@ ArrJoin(arr, sep) {
     return out
 }
 
-!0:: {
+; Grab whatever's in the focused box and open Add Hotkey prefilled with it.
+AddHotkeyGrab() {
     saved := A_Clipboard
     A_Clipboard := ""
     Send "^a"
@@ -1844,6 +2589,16 @@ ArrJoin(arr, sep) {
     grabbed := A_Clipboard
     A_Clipboard := saved
     OpenAddHotkey(grabbed)
+}
+
+; Same idea, but the text is read off the SCREEN instead of the focused box:
+; drag a region, OCR it, then hand it to the very same dialog — so every option
+; there (snd/SendText/Sendt, target file, hotstring type) works identically.
+OcrGrab() {
+    text := OcrGrabToText()
+    if (text = "")
+        return
+    OpenAddHotkey(text)
 }
 
 ; ─── Mouse control ────────────────────────────────────────────────────────────
@@ -1872,7 +2627,12 @@ _BroadcastWallet(val) {
     }
 }
 
-#HotIf mouseControl
-MButton:: ToggleDoubleMM()
-#HotIf
+; ─── Hotkeys ──────────────────────────────────────────────────────────────────
+; Keys live in hotkeys.ini under [gui]. "mouseControl" is this script's own
+; context, so gui.toggleDoubleMM only fires while Mouse control is on.
+HK_Context("mouseControl", (*) => mouseControl)
+
+HK_Bind("gui.addHotkeyGrab",  AddHotkeyGrab)
+HK_Bind("gui.ocrGrab",        OcrGrab)
+HK_Bind("gui.toggleDoubleMM", ToggleDoubleMM)
 

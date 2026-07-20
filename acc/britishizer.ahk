@@ -1,8 +1,10 @@
 #Requires AutoHotkey v2.0
+#Include "../hotkeys.ahk"
 
 ; ============================================================
 ;  BRITISHIZER + SPELL FIXER
 ;  Enter  → fix typos + americanisms, capitalize sentences
+;  Keys live in hotkeys.ini under [brit].
 ; ============================================================
 
 global fixes := Map(
@@ -189,10 +191,13 @@ global fixes := Map(
     "gotten",      "got",
 )
 
-!Enter:: Send("{Enter}")
+BritEnterPass() => Send("{Enter}")
+BritFixSend()   => FixAndReplace(true)
+BritFixNoSend() => FixAndReplace(false)
 
-Enter::  FixAndReplace(true)
-#Enter:: FixAndReplace(false)
+HK_Bind("brit.enterPass", BritEnterPass)
+HK_Bind("brit.fixSend",   BritFixSend)
+HK_Bind("brit.fixNoSend", BritFixNoSend)
 
 FixAndReplace(sendEnter) {
     saved := ClipboardAll()

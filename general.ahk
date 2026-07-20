@@ -181,15 +181,19 @@
     snd("oh you came to of to look at my eyes?")
 }
 
-!+=::
+OpenFast()
 {
     SendText("open this fast if you want me to spoil you with extra explicit freebies 🖤 ^")
 }
 
-!+]::
+OpenAndRate()
 {
     SendText("you will open that fast and tell me im the most beautiful girl in the world, after than ur gonna send me ur cock so i can rate it")
 }
+
+; keys live in hotkeys.ini under [general]
+HK_Bind("general.openFast",    OpenFast)
+HK_Bind("general.openAndRate", OpenAndRate)
 
 ::_cantafford::
 {
@@ -229,4 +233,9 @@
 :*:___blueball::
 {
     snd("Oh thats quite unfortunate, do you mind telling me when your payday is, so that I dont bother you before youre able to play? I feel a little bad about blue balling...")
+}
+
+:*:__page::
+{
+    snd("Running the page myself is tremendously hard so I can only allocate time to people who are serious about me, If that wasn't the case I'd have to use AI")
 }

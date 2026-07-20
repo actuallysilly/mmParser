@@ -1,2 +1,21 @@
 .claude
 issues.md
+gui(abandoned)
+webgui(abandoned)
+*.bak
+__pycache__/
+*.pyc
+
+# Runtime artefacts — machine state and logs, not source.
+error_log.txt
+detector_status.ini
+
+# THIS REMOTE IS PUBLIC. Everything below contains other people's data:
+# fan display names, their messages, and purchase amounts. Screenshots of the
+# live Infloww UI in particular show real handles in the tab strip and chat.
+# The code needs none of it at runtime — only slice_elements.py and
+# `automation.py --image` read these, and both are pointed at a file by hand.
+infloww ui elements/
+
+# Message content. Kept local; MMA regenerates it as you archive.
+mass_archive.txt

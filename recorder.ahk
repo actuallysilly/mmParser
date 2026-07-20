@@ -1,8 +1,8 @@
 #Requires AutoHotkey v2.0
 #SingleInstance Force
+#Include "hotkeys.ahk"
 
 cfgFile        := A_ScriptDir "\mass_gui.cfg"
-toggleHk       := IniRead(cfgFile, "Recorder", "ToggleHotkey",  "^!F12")
 defaultSleep   := Integer(IniRead(cfgFile, "Recorder", "DefaultSleep", "500"))
 
 recording      := false
@@ -40,7 +40,9 @@ ShowOverlayMenu(*) {
 }
 
 ; ── toggle ───────────────────────────────────────────────────────────────────
-Hotkey toggleHk, ToggleRecording
+; key lives in hotkeys.ini under [recorder]. The ~LButton keys below stay
+; hard-coded: they're only live while recording, and they ARE the recorder.
+HK_Bind("recorder.toggle", ToggleRecording)
 
 ToggleRecording(*) {
     global recording, sequence, actionCount, lastTime, namedJustFired
@@ -184,15 +186,48 @@ ShowOutput() {
             return
         }
         name     := StrReplace(name, " ", "_") . "Seq"
+        id       := "seq." name
         indented := "    " StrReplace(Trim(ed.Value), "`n", "`n    ")
         seqFile := A_ScriptDir "\sequences.ahk"
         if !FileExist(seqFile)
             FileAppend "#Include `"coords.ahk`"`n#Include `"utils.ahk`"`n`n", seqFile, "UTF-8"
         FileAppend name "() {`n" indented "`n}`n`n", seqFile, "UTF-8"
-        FileAppend 'Bind Key("' name '", ""), (*) => ' name "()`n`n", seqFile, "UTF-8"
-        IniWrite "", A_ScriptDir "\mass_gui.cfg", "NavHotkeys", name
+        FileAppend 'HK_Bind("' id '", ' name ')`n`n', seqFile, "UTF-8"
+
+        ; A new sequence has to exist in all three places to be bindable: declared
+        ; in hotkeys.ahk, keyed in hotkeys.ini, wired in sequences.ahk. It arrives
+        ; with a blank key = unbound, ready to assign in the Hotkeys GUI.
+        if !DeclareSeqHotkey(id, name) {
+            MsgBox "Saved " name "(), but couldn't declare it in hotkeys.ahk"
+                 . " (the @recorder-sequences@ marker is missing).`n`n"
+                 . "Add this line there by hand:`n`n"
+                 . 'HK_Def("' id '", "' name '", , "sequences.ahk")',, 0x30
+            return
+        }
+        IniWrite "", A_ScriptDir "\hotkeys.ini", "seq", name
+
         nameEd.Value := ""
-        ToolTip "Saved as " name "()", , , 2
+        ToolTip "Saved as " name "()  — assign a key in the Hotkeys GUI", , , 2
         SetTimer(() => ToolTip(,,,2), -2000)
     }
+}
+
+; Add a HK_Def line for a recorded sequence at the marker in hotkeys.ahk, so the
+; registry knows the id exists (HK_Bind refuses undeclared ids by design).
+DeclareSeqHotkey(id, label) {
+    hkFile := A_ScriptDir "\hotkeys.ahk"
+    marker := "; @recorder-sequences@"
+    if !FileExist(hkFile)
+        return false
+    content := FileRead(hkFile, "UTF-8")
+    if !InStr(content, marker)
+        return false
+    if InStr(content, 'HK_Def("' id '"')
+        return true                       ; already declared — re-saving is fine
+    content := StrReplace(content, marker,
+                          'HK_Def("' id '", "' label '", , "sequences.ahk")`n' marker, , , 1)
+    f := FileOpen(hkFile, "w", "UTF-8")
+    f.Write(content)
+    f.Close()
+    return true
 }

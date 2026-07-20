@@ -21,7 +21,7 @@ openFarmolijerSeq() {
 
 }
 
-Bind Key("openFarmolijerSeq", "^!f"), (*) => openFarmolijerSeq()
+HK_Bind("seq.openFarmolijer", openFarmolijerSeq)
 
 copyDiscordMessageSeq() {
     global MMA_GUI_WIN, MMA_MSG_AUTOPARSE, COPY_TEXT_IMG
@@ -49,7 +49,18 @@ copyDiscordMessageSeq() {
         PostMessage MMA_MSG_AUTOPARSE, 0, 0, , MMA_GUI_WIN
 }
 
-#HotIf WinActive("ahk_exe Discord.exe")
-Bind Key("CopyDiscordMsg", "^LButton"), (*) => copyDiscordMessageSeq()
-#HotIf
+; Discord-only. The #HotIf directive that used to wrap this did nothing: it only
+; applies to literal `::` hotkeys, while Hotkey() takes its criterion from the
+; HotIf() *function* — so this was registered globally and fired in every app.
+; The context now comes from the registry, which applies it the right way.
+HK_Bind("seq.copyDiscordMsg", copyDiscordMessageSeq)
+
+SelectTopPPVSeq() {
+    clickOn([1531, 884])
+    Sleep 500
+    clickOn([865, 325])
+    
+}
+
+HK_Bind("seq.selectTopPpv", SelectTopPPVSeq)
 

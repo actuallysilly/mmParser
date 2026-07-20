@@ -1,4 +1,5 @@
 #Requires AutoHotkey v2.0
+#Include "hotkeys.ahk"
 
 ; ============================================================
 ;  SENTENCE CAPITALIZATION
@@ -7,21 +8,27 @@
 ;    - .  !  ?  followed by Space
 ;  Non-destructive: never selects or replaces existing text.
 ;  5-second timeout resets the flag if no letter is typed.
+;
+;  The Enter keys live in hotkeys.ini under [cap]. The a-z keys below stay
+;  hard-coded: they're how this script works, not settings to tune.
 ; ============================================================
 
 capitalizeNext := false
 
 ; Shift+Enter / Ctrl+Enter pass through normally
-+Enter:: Send("{Enter}")
-^Enter:: Send("{Enter}")
+CapEnterPass() => Send("{Enter}")
 
 ; Normal Enter → send Enter, then queue capitalize
-Enter:: {
+CapEnter() {
     global capitalizeNext
     Send("{Enter}")
     capitalizeNext := true
     SetTimer(ResetCapNext, -5000)
 }
+
+HK_Bind("cap.enterCap",   CapEnter)
+HK_Bind("cap.enterPass1", CapEnterPass)
+HK_Bind("cap.enterPass2", CapEnterPass)
 
 ; Detect ". " "! " "? " sequences — B0 = no backspace/replacement
 :B0:. ::SetCapNext()

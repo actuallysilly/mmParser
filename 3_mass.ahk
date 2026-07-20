@@ -65,7 +65,7 @@ ppv_f2: "",
 ppv_f3: ""
 }
 
-F6::{ ; send fu1
+DoFu1(){
     switch massNo
     {
         case 1:
@@ -77,7 +77,7 @@ F6::{ ; send fu1
     }
 }
 
-F7::{ ; send fu2
+DoFu2(){
     switch massNo
     {
         case 1:
@@ -89,7 +89,7 @@ F7::{ ; send fu2
     }
 }
 
-!F7::{ ; send fu3
+DoFu3(){
     switch massNo
     {
         case 1:
@@ -101,43 +101,7 @@ F7::{ ; send fu2
     }
 }
 
-F13::{ ; Scimitar SM_1 -> fu1
-    switch massNo
-    {
-        case 1:
-            sndFu(1, m1.fu1, m1.fu1_5, m1.fu1_7)
-        case 2:
-            sndFu(1, m2.fu1, m2.fu1_5, m2.fu1_7)
-        case 3:
-            sndFu(1, m3.fu1, m3.fu1_5, m3.fu1_7)
-    }
-}
-
-F14::{ ; Scimitar SM_2 -> fu2
-    switch massNo
-    {
-        case 1:
-            sndFu(2, m1.fu2, m1.fu2_5, m1.fu2_7)
-        case 2:
-            sndFu(2, m2.fu2, m2.fu2_5, m2.fu2_7)
-        case 3:
-            sndFu(2, m3.fu2, m3.fu2_5, m3.fu2_7)
-    }
-}
-
-F15::{ ; Scimitar SM_3 -> fu3
-    switch massNo
-    {
-        case 1:
-            sndFu(3, m1.fu3, m1.fu3_5, m1.fu3_7)
-        case 2:
-            sndFu(3, m2.fu3, m2.fu3_5, m2.fu3_7)
-        case 3:
-            sndFu(3, m3.fu3, m3.fu3_5, m3.fu3_7)
-    }
-}
-
-F8::{ ; send ppv1
+DoPpv(){
     ppv := ""
     switch massNo{
         case 1: ppv := m1.ppv_base
@@ -149,7 +113,7 @@ F8::{ ; send ppv1
     Send "^v"
 }
 
-!F8::{ ; send ppv2
+DoPpvFus(){
     switch massNo
     {
         case 1:
@@ -166,3 +130,45 @@ F8::{ ; send ppv1
             snd(m3.ppv_f3)
     }
 }
+
+; ── hotkey registrations ──────────────────────────────────────────────────────
+; No keys here — every key lives in hotkeys.ini, under [mass.3].
+
+; ── Alt follow-ups ────────────────────────────────────────────────────────────
+; The mass currently selected by massNo. Alt handling needs the whole object,
+; not one field, so the chooser can read every variant of a group.
+CurMass() {
+    global massNo, m1, m2, m3
+    return massNo = 1 ? m1 : massNo = 2 ? m2 : m3
+}
+
+; ctrl+<follow-up key>. Offers the alternatives; with nothing to choose between
+; it just does what the plain key does, so the ctrl variant is never a dead key.
+DoAltFu1() {
+    if !AltIntercept(CurMass(), 1, true, false)
+        DoFu1()
+}
+DoAltFu2() {
+    if !AltIntercept(CurMass(), 2, true, false)
+        DoFu2()
+}
+DoAltFu3() {
+    if !AltIntercept(CurMass(), 3, true, false)
+        DoFu3()
+}
+
+HK_Bind("mass.3.fu1",    DoFu1)
+HK_Bind("mass.3.fu2",    DoFu2)
+HK_Bind("mass.3.fu3",    DoFu3)
+HK_Bind("mass.3.smFu1",  DoFu1)
+HK_Bind("mass.3.smFu2",  DoFu2)
+HK_Bind("mass.3.smFu3",  DoFu3)
+HK_Bind("mass.3.ppv",    DoPpv)
+HK_Bind("mass.3.ppvFus", DoPpvFus)
+HK_Bind("mass.3.altFu1", DoAltFu1)
+HK_Bind("mass.3.altFu2", DoAltFu2)
+HK_Bind("mass.3.altFu3", DoAltFu3)
+
+; The Scimitar keys are the same F13-F15 that models 1 and 2 use, so without this
+; one press fired every model's follow-up at once.
+StartFuGating(HK_ModelSendIds(modelFileNo))

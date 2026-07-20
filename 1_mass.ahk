@@ -61,21 +61,21 @@ SndFuEditable(parts*) {
 }
 
 m1 := {
-mass: "Does your tonge vibrate?",
-fu1: "I'm taking personal throne applications, your face has to be waterproof too, are you a good fit?",
+mass: "Are you feeling obedient?",
+fu1: "I'm in the mood to be quite dominant today, and for domination you need two things, a cute English girl and a naked boy... Will it take more than 1 min?",
 fu1_5: "",
 fu1_7: "",
 
-fu2: "And can you promise me that you can make me feel really really good and truly relaxed?",
-fu2_5: "I want you to be hard like the Iron Throne",
+fu2: "I've been fantasizing about controlling your cock and making it submit to my will, or my nudes, both work. Do you mind gripping it tightly and calling me mistress?",
+fu2_5: "",
 fu2_7: "",
 
-fu3: "",
+fu3: "Give me 21 strokes now... Tight grip and tell me how it felt",
 fu3_5: "",
 fu3_7: "",
 
-ppv_base: "Imagine the POV you'd have if I were to sit on your face and sink my bare ass cheeks down so your tongue can just vibrate away",
-ppv_f1: "Can you hard-dick-pinky-promise me that I can reasonably expect climax from you?",
+ppv_base: "",
+ppv_f1: "I'm going all out tonight, it will be an insanely hard try not to cum and you will probably cum right away... But just try okay?",
 ppv_f2: "",
 ppv_f3: "",
 
@@ -97,20 +97,34 @@ b2_fu3_7: "",
 b2_ppv_base: "",
 b2_ppv_f1: "",
 b2_ppv_f2: "",
-b2_ppv_f3: ""
+b2_ppv_f3: "",
+
+fu1_alt0: "",
+fu1_alt1: "",
+fu1_alt2: "",
+
+fu2_alt0: "",
+fu2_alt1: "",
+fu2_alt2: "",
+
+fu3_alt0: "",
+fu3_alt1: "",
+fu3_alt2: "",
+
+altGui: ""
 }
 
 m2 := {
-mass: "",
-fu1: "",
+mass: "Beach or bedroom tonight? 🏖️",
+fu1: "I've been going back and forth on it all day",
 fu1_5: "",
 fu1_7: "",
 
-fu2: "",
+fu2: "Because one of them involves a lot less clothing",
 fu2_5: "",
 fu2_7: "",
 
-fu3: "",
+fu3: "So which is it, before I pick for you? 😌",
 fu3_5: "",
 fu3_7: "",
 
@@ -137,7 +151,21 @@ b2_fu3_7: "",
 b2_ppv_base: "",
 b2_ppv_f1: "",
 b2_ppv_f2: "",
-b2_ppv_f3: ""
+b2_ppv_f3: "",
+
+fu1_alt0: "Honestly I've changed my mind about six times since this morning",
+fu1_alt1: "You get to decide, I'm useless at picking",
+fu1_alt2: "",
+
+fu2_alt0: "One of those options has a strict no-clothing policy`nI'll let you guess which",
+fu2_alt1: "Fair warning though`nOnly one of them has a door that locks`nChoose carefully x",
+fu2_alt2: "",
+
+fu3_alt0: "Don't leave me hanging, I'm already halfway packed",
+fu3_alt1: "",
+fu3_alt2: "",
+
+altGui: ""
 }
 
 m3 := {
@@ -177,12 +205,30 @@ b2_fu3_7: "",
 b2_ppv_base: "",
 b2_ppv_f1: "",
 b2_ppv_f2: "",
-b2_ppv_f3: ""
+b2_ppv_f3: "",
+
+fu1_alt0: "",
+fu1_alt1: "",
+fu1_alt2: "",
+
+fu2_alt0: "",
+fu2_alt1: "",
+fu2_alt2: "",
+
+fu3_alt0: "",
+fu3_alt1: "",
+fu3_alt2: "",
+
+altGui: ""
 }
 
 
 DoFu1(){
     global massNo, m1, m2, m3, doubleMM, editableFu1
+    if !FuGate()
+        return
+    if AltIntercept(CurMass(), 1, false, editableFu1)
+        return
     if editableFu1 {
         m := massNo = 1 ? m1 : massNo = 2 ? m2 : m3
         SndFuEditable(m.fu1, m.fu1_5, m.fu1_7)
@@ -202,6 +248,10 @@ DoFu1(){
 }
 DoFu2(){
     global massNo, m1, m2, m3, doubleMM, editableFu2, openTabFu2
+    if !FuGate()
+        return
+    if AltIntercept(CurMass(), 2, false, editableFu2)
+        return
     if editableFu2 {
         m := massNo = 1 ? m1 : massNo = 2 ? m2 : m3
         SndFuEditable(m.fu2, m.fu2_5, m.fu2_7)
@@ -222,6 +272,10 @@ DoFu2(){
 }
 DoFu3(){
     global massNo, m1, m2, m3, doubleMM, walletCheckFu3, editableFu3, openTabFu3
+    if !FuGate()
+        return
+    if AltIntercept(CurMass(), 3, false, walletCheckFu3 || editableFu3)
+        return
     if walletCheckFu3 || editableFu3 {
         m := massNo = 1 ? m1 : massNo = 2 ? m2 : m3
         SndFuEditable(m.fu3, m.fu3_5, m.fu3_7)
@@ -345,57 +399,16 @@ DoAltF8(){
 }
 
 ; ── hotkey registrations ──────────────────────────────────────────────────────
+; No keys here — every key lives in hotkeys.ini. These lines only say which
+; function each feature runs.
 
-; navigation
-Bind Key("Unread",      "!-"),     (*) => Unread()
-Bind Key("FocusAuto",   "!Space"), (*) => focusAuto()
-Bind Key("NextChat",    "Down"),   (*) => nextChat()
-Bind Key("UnreadLeft",  "+Left"),  (*) => Unread()
-Bind Key("FocusTop",    "Up"),     (*) => focusTop()
-Bind Key("ClickUnread", "Del"),    (*) => clickOn(unreadBtn)
-Bind Key("ClickHome",   "End"),    (*) => clickOn(home)
-Bind Key("ClickPpv",    "PgDn"),   (*) => clickOn(ppvOpenNotif)
+ClickUnread()  => clickOn(unreadBtn)
+ClickHome()    => clickOn(home)
+ClickPpv()     => clickOn(ppvOpenNotif)
 
-; send — shortcut keys
-Bind Key("Fu1",  "Ins"),  (*) => DoFu1()
-Bind Key("Fu2",  "Home"), (*) => DoFu2()
-Bind Key("Fu3",  "PgUp"), (*) => DoFu3()
-
-; send — primary keys
-Bind Key("PFu1",     "F1"),  (*) => DoFu1()
-Bind Key("PFu2",     "F2"),  (*) => DoFu2()
-Bind Key("PFu3",     "F3"),  (*) => DoFu3()
-Bind Key("Ppv",      "F4"),  (*) => DoF4()
-Bind Key("PpvFus",   "F5"),  (*) => DoF5()
-Bind Key("B2Fu2",    "F6"),  (*) => DoF6()
-Bind Key("B2Fu3",    "F7"),  (*) => DoF7()
-Bind Key("B1Ppv",    "!F4"), (*) => DoAltF4()
-Bind Key("B2Ppv",    "F8"),  (*) => DoF8()
-Bind Key("B2PpvFus", "!F8"), (*) => DoAltF8()
-
-; send — mouse
-Bind Key("MFu1", "XButton2"), (*) => DoFu1()
-Bind Key("MFu2", "XButton1"), (*) => DoFu2()
-Bind Key("MFu3", "^MButton"), (*) => DoFu3()
-Bind SM_1, (*) => DoFu1()
-Bind SM_2, (*) => DoFu2()
-Bind SM_3, (*) => DoFu3()
-
-if !mouseControl {
-    for _mk in [Key("MFu1", "XButton2"), Key("MFu2", "XButton1"), Key("MFu3", "^MButton")] {
-        try Hotkey _mk, "Off"
-    }
-}
-
-; type __mm to paste the current mass body (what follows !mm / !mma); review, then send.
-:*X:__mm::DoMass()
-
-Bind Key("RecoverMsg",      "^+z"), (*) => RecoverLastMsg()
-Bind Key("ClickSecondGrey", SM_12), (*) => ClickSecondGrey()
-Bind SM_11, (*) => DebugGreySearch()
-
-#HotIf WinActive("ahk_exe chrome.exe")
-Enter:: {
+; Remembers what was typed before Enter sends it, so util.recoverMsg can put it
+; back. Chrome only — see hotkeys.ahk's "chrome" context.
+CaptureEnter() {
     global _lastTyped
     saved := A_Clipboard
     A_Clipboard := ""
@@ -408,5 +421,86 @@ Enter:: {
     A_Clipboard := saved
     Send "{Enter}"
 }
-#HotIf
+
+; navigation
+; ── Alt follow-ups ────────────────────────────────────────────────────────────
+; The mass currently selected by massNo. Alt handling needs the whole object,
+; not one field, so the chooser can read every variant of a group.
+CurMass() {
+    global massNo, m1, m2, m3
+    return massNo = 1 ? m1 : massNo = 2 ? m2 : m3
+}
+
+; ctrl+<follow-up key>. Offers the alternatives; with nothing to choose between
+; it just does what the plain key does, so the ctrl variant is never a dead key.
+DoAltFu1() {
+    if !FuGate()
+        return
+    if !AltIntercept(CurMass(), 1, true, editableFu1)
+        DoFu1()
+}
+DoAltFu2() {
+    if !FuGate()
+        return
+    if !AltIntercept(CurMass(), 2, true, editableFu2)
+        DoFu2()
+}
+DoAltFu3() {
+    if !FuGate()
+        return
+    if !AltIntercept(CurMass(), 3, true, walletCheckFu3 || editableFu3)
+        DoFu3()
+}
+
+HK_Bind("nav.unread",      Unread)
+HK_Bind("nav.focusAuto",   focusAuto)
+HK_Bind("nav.nextChat",    nextChat)
+HK_Bind("nav.unreadLeft",  Unread)
+HK_Bind("nav.focusTop",    focusTop)
+HK_Bind("nav.clickUnread", ClickUnread)
+HK_Bind("nav.clickHome",   ClickHome)
+HK_Bind("nav.clickPpv",    ClickPpv)
+
+; send
+HK_Bind("mass.1.fu1",      DoFu1)
+HK_Bind("mass.1.fu2",      DoFu2)
+HK_Bind("mass.1.fu3",      DoFu3)
+HK_Bind("mass.1.fu1short", DoFu1)
+HK_Bind("mass.1.fu2short", DoFu2)
+HK_Bind("mass.1.fu3short", DoFu3)
+HK_Bind("mass.1.mFu1",     DoFu1)
+HK_Bind("mass.1.mFu2",     DoFu2)
+HK_Bind("mass.1.mFu3",     DoFu3)
+HK_Bind("mass.1.smFu1",    DoFu1)
+HK_Bind("mass.1.smFu2",    DoFu2)
+HK_Bind("mass.1.smFu3",    DoFu3)
+HK_Bind("mass.1.ppv",      DoF4)
+HK_Bind("mass.1.ppvFus",   DoF5)
+HK_Bind("mass.1.b2Fu2",    DoF6)
+HK_Bind("mass.1.b2Fu3",    DoF7)
+HK_Bind("mass.1.b1Ppv",    DoAltF4)
+HK_Bind("mass.1.b2Ppv",    DoF8)
+HK_Bind("mass.1.b2PpvFus", DoAltF8)
+HK_Bind("mass.1.altFu1", DoAltFu1)
+HK_Bind("mass.1.altFu2", DoAltFu2)
+HK_Bind("mass.1.altFu3", DoAltFu3)
+
+; chat + utilities
+HK_Bind("chat.captureEnter",   CaptureEnter)
+HK_Bind("util.afkClick",       AfkClick)
+HK_Bind("util.recoverMsg",     RecoverLastMsg)
+HK_Bind("util.clickSecondGrey", ClickSecondGrey)
+HK_Bind("util.debugGrey",      DebugGreySearch)
+
+if !mouseControl {
+    for _id in ["mass.1.mFu1", "mass.1.mFu2", "mass.1.mFu3"]
+        HK_SetState(_id, "Off")
+}
+
+; Share send keys across model scripts: only this model's copy stays registered
+; while its tab is active.
+StartFuGating(HK_ModelSendIds(modelFileNo))
+
+; type __mm to paste the current mass body (what follows !mm / !mma); review, then send.
+:*X:__mm::DoMass()
 
