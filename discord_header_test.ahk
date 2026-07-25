@@ -5,32 +5,35 @@
 ; ============================================================================
 ;  discord_header_test.ahk — tune the Discord header band.
 ; ----------------------------------------------------------------------------
-;  The Ctrl+click import (sequences.ahk) reads the open channel's name out of
-;  Discord's header to decide which model a mass belongs to. That read is a
-;  rectangle, and its X depends on how wide YOUR channel sidebar is.
+;  The Ctrl+click import (sequences.ahk) works out which model a mass belongs to
+;  from the channel Discord has open. It asks the window TITLE first, and only
+;  falls back to OCR-ing the header bar when the title names no text channel
+;  (you are on a voice channel, or in settings).
 ;
-;  Open the Discord channel you import from, run this, and press Re-read. The
-;  band is correct when "channel" shows the slug and "model" shows the first
-;  segment. Nudge X/Y/W/H until it does, then Save — sequences.ahk picks the
-;  values up from mass_gui.cfg [Discord] on its next run.
+;  So the band below only matters for that fallback. If "title" already shows the
+;  channel, routing works and there is nothing to tune. Otherwise: open the
+;  channel you import from, press Re-read, and nudge X/Y/W/H until "header"
+;  shows the slug, then Save — sequences.ahk reads mass_gui.cfg [Discord] on its
+;  next run.
 ;
 ;  Reads the window directly (PrintWindow), so Discord does NOT have to be in
 ;  front while you do this.
 ; ============================================================================
 
 CFG := A_ScriptDir "\mass_gui.cfg"
+DetectHiddenWindows false     ; or "ahk_exe Discord.exe" can hit a hidden helper window
 
 g := Gui("+AlwaysOnTop", "Discord header band")
 g.SetFont("s10", "Segoe UI")
 
 g.Add("Text", "x12 y14 w20", "X:")
-edX := g.Add("Edit", "x34 y11 w60", IniRead(CFG, "Discord", "HeaderX", "340"))
+edX := g.Add("Edit", "x34 y11 w60", IniRead(CFG, "Discord", "HeaderX", "460"))
 g.Add("Text", "x104 y14 w20", "Y:")
-edY := g.Add("Edit", "x126 y11 w60", IniRead(CFG, "Discord", "HeaderY", "14"))
+edY := g.Add("Edit", "x126 y11 w60", IniRead(CFG, "Discord", "HeaderY", "42"))
 g.Add("Text", "x196 y14 w24", "W:")
-edW := g.Add("Edit", "x222 y11 w60", IniRead(CFG, "Discord", "HeaderW", "620"))
+edW := g.Add("Edit", "x222 y11 w60", IniRead(CFG, "Discord", "HeaderW", "500"))
 g.Add("Text", "x292 y14 w24", "H:")
-edH := g.Add("Edit", "x318 y11 w60", IniRead(CFG, "Discord", "HeaderH", "50"))
+edH := g.Add("Edit", "x318 y11 w60", IniRead(CFG, "Discord", "HeaderH", "38"))
 
 g.Add("Button", "x12 y44 w100 h28", "Re-read").OnEvent("Click", Reread)
 g.Add("Button", "x120 y44 w100 h28", "Save").OnEvent("Click", SaveBand)
@@ -63,20 +66,40 @@ Reread(*) {
     } catch as e {
         err := e.Message
     }
-    chan := ""
-    if RegExMatch(raw, "([A-Za-z][A-Za-z0-9]*(?:-[A-Za-z0-9]+)+)", &m)
-        chan := StrLower(m[1])
-    model := ""
-    if (chan != "" && RegExMatch(chan, "^([A-Za-z][A-Za-z0-9]*)", &mm))
-        model := mm[1]
+    fromHeader := Slug(raw)
+
+    ; the title reader, exactly as sequences.ahk does it
+    title := WinGetTitle("ahk_exe Discord.exe")
+    fromTitle := RegExMatch(title, "^#(.+?)\s*\|", &tm) ? Slug(tm[1]) : ""
+
+    chan  := fromTitle != "" ? fromTitle : fromHeader
+    model := chan != "" ? ModelSeg(chan) : ""
 
     WinGetClientPos(, , &cw, &ch, "ahk_exe Discord.exe")
     outEd.Value := "client   " cw "x" ch "`r`n"
                  . "band     " b.x "," b.y "  " b.w "x" b.h "`r`n`r`n"
-                 . (err != "" ? "OCR ERROR: " err "`r`n`r`n" : "")
-                 . "raw      " (raw = "" ? "(nothing)" : raw) "`r`n`r`n"
-                 . "channel  " (chan = ""  ? "(no slug found)" : chan) "`r`n"
+                 . "title    " title "`r`n"
+                 . "  -> " (fromTitle = "" ? "(no text channel in title)" : fromTitle) "`r`n`r`n"
+                 . (err != "" ? "OCR ERROR: " err "`r`n" : "")
+                 . "header   " (raw = "" ? "(nothing)" : raw) "`r`n"
+                 . "  -> " (fromHeader = "" ? "(no slug found)" : fromHeader) "`r`n`r`n"
+                 . "USED     " (chan = ""  ? "(nothing - MMA will ask on import)" : chan) "`r`n"
                  . "model    " (model = "" ? "(none - MMA will ask on import)" : model)
+}
+
+Slug(txt) {
+    if RegExMatch(txt, "([A-Za-z][A-Za-z0-9]*(?:-[A-Za-z0-9]+)+)", &m)
+        return StrLower(m[1])
+    return ""
+}
+
+; First segment that is not OCR debris. sequences.ahk additionally prefers a
+; segment matching a known model name; this just shows the positional guess.
+ModelSeg(chan) {
+    for s in StrSplit(chan, "-")
+        if (StrLen(s) >= 3)
+            return s
+    return chan
 }
 
 ; When the band reads nothing, the usual cause is X sitting past the header.

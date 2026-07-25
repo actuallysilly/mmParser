@@ -11,8 +11,10 @@ COPY_TEXT_IMG := A_ScriptDir "\assets\copy_text.png"
 SEQ_CFG := A_ScriptDir "\mass_gui.cfg"
 
 ; Seed [Discord] so the band is visible and editable without reading this file.
+; Measured against a maximized 1920x1032 client: the channel name sat at
+; x=479 y=54, 121x13.
 if (IniRead(SEQ_CFG, "Discord", "HeaderW", "") = "") {
-    for k, v in Map("HeaderX", 340, "HeaderY", 14, "HeaderW", 620, "HeaderH", 50)
+    for k, v in Map("HeaderX", 460, "HeaderY", 42, "HeaderW", 500, "HeaderH", 38)
         try IniWrite(v, SEQ_CFG, "Discord", k)
 }
 
@@ -35,36 +37,53 @@ HK_Bind("seq.openFarmolijer", openFarmolijerSeq)
 
 ; ── Discord channel header ────────────────────────────────────────────────────
 ;  The Ctrl+click import routes a mass to the right model by reading the channel
-;  name out of Discord's header: "#-aliw-staff-chat" -> "aliw" -> the Aliw model.
+;  name Discord has open: "#-aliw-staff-chat" -> "aliw" -> the Aliw model.
 ;
-;  OCR, not the window title. Discord's title reports the VOICE channel you are
-;  connected to ("(speaker) | N Training - Discord"), never the text channel you
-;  are reading, so the title is useless for this.
-;
-;  The band is client-relative and lives in mass_gui.cfg [Discord] because its X
-;  depends on how wide your channel sidebar is. discord_header_test.ahk shows
-;  what the current band reads, for tuning.
+;  Two readers, title first and OCR as backup, because neither covers everything:
+;  the title is exact and instant but only names a TEXT channel, while the header
+;  is on screen whatever the title says.
 
-DiscordHeaderBand() {
-    global SEQ_CFG
-    return {x: Integer(IniRead(SEQ_CFG, "Discord", "HeaderX", "340")),
-            y: Integer(IniRead(SEQ_CFG, "Discord", "HeaderY", "14")),
-            w: Integer(IniRead(SEQ_CFG, "Discord", "HeaderW", "620")),
-            h: Integer(IniRead(SEQ_CFG, "Discord", "HeaderH", "50"))}
+; A channel slug out of a string: at least one hyphen joining alphanumerics.
+; Requiring the hyphen is what keeps prose ("Set a channel topic", a banner, a
+; server name) from being read as a channel.
+DiscordSlug(txt) {
+    if RegExMatch(txt, "([A-Za-z][A-Za-z0-9]*(?:-[A-Za-z0-9]+)+)", &m)
+        return StrLower(m[1])
+    return ""
 }
 
-; The open channel's slug, e.g. "aliw-staff-chat"; "" if it cannot be read.
+; Discord titles a text channel "#<emoji>-aliw-staff-chat | ILTC - Discord".
+;
+; The leading "#" is the whole test: it marks a TEXT channel. A voice channel or
+; the settings page titles itself without one ("(speaker) (game) | N Training -
+; Discord"), and those have to fall through to the OCR read rather than have
+; their SERVER name matched as if it were a channel.
+DiscordChannelFromTitle() {
+    t := ""
+    try t := WinGetTitle("ahk_exe Discord.exe")
+    if !RegExMatch(t, "^#(.+?)\s*\|", &m)
+        return ""
+    return DiscordSlug(m[1])
+}
+
+; Read the channel out of the header bar on screen. The band is client-relative
+; and lives in mass_gui.cfg [Discord] because its X depends on how wide your
+; channel sidebar is; discord_header_test.ahk tunes it.
 ;
 ; Deliberately starts to the RIGHT of the sidebar: the channel LIST is full of
-; other channel names, and OCR that wandered into it would happily report the
-; wrong one with full confidence.
-DiscordChannelName() {
+; other channel names, and OCR that wandered into it would report the wrong one
+; with full confidence.
+DiscordHeaderBand() {
+    global SEQ_CFG
+    return {x: Integer(IniRead(SEQ_CFG, "Discord", "HeaderX", "460")),
+            y: Integer(IniRead(SEQ_CFG, "Discord", "HeaderY", "42")),
+            w: Integer(IniRead(SEQ_CFG, "Discord", "HeaderW", "500")),
+            h: Integer(IniRead(SEQ_CFG, "Discord", "HeaderH", "38"))}
+}
+
+DiscordChannelFromHeader() {
     band := DiscordHeaderBand()
-    prev := A_CoordModePixel
-    ; Client coords, so a maximized window's invisible border (its rect starts at
-    ; -8,-8) does not shift the band out from under the header.
-    CoordMode "Pixel", "Client"
-    txt := ""
+    txt  := ""
     try {
         ; mode 4 = PrintWindow with PW_RENDERFULLCONTENT: the only capture mode
         ; that returns anything but black for a hardware-accelerated Electron
@@ -74,14 +93,30 @@ DiscordChannelName() {
                                scale: 3, grayscale: 1, mode: 4})
         txt := Trim(RegExReplace(res.Text, "\s+", " "))
     }
-    CoordMode "Pixel", prev
     ; Discord draws "# <emoji>-aliw-staff-chat" and OCR turns the emoji into
-    ; junk, so match the channel-slug SHAPE rather than trusting the first
-    ; characters. A slug needs at least one hyphen, which is what keeps prose in
-    ; the header (banners, "Set a channel topic") from matching.
-    if RegExMatch(txt, "([A-Za-z][A-Za-z0-9]*(?:-[A-Za-z0-9]+)+)", &m)
-        return StrLower(m[1])
-    return ""
+    ; junk, so match the slug SHAPE rather than trusting the first characters.
+    return DiscordSlug(txt)
+}
+
+; The open channel's slug, e.g. "aliw-staff-chat"; "" if it cannot be read.
+DiscordChannelName() {
+    prevHidden := A_DetectHiddenWindows
+    prevPixel  := A_CoordModePixel
+    ; This script runs with DetectHiddenWindows ON (it needs it to PostMessage the
+    ; MMA GUI). Left on, "ahk_exe Discord.exe" can resolve to one of Discord's
+    ; hidden helper windows — blank title, nothing to capture.
+    DetectHiddenWindows false
+    ; Client coords, so a maximized window's invisible border (its rect starts at
+    ; -8,-8) does not shift the band out from under the header.
+    CoordMode "Pixel", "Client"
+
+    chan := DiscordChannelFromTitle()
+    if (chan = "")
+        chan := DiscordChannelFromHeader()
+
+    CoordMode "Pixel", prevPixel
+    DetectHiddenWindows prevHidden
+    return chan
 }
 
 ; Every model name MMA already knows: the three slots plus the aliases the import
