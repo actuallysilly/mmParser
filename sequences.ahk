@@ -163,24 +163,93 @@ ClearImportTip() {
     ToolTip()
 }
 
+; Locate the context menu's "Copy Text" row by READING the menu, in Discord
+; client coordinates; 0 if it is not on screen.
+;
+; Discord renders its context menu inside its own window — there is no popup
+; window of its own — so PrintWindow captures it along with everything else.
+;
+; Two traps this has to avoid:
+;   • The same menu carries "Copy Message Link". Matching a lone "Copy" clicks
+;     that about half the time, depending on which one OCR reports first. So a
+;     "Text" word is required on the same row, immediately to its right.
+;   • A message in the channel can itself contain the words "copy text". Ties
+;     are broken by distance to the click, and the menu opens AT the click.
+FindCopyTextRow(nearX, nearY) {
+    res := 0
+    try res := OCR.FromWindow("ahk_exe Discord.exe", {scale: 2, mode: 4})
+    if !res
+        return 0
+    best := 0, bestDist := 0
+    for w in res.Words {
+        if (StrLower(w.Text) != "copy")
+            continue
+        a := w.BoundingRect
+        for w2 in res.Words {
+            if (StrLower(w2.Text) != "text")
+                continue
+            b := w2.BoundingRect
+            if !(Abs(b.y - a.y) <= a.h && b.x > a.x && b.x - (a.x + a.w) < 40)
+                continue
+            row  := {x: (a.x + b.x + b.w) // 2, y: a.y + a.h // 2}
+            dist := Abs(row.x - nearX) + Abs(row.y - nearY)
+            if (!best || dist < bestDist)
+                best := row, bestDist := dist
+        }
+    }
+    return best
+}
+
 copyDiscordMessageSeq() {
     global MMA_GUI_WIN, MMA_MSG_AUTOPARSE, COPY_TEXT_IMG
     A_Clipboard := ""
     Click "Right"
-    Sleep 150
+    Sleep 250                    ; the menu is DOM-drawn; it needs a frame to paint
+
+    prevHidden := A_DetectHiddenWindows
+    prevPixel  := A_CoordModePixel
+    prevMouse  := A_CoordModeMouse
+    DetectHiddenWindows false    ; else "ahk_exe Discord.exe" can hit a hidden helper window
 
     CoordMode "Mouse", "Screen"
     MouseGetPos &mx, &my
-    CoordMode "Pixel", "Screen"
-    ; menu can open above or below the cursor depending on screen space, so search a box centered on the click
-    found := ImageSearch(&fx, &fy, mx - 60, my - 400, mx + 460, my + 400, "*20 " COPY_TEXT_IMG)
-    CoordMode "Mouse", "Window"
-    if !found
-        return
+    hit := 0
 
-    CoordMode "Mouse", "Screen"
-    Click fx + 10, fy + 10
-    CoordMode "Mouse", "Window"
+    ; Fast path: the original bitmap match. ~10ms, exact when it hits, and it
+    ; stops hitting the moment Discord restyles or rescales its menus — which is
+    ; what happened here: it missed at *20, *50 AND *100, so this is kept only
+    ; for installs whose menu still looks like assets\copy_text.png.
+    CoordMode "Pixel", "Screen"
+    try {
+        ; the menu opens above or below the cursor depending on room, so search a
+        ; box centred on the click
+        if ImageSearch(&fx, &fy, mx - 60, my - 400, mx + 460, my + 400, "*20 " COPY_TEXT_IMG)
+            hit := {sx: fx + 10, sy: fy + 10}
+    }
+
+    ; Robust path: read the menu (~157ms for the whole window).
+    if !hit {
+        CoordMode "Pixel", "Client"
+        ccx := 0, ccy := 0
+        try WinGetClientPos(&ccx, &ccy, , , "ahk_exe Discord.exe")
+        row := FindCopyTextRow(mx - ccx, my - ccy)
+        if row
+            hit := {sx: ccx + row.x, sy: ccy + row.y}
+    }
+
+    CoordMode "Pixel", prevPixel
+    DetectHiddenWindows prevHidden
+
+    if !hit {
+        CoordMode "Mouse", prevMouse
+        Send "{Escape}"          ; don't leave the menu hanging open over the chat
+        ToolTip("Import: no 'Copy Text' in the menu")
+        SetTimer(ClearImportTip, -2000)
+        return
+    }
+
+    Click hit.sx, hit.sy
+    CoordMode "Mouse", prevMouse
 
     ClipWait(1)
     if A_Clipboard = ""
