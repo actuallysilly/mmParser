@@ -2,6 +2,7 @@
 #SingleInstance Force
 #Include "hotkeys.ahk"
 #Include "ocr_grab.ahk"
+#Include "actions_menu.ahk"
 DetectHiddenWindows true
 
 ; ─── Data ─────────────────────────────────────────────────────────────────────

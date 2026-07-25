@@ -27,6 +27,7 @@ global HK_CFG := HK_DIR "\mass_gui.cfg"      ; legacy home, read only for migrat
 
 global HK_MSG_RELOAD  := 0x8020              ; broadcast → every script re-reads the ini
 global HK_MSG_SUSPEND := 0x8021              ; broadcast → hold fire while a key is captured
+global HK_MSG_FIRE    := 0x8022              ; broadcast → whoever owns this action runs it
 global HK_SCHEMA := 2
 
 global HK_META  := Map()      ; id -> {id, label, when, owner}
@@ -180,6 +181,7 @@ HK_Def("gui.addHotkeyGrab",  "Grab selection → Add Hotkey",  ,              "m
 HK_Def("gui.ocrGrab",        "OCR screen region → Add Hotkey", ,            "mass_gui.ahk")
 HK_Def("gui.toggleDoubleMM", "Toggle double-MM",             "mouseControl", "mass_gui.ahk")
 HK_Def("gui.toggleStats",    "Toggle stats overlay",         ,              "stats_overlay.ahk")
+HK_Def("gui.actions",        "Actions menu (what can I do?)", ,             "actions_menu.ahk")
 
 HK_Section("recorder", "Recorder")
 HK_Def("recorder.toggle", "Start / stop recording", , "recorder.ahk")
@@ -375,6 +377,55 @@ _HK_OnSuspend(wParam, *) {
     Suspend(wParam ? true : false)
 }
 OnMessage(HK_MSG_SUSPEND, _HK_OnSuspend)
+
+; Post a registry message to every MMA script that is running.
+;
+; Enumerated, not a hard-coded file list: the old list in hotkeys_gui.ahk had gone
+; stale in both directions — it still named the deleted acc\britishizer.ahk and had
+; never gained sequences.ahk, so rebinding the Discord import key did not apply
+; live. An AHK script's main window is titled with its full path, so matching on
+; this folder finds MMA's scripts and nobody else's.
+;
+; exceptHwnd lets a caller skip itself, which is what the Actions menu needs: it
+; suspends the others while it is open, but must keep its own keys alive to close.
+HK_Broadcast(msg, wparam := 0, exceptHwnd := 0) {
+    prev := A_DetectHiddenWindows
+    DetectHiddenWindows true
+    for hwnd in WinGetList("ahk_class AutoHotkey") {
+        if (hwnd = exceptHwnd)
+            continue
+        try {
+            if (InStr(WinGetTitle(hwnd), HK_DIR "\") = 1)
+                PostMessage(msg, wparam, 0, , "ahk_id " hwnd)
+        }
+    }
+    DetectHiddenWindows prev
+}
+
+; Run an action on request from another script (the Actions menu).
+;
+; wParam is an INDEX into HK_ORDER, not a name, because PostMessage carries only
+; numbers — and every script loads this same file, so the index means the same
+; action in all of them.
+;
+; Only the script that actually bound the id answers; the rest ignore it. That is
+; what lets the menu run 1_mass's follow-up while living inside mass_gui, and it
+; works for actions with no key at all, since HK_Bind records the callback whether
+; or not the ini gave it one.
+_HK_OnFire(wParam, *) {
+    if (wParam < 1 || wParam > HK_ORDER.Length)
+        return
+    id := HK_ORDER[wParam]
+    if !_HK_BOUND.Has(id)
+        return
+    m := HK_META[id]
+    ; Honour the context. Firing a Discord-only sequence while Infloww is focused
+    ; would click into the wrong window — the menu is a shortcut, not an override.
+    if (m.when != "" && HK_CTX.Has(m.when) && !HK_CTX[m.when]())
+        return
+    _HK_Fire(id, _HK_BOUND[id].fn)      ; same anti-fumble gate a real key press gets
+}
+OnMessage(HK_MSG_FIRE, _HK_OnFire)
 
 ; ── migration off the four legacy surfaces ────────────────────────────────────
 ;  mass_gui.cfg used to hold [Hotkeys] (M1_f1…), [NavHotkeys] and [Recorder].

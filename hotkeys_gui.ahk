@@ -357,13 +357,10 @@ Status(s) {
 }
 
 ; Every MMA script includes hotkeys.ahk, so they all answer these messages.
+; Delegates to hotkeys.ahk. This used to be a hard-coded file list, and it had gone
+; stale in both directions — it still named the deleted acc\britishizer.ahk and had
+; never gained sequences.ahk, so rebinding the Discord import key silently failed to
+; apply live. HK_Broadcast enumerates the running scripts instead.
 Broadcast(msg, wparam) {
-    DetectHiddenWindows true
-    for f in ["1_mass.ahk", "2_mass.ahk", "3_mass.ahk", "mass_gui.ahk", "general.ahk",
-              "capitalizer.ahk", "recorder.ahk", "acc\ALIW.ahk", "acc\TEMP.ahk",
-              "acc\britishizer.ahk", "acc\BRI.ahk", "acc\UND.ahk"] {
-        w := HK_DIR "\" f " ahk_class AutoHotkey"
-        if WinExist(w)
-            try PostMessage(msg, wparam, 0, , w)
-    }
+    HK_Broadcast(msg, wparam)
 }
