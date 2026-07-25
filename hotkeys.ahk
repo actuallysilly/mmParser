@@ -211,11 +211,6 @@ HK_Def("aliw.infiniteLust", "Infinite lust",       , "acc\ALIW.ahk")
 HK_Section("temp", "Account — TEMP")
 HK_Def("temp.fantasy", "Wildest fantasy", , "acc\TEMP.ahk")
 
-HK_Section("brit", "Britishizer")
-HK_Def("brit.enterPass",  "Enter (pass through)",      , "acc\britishizer.ahk")
-HK_Def("brit.fixSend",    "Britishize + send",         , "acc\britishizer.ahk")
-HK_Def("brit.fixNoSend",  "Britishize without sending", , "acc\britishizer.ahk")
-
 HK_Section("cap", "Capitalizer")
 HK_Def("cap.enterCap",   "Enter + capitalize next",  , "capitalizer.ahk")
 HK_Def("cap.enterPass1", "Shift+Enter (pass through)", , "capitalizer.ahk")

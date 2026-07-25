@@ -2389,6 +2389,11 @@ OpenSettings(*) {
     _eligible := []
     if FileExist(SCRIPT_DIR "\general.ahk")
         _eligible.Push("general.ahk")
+    ; sequences.ahk owns the Discord Ctrl+click import, Open Farmolijer and Select
+    ; top PPV. It was missing from this list, so those keys could only be bound by
+    ; running the file by hand — and the day that stopped, the import "broke".
+    if FileExist(SCRIPT_DIR "\sequences.ahk")
+        _eligible.Push("sequences.ahk")
     for _mf in ["1_mass.ahk", "2_mass.ahk", "3_mass.ahk"]
         if FileExist(SCRIPT_DIR "\" _mf)
             _eligible.Push(_mf)
