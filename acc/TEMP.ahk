@@ -9,6 +9,7 @@
     snd("And... Might as well take the panties off to while we're there riiight?")
 }
 
+; @added 2026-07-25
 :*:Fu2::
 {
     Sendt("Can you even imagine how nice it would be to take my panties off and reveal the treasure I keep hidden from the world", 1000)

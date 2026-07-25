@@ -197,6 +197,7 @@ HK_Def("automation.countSales", "Total your sales in Notifications > Purchases",
 HK_Section("general", "General")
 HK_Def("general.openFast",    "Open-fast pitch",     , "general.ahk")
 HK_Def("general.openAndRate", "Open-and-rate pitch", , "general.ahk")
+HK_Def("general.antiCc",      "Type a random 199.00-200.00 amount", , "general.ahk")
 
 HK_Section("aliw", "Account — ALIW")
 HK_Def("aliw.intro",        "Intro greeting",      , "acc\ALIW.ahk")

@@ -954,32 +954,59 @@ ArchiveDayStamp(ts) {
     return StrLen(d) = 8 ? d "000000" : ""
 }
 
-; True if this exact mass is already archived for this model within the last
-; ArchiveDupDays days. Re-parsing the same paste is routine (fixing one line and
-; hitting parse again), and every parse used to append: 21 of the first 59
-; entries were duplicates, one mass stored 9 times in under two minutes.
-ArchiveHasRecentDuplicate(mName, raw) {
+; The archived copy of this mass from the last ArchiveDupDays days, or 0 if there
+; is none. Re-parsing the same paste is routine (fixing one line and hitting parse
+; again), and every parse used to append: 21 of the first 59 entries were
+; duplicates, one mass stored 9 times in under two minutes.
+;
+; The model is deliberately NOT part of the match. Scoping by name missed two real
+; cases: the same mass genuinely does get archived for two models, and a blank
+; model name wrote a "[]" header that then matched nothing at all — which is how
+; "Pop or rock music?" got in twice three seconds apart. A same-model hit is
+; returned in preference to a cross-model one so the prompt names the closest
+; entry, but either one is worth asking about.
+ArchiveFindDuplicate(mName, raw) {
     global CFG_FILE
     window := Integer(IniRead(CFG_FILE, "Settings", "ArchiveDupDays", "1"))
     if window < 0
-        return false
+        return 0
     want  := NormalizeMass(raw)
     today := ArchiveDayStamp(FormatTime(, "yyyy-MM-dd"))
     if want = "" || today = ""
-        return false
+        return 0
+    other := 0
     for e in ReadArchiveEntries() {
-        if !(StrLower(Trim(e.model)) = StrLower(Trim(mName)))
-            continue
         if NormalizeMass(e.content) != want
             continue
         stamp := ArchiveDayStamp(e.ts)
         if stamp = ""
             continue
         age := DateDiff(today, stamp, "Days")
-        if (age >= 0 && age <= window)
-            return true
+        if !(age >= 0 && age <= window)
+            continue
+        if (StrLower(Trim(e.model)) = StrLower(Trim(mName)))
+            return e
+        if !other
+            other := e
     }
-    return false
+    return other
+}
+
+; A duplicate is never stored or dropped on its own: this asks. The dialog says
+; when the mass was already archived and for which model, and No is the default
+; button, so leaning on Enter cannot grow the archive.
+ArchiveDuplicatePrompt(dup, mName) {
+    who  := Trim(dup.model) = "" ? "(untagged)" : dup.model
+    prev := ArchiveFlatten(dup.preview)
+    if StrLen(prev) > 120
+        prev := SubStr(prev, 1, 120) "..."
+    msg := "This mass is already in the archive.`n`n"
+         . "Saved:  " dup.ts "`n"
+         . "Model:  " who
+         . (StrLower(Trim(dup.model)) = StrLower(Trim(mName)) ? "" : "   (archiving now for " mName ")") "`n`n"
+         . prev "`n`n"
+         . "Archive it again anyway?"
+    return MsgBox(msg, "Archive - duplicate mass", 0x4 | 0x100 | 0x30) = "Yes"
 }
 
 ClearArchiveTip() {
@@ -998,14 +1025,15 @@ ParseCurrent(*) {
     RefreshAltWindow()          ; alts never surface in the main panel; keep their window honest
     if chkArchive.Value && Trim(raw) != "" {
         mName := mNo = 1 ? model1Name : mNo = 2 ? model2Name : model3Name
-        if ArchiveHasRecentDuplicate(mName, raw) {
-            ; "quietly disallow" — no dialog to dismiss, but not invisible either,
-            ; or an unsaved mass looks identical to a saved one.
-            ToolTip("Archive: already saved, skipped")
-            SetTimer(ClearArchiveTip, -1500)
-        } else {
+        if Trim(mName) = ""
+            mName := "m" mNo    ; an unnamed slot used to write "[]", which no dup check could match
+        dup := ArchiveFindDuplicate(mName, raw)
+        if (!dup || ArchiveDuplicatePrompt(dup, mName)) {
             ts := FormatTime(, "yyyy-MM-dd HH:mm:ss")
             FileAppend "[" ts "] [" mName "]`n" raw "`n===END===`n`n", ArchiveFile(), "UTF-8"
+        } else {
+            ToolTip("Archive: skipped")
+            SetTimer(ClearArchiveTip, -1500)
         }
     }
 }
@@ -2695,7 +2723,10 @@ OpenAddHotkey(prefill := "", *) {
         fn    := rdSnd.Value ? "snd" : "SendText"
         path  := filePaths[ddl.Value]
         raw   := StrReplace(StrReplace(edLines.Value, "`r`n", "`n"), "`r", "`n")
-        block := "`n" trigger "`n{`n"
+        ; The date stamp is what lets the Hotstrings manager sort by "newest".
+        ; A comment rather than anything structural: AHK ignores it, the index
+        ; reads it (HSI_AddedAbove), and hand-editing the file cannot break it.
+        block := "`n; @added " FormatTime(, "yyyy-MM-dd HH:mm") "`n" trigger "`n{`n"
         for _, ln in StrSplit(raw, "`n") {
             t := Trim(ln)
             if t = ""

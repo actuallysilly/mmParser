@@ -37,6 +37,13 @@ gOverloads := OL_Load()        ; trigger -> {file, options, variants}; refreshed
 gSizes    := ["9", "10", "11", "12", "13", "14", "16", "18", "20", "22", "24"]
 gFontSize := Integer(IniRead(HSI_DIR "\mass_gui.cfg", "Hotstrings", "FontSize", "11"))
 
+; sort order, remembered across runs. "File order" is how the library reads on
+; disk and stays the default; the date orders answer "what did I write lately?"
+gSortModes := ["File order", "Newest first", "Oldest first", "Trigger A-Z"]
+gSortMode  := Integer(IniRead(HSI_DIR "\mass_gui.cfg", "Hotstrings", "Sort", "1"))
+if (gSortMode < 1 || gSortMode > gSortModes.Length)
+    gSortMode := 1
+
 ; ── window ──
 MainGui := Gui("+Resize +MinSize780x460", "Hotstrings  " Chr(0x2014) "  message library")
 MainGui.BackColor := BG
@@ -59,15 +66,16 @@ CueBanner(searchEd, "Search trigger or message text" Chr(0x2026) "   (spaces = a
 ; list (full width; the showcase sits beneath it)
 MainGui.SetFont("s11 c" TXT, "Segoe UI")
 LV := MainGui.Add("ListView", "x16 y90 w948 h250 Background" LISTBG,
-                  ["Trigger", "Message preview", "#", "Var", "File", "idx"])
+                  ["Trigger", "Message preview", "#", "Var", "File", "Added", "idx"])
 LV.OnEvent("ItemFocus",   OnRowFocus)
 LV.OnEvent("DoubleClick", OnRowOpen)
 LV.ModifyCol(1, 170)
-LV.ModifyCol(2, 430)
+LV.ModifyCol(2, 350)
 LV.ModifyCol(3, "50 Integer Center")
 LV.ModifyCol(4, "50 Center")       ; variant count when overloaded, else blank
 LV.ModifyCol(5, 120)
-LV.ModifyCol(6, 0)                 ; hidden: master index into gRecords, rides with its row
+LV.ModifyCol(6, 90)                ; date the hotstring was added, blank if unstamped
+LV.ModifyCol(7, 0)                 ; hidden: master index into gRecords, rides with its row
 
 ; showcase / detail pane — full width, word-wrapped so long messages read cleanly
 MainGui.SetFont("s12 c" TXT, "Segoe UI")
@@ -87,6 +95,14 @@ btnOver.OnEvent("Click",   EditOverload)
 btnDelete.OnEvent("Click", DeleteSelected)
 ; ask-vs-random is NOT global: each overloaded trigger carries its own mode,
 ; set in the variant editor and stored with its variants.
+
+; sort control
+MainGui.SetFont("s10 c" MUTED, "Segoe UI")
+lblSort := MainGui.Add("Text", "x580 y540 w34 h22 +0x200 Right", "Sort")
+MainGui.SetFont("s10 c" TXT, "Segoe UI")
+sortDD := MainGui.Add("DropDownList", "x618 y536 w120", gSortModes)
+sortDD.Choose(gSortMode)
+sortDD.OnEvent("Change", OnSortMode)
 
 ; text-size control — applies to the list + showcase, remembered across runs
 MainGui.SetFont("s10 c" MUTED, "Segoe UI")
@@ -131,9 +147,11 @@ PopulateList(query) {
     LV.Opt("-Redraw")
     LV.Delete()
     shown := 0
-    for i, r in gRecords {
+    for _, i in SortedIndices() {
+        r := gRecords[i]
         if MatchRec(r, terms) {
-            LV.Add(, r.trigger, FlattenOneLine(r.preview), r.steps.Length, VarCell(r.trigger), HsFileLabel(r.file), i)
+            LV.Add(, r.trigger, FlattenOneLine(r.preview), r.steps.Length, VarCell(r.trigger),
+                     HsFileLabel(r.file), AddedCell(r.added), i)
             shown++
         }
     }
@@ -152,6 +170,61 @@ PopulateList(query) {
     }
 }
 
+; The order rows are listed in: an array of indices into gRecords. Filtering runs
+; over this, so search results keep whatever order is selected.
+;
+; Records with no "; @added" stamp cannot be dated, and guessing would be worse
+; than admitting it: they sort together at the END of both date orders, keeping
+; their file order among themselves. So "Newest first" means "newest known first",
+; never "unstamped is ancient".
+SortedIndices() {
+    global gRecords, gSortMode
+    idx := []
+    Loop gRecords.Length
+        idx.Push(A_Index)
+    if (gSortMode = 1)
+        return idx
+
+    keyOf(i) {
+        r := gRecords[i]
+        return gSortMode = 4 ? StrLower(r.trigger) : r.added
+    }
+    less(a, b) {
+        ka := keyOf(a), kb := keyOf(b)
+        if (gSortMode = 4)
+            return StrCompare(ka, kb) < 0
+        if (ka = "" || kb = "")
+            return (ka != "" && kb = "")        ; dated before undated, either way round
+        return gSortMode = 2 ? StrCompare(ka, kb) > 0 : StrCompare(ka, kb) < 0
+    }
+    ; Insertion sort: ~120 records, and it is stable, which is what keeps the
+    ; undated tail and same-day entries in their original file order.
+    Loop idx.Length - 1 {
+        i := A_Index + 1
+        v := idx[i]
+        j := i - 1
+        while (j >= 1 && less(v, idx[j])) {
+            idx[j + 1] := idx[j]
+            j--
+        }
+        idx[j + 1] := v
+    }
+    return idx
+}
+
+; "2026-07-25 14:03" -> "2026-07-25". The clock time is noise in a list column;
+; it stays in the file for anyone who wants it.
+AddedCell(added) {
+    return added = "" ? "" : SubStr(added, 1, 10)
+}
+
+OnSortMode(ctrl, *) {
+    global gSortMode, searchEd
+    gSortMode := ctrl.Value
+    try IniWrite(gSortMode, HSI_DIR "\mass_gui.cfg", "Hotstrings", "Sort")
+    PopulateList(searchEd.Value)
+}
+
 MatchRec(r, terms) {
     if !terms.Length
         return true
@@ -166,7 +239,7 @@ OnRowFocus(ctrl, row) {
     global gRecords, detailEd
     if (!row || row > ctrl.GetCount())
         return
-    idx := Integer(ctrl.GetText(row, 6))
+    idx := Integer(ctrl.GetText(row, 7))
     if (idx < 1 || idx > gRecords.Length)
         return
     detailEd.Value := BuildDetail(gRecords[idx])
@@ -220,7 +293,7 @@ OnRowOpen(ctrl, row) {
     global gRecords, HSI_DIR
     if (!row || row > ctrl.GetCount())
         return
-    idx := Integer(ctrl.GetText(row, 6))
+    idx := Integer(ctrl.GetText(row, 7))
     if (idx < 1 || idx > gRecords.Length)
         return
     r := gRecords[idx]
@@ -275,7 +348,7 @@ DeleteSelected(*) {
         Notify("Select a hotstring first")
         return
     }
-    idx := Integer(LV.GetText(row, 6))
+    idx := Integer(LV.GetText(row, 7))
     if (idx < 1 || idx > gRecords.Length)
         return
     r := gRecords[idx]
@@ -322,7 +395,7 @@ EditOverload(*) {
     row := LV.GetNext(0, "F")
     if !row
         return
-    idx := Integer(LV.GetText(row, 6))
+    idx := Integer(LV.GetText(row, 7))
     if (idx < 1 || idx > gRecords.Length)
         return
     OpenVariantEditor(gRecords[idx])
@@ -511,7 +584,7 @@ Notify(msg) {
 ; ── resize: search spans the width; list on top, showcase (full width) beneath ──
 OnSize(g, minMax, w, h) {
     global searchEd, LV, detailEd, countTxt, btnOpen, btnCopy, btnRescan, lblSize, sizeDD
-    global btnOver, btnDelete
+    global btnOver, btnDelete, lblSort, sortDD
     if (minMax = -1)
         return
     m := 16, gap := 10, footerH := 30, footerGap := 14
@@ -533,7 +606,8 @@ OnSize(g, minMax, w, h) {
     LV.ModifyCol(3, 54)
     LV.ModifyCol(4, 54)
     LV.ModifyCol(5, 130)
-    LV.ModifyCol(2, Max(160, listW - 190 - 54 - 54 - 130 - 24))
+    LV.ModifyCol(6, 92)
+    LV.ModifyCol(2, Max(160, listW - 190 - 54 - 54 - 130 - 92 - 24))
 
     by := top + contentH + footerGap
     btnOpen.Move(m, by)
@@ -543,6 +617,8 @@ OnSize(g, minMax, w, h) {
     btnDelete.Move(m + 462, by)
     sizeDD.Move(w - m - 62, by, 62)
     lblSize.Move(w - m - 62 - 66, by + 6, 62)
+    sortDD.Move(w - m - 62 - 66 - 128, by, 120)
+    lblSort.Move(w - m - 62 - 66 - 128 - 38, by + 6, 34)
 }
 
 ; ── text size: live-apply to list + showcase and remember the choice ──

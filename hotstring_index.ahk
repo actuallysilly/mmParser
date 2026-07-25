@@ -19,6 +19,8 @@
 ;                 AHK string escapes (`n `" `; …) resolved to real characters
 ;      preview  — every step's text joined onto one line, for display + search
 ;      raw      — the body source verbatim, so nothing is lost for later editing
+;      added    — "YYYY-MM-DD[ HH:mm]" from the "; @added" comment above the
+;                 trigger, or "" for a block that has never been stamped
 ; ═══════════════════════════════════════════════════════════════════════════════
 
 ; Anchored to THIS file, not A_ScriptDir, so it resolves the sources whether the
@@ -64,6 +66,7 @@ HSI_ParseFile(rel, path, out) {
         trigger := m[2]
         rest    := m[3]
         triggerLine := i
+        added   := HSI_AddedAbove(lines, triggerLine)
 
         ; Find where the body's opening brace is: on the trigger line itself
         ; (":*:tysm::{" or "::x::{}"), or on a following line after blanks/comments.
@@ -82,7 +85,7 @@ HSI_ParseFile(rel, path, out) {
             while (j <= lines.Length && !InStr(lines[j], "{"))
                 j++
             if (j > lines.Length) {          ; no body found — treat as empty
-                out.Push(HSI_Record(rel, triggerLine, options, trigger, ""))
+                out.Push(HSI_Record(rel, triggerLine, options, trigger, "", added))
                 i++
                 continue
             }
@@ -98,7 +101,7 @@ HSI_ParseFile(rel, path, out) {
 
         closeIdx := HSI_MatchBrace(stream)
         if (closeIdx = 0) {                   ; unbalanced — save what we can, move on
-            out.Push(HSI_Record(rel, triggerLine, options, trigger, ""))
+            out.Push(HSI_Record(rel, triggerLine, options, trigger, "", added))
             i := triggerLine + 1
             continue
         }
@@ -107,20 +110,39 @@ HSI_ParseFile(rel, path, out) {
         consumed := StrLen(SubStr(stream, 1, closeIdx))
                   - StrLen(StrReplace(SubStr(stream, 1, closeIdx), "`n"))
 
-        out.Push(HSI_Record(rel, triggerLine, options, trigger, body))
+        out.Push(HSI_Record(rel, triggerLine, options, trigger, body, added))
         i := (i >= triggerLine ? i : triggerLine) + consumed + 1
     }
 }
 
 ; Assemble a record from a trigger + its raw body text.
-HSI_Record(rel, line, options, trigger, body) {
+HSI_Record(rel, line, options, trigger, body, added := "") {
     steps   := HSI_StepsFromBody(body)
     preview := ""
     for st in steps
         preview .= (preview != "" ? "   ·   " : "") st.text
     preview := StrReplace(StrReplace(preview, "`r", " "), "`n", " ")
     return {file: rel, line: line, options: options, trigger: trigger,
-            steps: steps, preview: preview, raw: body}
+            steps: steps, preview: preview, raw: body, added: added}
+}
+
+; When was this hotstring added? A "; @added YYYY-MM-DD[ HH:mm]" comment directly
+; above the trigger carries the answer — written by the mass_gui "Add hotstring"
+; dialog, and stamped onto the pre-existing library once from git history. Returns
+; "" when there is no stamp, which the manager sorts as "unknown", never as old.
+;
+; Blank lines between the comment and the trigger are tolerated, so reformatting a
+; source file by hand does not silently drop the date.
+HSI_AddedAbove(lines, triggerLine) {
+    static addedRe := "^;\s*@added\s+(\d{4}-\d{2}-\d{2}(?:[ T]\d{2}:\d{2}(?::\d{2})?)?)\s*$"
+    j := triggerLine - 1
+    while (j >= 1 && Trim(lines[j]) = "")
+        j--
+    if (j < 1)
+        return ""
+    if RegExMatch(Trim(lines[j]), addedRe, &am)
+        return Trim(am[1])
+    return ""
 }
 
 ; Pull the send-steps out of a body: each snd()/SendText()/Sendt() call becomes
@@ -280,17 +302,27 @@ HSI_DeleteBlock(rel, triggerLine, expectTrigger) {
     catch as e
         return {ok: false, why: "Could not write the backup " rel ".bak:`n" e.Message}
 
+    ; The "; @added" stamp belongs to this block and goes with it. Left behind, it
+    ; floats up to whatever trigger comes next and misdates it — HSI_AddedAbove
+    ; looks past blank lines, so the same walk is used here to find it.
+    delFirst := span.first
+    j := span.first - 1
+    while (j >= 1 && Trim(lines[j]) = "")
+        j--
+    if (j >= 1 && RegExMatch(Trim(lines[j]), "^;\s*@added\s"))
+        delFirst := j
+
     kept := []
     for i, ln in lines
-        if (i < span.first || i > span.last)
+        if (i < delFirst || i > span.last)
             kept.Push(ln)
 
     ; The blank line that separated this block from the next one is now a second
     ; blank line against the one above it. Collapse the pair, or repeated deletes
     ; leave a growing hole in the file.
-    if (span.first > 1 && span.first <= kept.Length
-            && Trim(kept[span.first - 1]) = "" && Trim(kept[span.first]) = "")
-        kept.RemoveAt(span.first)
+    if (delFirst > 1 && delFirst <= kept.Length
+            && Trim(kept[delFirst - 1]) = "" && Trim(kept[delFirst]) = "")
+        kept.RemoveAt(delFirst)
 
     out := ""
     for i, ln in kept
@@ -301,7 +333,7 @@ HSI_DeleteBlock(rel, triggerLine, expectTrigger) {
         return {ok: false, why: "Could not open " rel " for writing (is it open elsewhere?)"}
     f.Write(out)
     f.Close()
-    return {ok: true, removed: span.last - span.first + 1}
+    return {ok: true, removed: span.last - delFirst + 1}
 }
 
 ; Find the "}" that matches the "{" at s[1], ignoring braces that sit inside a
