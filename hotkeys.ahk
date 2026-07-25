@@ -182,6 +182,7 @@ HK_Def("gui.ocrGrab",        "OCR screen region → Add Hotkey", ,            "m
 HK_Def("gui.toggleDoubleMM", "Toggle double-MM",             "mouseControl", "mass_gui.ahk")
 HK_Def("gui.toggleStats",    "Toggle stats overlay",         ,              "stats_overlay.ahk")
 HK_Def("gui.actions",        "Actions menu (what can I do?)", ,             "actions_menu.ahk")
+HK_Def("gui.quickActions",   "Quick actions (pinned buttons)", ,            "actions_menu.ahk")
 
 HK_Section("recorder", "Recorder")
 HK_Def("recorder.toggle", "Start / stop recording", , "recorder.ahk")
