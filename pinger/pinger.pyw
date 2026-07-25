@@ -27,14 +27,18 @@ same way it drives the automation listener.
     pinger.pyw --stop       ask a background pinger to exit
     pinger.pyw --status     is one running?
     pinger.pyw --once       one scan, printed (for debugging)
+    pinger.pyw --test-sound play the alert once (for tuning ALERT_VOLUME)
 """
 
 import argparse
 import ctypes
 import ctypes.wintypes as wintypes
+import io
 import os
 import sys
+import tempfile
 import time
+import wave
 import winsound
 from datetime import datetime
 
@@ -48,10 +52,15 @@ POLL_INTERVAL  = 2.0         # seconds between scans
 REPEAT_EVERY   = 15          # re-alert every N polls while anything stays unread
 
 # Unread colour and how far a pixel may stray from it (sum of per-channel
-# absolute difference). Measured cores are exactly #ff7c71; the slack covers
-# antialiased edge pixels only.
+# absolute difference).
+#
+# Was 60, "slack for antialiased edge pixels". Measured: there are none. The dot
+# is a solid block of exactly #ff7c71 and comes out 6x6 / 24px identically at
+# every tolerance from 30 to 70 — the slack bought nothing and let in the tab's
+# pink ✕ close button at distance 56, which pinged over an empty strip. The ✕
+# disappears below 55; 45 leaves margin on both sides.
 CORAL          = (0xFF, 0x7C, 0x71)
-CORAL_TOL      = 60
+CORAL_TOL      = 45
 
 # Shape profiles. A blob must match one of these to count.
 DOT_PX         = (12, 60)    # measured 24px in both reference captures
@@ -65,6 +74,18 @@ BADGE_PX       = (45, 210)   # measured 80px at "2"; 189px at a 2-digit pill
 BADGE_SIDE_W   = (9, 26)
 BADGE_SIDE_H   = (9, 16)     # height stays 12 regardless of digit count
 MAX_ASPECT     = 2.6         # dots are round; badges stretch horizontally only
+
+# Filled fraction of the bounding box. Both real markers are SOLID shapes: the
+# dot measures 0.67, the badge 0.51. Icons drawn as strokes are not — the tab's
+# ✕ close button is 0.28, and a 10x10 ✕ otherwise looks exactly like a 6x6 dot
+# to a size-and-aspect filter (same box, similar pixel count). This is the check
+# that tells "solid marker" from "line art", independent of colour.
+#
+# 0.40, not 0.45: the badge is a rounded pill with its digits punched out of the
+# coral, so its extent depends on how much ink the digit has. 0.51 for the
+# measured one leaves too little room for a fatter digit, and the colour
+# tolerance above is already the primary defence against the ✕.
+MIN_EXTENT     = 0.40
 
 # The overflow chip is pinned to the right end of the strip, so its badge is
 # always in the far right of the frame. Model tab badges sit at the left
@@ -80,6 +101,14 @@ STRIP_SEARCH   = (20, 140)
 
 # Alert sound. Set SOUND_FILE to an absolute .wav path to play a file instead.
 SOUND_FILE     = None
+# The old "SystemExclamation" alias was quiet for a reason no constant here could
+# fix: system sounds play at the Windows *System Sounds* mixer level, which is
+# independent of master volume and easy to leave low. A synthesised tone plays on
+# this process's own channel, so ALERT_VOLUME actually controls how loud it is.
+ALERT_VOLUME   = 1.0         # 0.0 - 1.0, peak amplitude
+ALERT_TONES    = (880, 1320) # Hz, one beep per entry
+ALERT_BEEP_MS  = 150
+ALERT_GAP_MS   = 70
 
 # ─────────────────────────────────────────────────────────────────────────────
 
@@ -322,6 +351,8 @@ def find_markers(band: np.ndarray) -> list[dict]:
             continue
         if max(w / h, h / w) > MAX_ASPECT:
             continue
+        if area / (w * h) < MIN_EXTENT:      # stroke-drawn icon, not a marker
+            continue
         if (DOT_PX[0] <= area <= DOT_PX[1]
                 and DOT_SIDE[0] <= w <= DOT_SIDE[1]
                 and DOT_SIDE[0] <= h <= DOT_SIDE[1]):
@@ -349,11 +380,58 @@ def label_markers(markers: list[dict], edges: list[int]) -> list[dict]:
 
 
 # --------------------------------------------------------------------- alert --
+ALERT_RATE = 44100
+
+_alert_path = None
+
+
+def alert_wav_bytes() -> bytes:
+    """The alert pattern as a WAV."""
+    rate = ALERT_RATE
+    vol = max(0.0, min(1.0, ALERT_VOLUME))
+    fade = int(rate * 0.004)          # without it each beep starts on a click
+    parts = []
+    for i, hz in enumerate(ALERT_TONES):
+        n = int(rate * ALERT_BEEP_MS / 1000)
+        t = np.arange(n, dtype=np.float32) / rate
+        # Square, not sine: same peak amplitude but ~3dB more energy, and the
+        # harsher timbre is what carries over whatever else is playing.
+        beep = np.sign(np.sin(2 * np.pi * hz * t)).astype(np.float32) * vol
+        beep[:fade] *= np.linspace(0, 1, fade, dtype=np.float32)
+        beep[-fade:] *= np.linspace(1, 0, fade, dtype=np.float32)
+        if i:
+            parts.append(np.zeros(int(rate * ALERT_GAP_MS / 1000), np.float32))
+        parts.append(beep)
+
+    pcm = (np.concatenate(parts) * 32767).astype("<i2").tobytes()
+    buf = io.BytesIO()
+    with wave.open(buf, "wb") as w:
+        w.setnchannels(1)
+        w.setsampwidth(2)
+        w.setframerate(rate)
+        w.writeframes(pcm)
+    return buf.getvalue()
+
+
+def alert_wav_path() -> str:
+    """Path to the generated alert, written once per process.
+
+    winsound refuses SND_MEMORY together with SND_ASYNC, and playing it
+    synchronously would stall the poll loop for the length of the sound, so the
+    tone goes via a temp file.
+    """
+    global _alert_path
+    if _alert_path is None:
+        path = os.path.join(tempfile.gettempdir(), "mma_pinger_alert.wav")
+        with open(path, "wb") as f:
+            f.write(alert_wav_bytes())
+        _alert_path = path
+    return _alert_path
+
+
 def play_alert() -> None:
-    if SOUND_FILE and os.path.exists(SOUND_FILE):
-        winsound.PlaySound(SOUND_FILE, winsound.SND_FILENAME | winsound.SND_ASYNC)
-        return
-    winsound.PlaySound("SystemExclamation", winsound.SND_ALIAS | winsound.SND_ASYNC)
+    path = SOUND_FILE if (SOUND_FILE and os.path.exists(SOUND_FILE)) else alert_wav_path()
+    winsound.PlaySound(path, winsound.SND_FILENAME | winsound.SND_ASYNC)
 
 
 def ts() -> str:
@@ -402,6 +480,8 @@ def main(argv=None) -> int:
     ap.add_argument("--title", default=WINDOW_TITLE)
     ap.add_argument("--stop", action="store_true", help="stop a running pinger")
     ap.add_argument("--status", action="store_true", help="report whether one runs")
+    ap.add_argument("--test-sound", action="store_true",
+                    help="play the alert once and exit (for tuning ALERT_VOLUME)")
     ap.add_argument("--listen", action="store_true",
                     help="headless mode: log to MMA's error_log.txt")
     args = ap.parse_args(argv)
@@ -413,6 +493,11 @@ def main(argv=None) -> int:
         running = pinger_running()
         print("running" if running else "not running")
         return 0 if running else 1
+    if args.test_sound:
+        play_alert()
+        # SND_ASYNC: exiting here would cut the sound off mid-playback
+        time.sleep(len(alert_wav_bytes()) / (ALERT_RATE * 2) + 0.3)
+        return 0
 
     if args.listen:
         sys.stdout = sys.stderr = _MmaLog()

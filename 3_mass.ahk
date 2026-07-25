@@ -6,23 +6,55 @@ massNo := 1
 modelFileNo := 3
 
 m1 := {
-mass: "",
-fu1: "",
-fu1_5: "",
+mass: "Pop or rock music?",
+fu1: "But does it really matter when I can rock your body so you can pop a boner for me `;3",
+fu1_5: "I really love Arctic Monkeys btw, so rock for me I guess... Btw, what part of me makes you pop a boner?",
 fu1_7: "",
 
-fu2: "",
+fu2: "My supple breasts really >.<...? Well they are massive and warm to the touch.. I can't blame you for obsessively wanting to suck on them.. Would you also pinch them?",
 fu2_5: "",
 fu2_7: "",
 
-fu3: "",
+fu3: "Can you imagine how nice it would feel to have my ass on top of your face? I would wiggle it up and down for you so you feel enchanted and enticed 💘... Would you heart skip a beat as your cock follows my rhythm?",
 fu3_5: "",
 fu3_7: "",
 
 ppv_base: "",
 ppv_f1: "",
 ppv_f2: "",
-ppv_f3: ""
+ppv_f3: "",
+
+br1_name: "",
+br1_fu1: "",
+br1_fu2: "",
+br1_fu3: "",
+br1_ppv: "",
+
+br2_name: "",
+br2_fu1: "",
+br2_fu2: "",
+br2_fu3: "",
+br2_ppv: "",
+
+br3_name: "",
+br3_fu1: "",
+br3_fu2: "",
+br3_fu3: "",
+br3_ppv: "",
+
+fu1_alt0: "",
+fu1_alt1: "",
+fu1_alt2: "",
+
+fu2_alt0: "",
+fu2_alt1: "",
+fu2_alt2: "",
+
+fu3_alt0: "",
+fu3_alt1: "",
+fu3_alt2: "",
+
+altGui: ""
 }
 
 m2 := {
@@ -42,13 +74,45 @@ fu3_7: "",
 ppv_base: "",
 ppv_f1: "",
 ppv_f2: "",
-ppv_f3: ""
+ppv_f3: "",
+
+br1_name: "",
+br1_fu1: "",
+br1_fu2: "",
+br1_fu3: "",
+br1_ppv: "",
+
+br2_name: "",
+br2_fu1: "",
+br2_fu2: "",
+br2_fu3: "",
+br2_ppv: "",
+
+br3_name: "",
+br3_fu1: "",
+br3_fu2: "",
+br3_fu3: "",
+br3_ppv: "",
+
+fu1_alt0: "",
+fu1_alt1: "",
+fu1_alt2: "",
+
+fu2_alt0: "",
+fu2_alt1: "",
+fu2_alt2: "",
+
+fu3_alt0: "",
+fu3_alt1: "",
+fu3_alt2: "",
+
+altGui: ""
 }
 
 m3 := {
-mass: "",
-fu1: "",
-fu1_5: "",
+mass: "Pop or rock music?",
+fu1: "But does it really matter when I can rock your body so you can pop a boner for me `;3",
+fu1_5: "I really love Arctic Monkeys btw, so rock for me I guess... Btw, what part of me makes you pop a boner?",
 fu1_7: "",
 
 fu2: "",
@@ -62,7 +126,39 @@ fu3_7: "",
 ppv_base: "",
 ppv_f1: "",
 ppv_f2: "",
-ppv_f3: ""
+ppv_f3: "",
+
+br1_name: "Tits",
+br1_fu1: "My supple breasts really >.<...? Well they are massive and warm to the touch.. I can't blame you for obsessively wanting to suck on them.. Would you also pinch them?",
+br1_fu2: "",
+br1_fu3: "",
+br1_ppv: "",
+
+br2_name: "Ass",
+br2_fu1: "Can you imagine how nice it would feel to have my ass on top of your face? I would wiggle it up and down for you so you feel enchanted and enticed 💘... Would you heart skip a beat as your cock follows my rhythm?",
+br2_fu2: "",
+br2_fu3: "",
+br2_ppv: "",
+
+br3_name: "",
+br3_fu1: "",
+br3_fu2: "",
+br3_fu3: "",
+br3_ppv: "",
+
+fu1_alt0: "",
+fu1_alt1: "",
+fu1_alt2: "",
+
+fu2_alt0: "",
+fu2_alt1: "",
+fu2_alt2: "",
+
+fu3_alt0: "",
+fu3_alt1: "",
+fu3_alt2: "",
+
+altGui: ""
 }
 
 DoFu1(){
@@ -157,6 +253,46 @@ DoAltFu3() {
         DoFu3()
 }
 
+; ── --Name branches ───────────────────────────────────────────────────────────
+; The trunk (base fu1/fu2/fu3) sends on the normal keys. A branch is a continuation
+; you switch to: pick one, then walk its follow-ups and ppv. The chosen branch is
+; remembered per mass (_activeBranch) so fu2/fu3/ppv keep sending the same one.
+DoBranchPick() {
+    global _activeBranch, massNo
+    if !FuGate()
+        return
+    brs := BranchList(CurMass())
+    if !brs.Length
+        return
+    idx := 1
+    if brs.Length > 1 {
+        labels := []
+        for b in brs
+            labels.Push(b.name (b.fu[1].Length ? "  —  " b.fu[1][1] : ""))
+        idx := Overload_Choose(labels)
+        if !idx
+            return
+    }
+    _activeBranch[massNo] := idx
+    BranchSendGroup(brs[idx].fu[1])
+}
+DoBranchFu2() => BranchSendActiveGroup(2)
+DoBranchFu3() => BranchSendActiveGroup(3)
+DoBranchPpv() {
+    global _activeBranch, massNo
+    brs := BranchList(CurMass())
+    if _activeBranch.Has(massNo) && _activeBranch[massNo] <= brs.Length
+        BranchSendPpv(brs[_activeBranch[massNo]].ppv)
+}
+BranchSendActiveGroup(g) {
+    global _activeBranch, massNo
+    if !FuGate()
+        return
+    brs := BranchList(CurMass())
+    if _activeBranch.Has(massNo) && _activeBranch[massNo] <= brs.Length
+        BranchSendGroup(brs[_activeBranch[massNo]].fu[g])
+}
+
 HK_Bind("mass.3.fu1",    DoFu1)
 HK_Bind("mass.3.fu2",    DoFu2)
 HK_Bind("mass.3.fu3",    DoFu3)
@@ -168,7 +304,28 @@ HK_Bind("mass.3.ppvFus", DoPpvFus)
 HK_Bind("mass.3.altFu1", DoAltFu1)
 HK_Bind("mass.3.altFu2", DoAltFu2)
 HK_Bind("mass.3.altFu3", DoAltFu3)
+HK_Bind("mass.3.brPick", DoBranchPick)
+HK_Bind("mass.3.brFu2",  DoBranchFu2)
+HK_Bind("mass.3.brFu3",  DoBranchFu3)
+HK_Bind("mass.3.brPpv",  DoBranchPpv)
 
 ; The Scimitar keys are the same F13-F15 that models 1 and 2 use, so without this
 ; one press fired every model's follow-up at once.
 StartFuGating(HK_ModelSendIds(modelFileNo))
+
+; sends the mass body itself — pastes only, so you can review before sending.
+DoMass(){
+    global massNo, m1, m2, m3
+    m := massNo = 1 ? m1 : massNo = 2 ? m2 : m3
+    if m.mass = ""
+        return
+    A_Clipboard := m.mass
+    ClipWait(0.5)
+    Send "^v"
+}
+
+; type __mm to paste the ACTIVE model's mass body (review, then send). Gated so
+; only the focused model's script fires it — see UniversalSendActive in utils.ahk.
+#HotIf UniversalSendActive()
+:*X:__mm::DoMass()
+#HotIf

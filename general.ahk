@@ -239,3 +239,13 @@ HK_Bind("general.openAndRate", OpenAndRate)
 {
     snd("Running the page myself is tremendously hard so I can only allocate time to people who are serious about me, If that wasn't the case I'd have to use AI")
 }
+
+:*:_OPENTHAT::
+{
+    snd("Uhm i'm sorry to be so blunt about this")
+    snd("But I really cant talk to everyone on here all day")
+    snd("Because too many people are messaging me")
+    snd("So if you don't want to spoil me and undress me to prove you really like me")
+    snd("I sadly wont have time to text you")
+    snd("Which means open that")
+}

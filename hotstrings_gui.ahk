@@ -10,8 +10,10 @@
 ;  source line, and turn a trigger into an OVERLOAD (several variants, one of which
 ;  fires) via hotstring_overloads.ahk.
 ;
-;  Run it on its own (double-click). Your .ahk message files are NEVER written to —
-;  overload variants live in hotstring_overloads.ini, applied at script load.
+;  Run it on its own (double-click). Editing is deliberately one-way: overload
+;  variants live in hotstring_overloads.ini and never touch your sources. DELETE is
+;  the single exception — it cuts the block out of the .ahk file itself, after a
+;  confirmation and a .bak.
 ; ═══════════════════════════════════════════════════════════════════════════════
 
 ; ── palette (dark violet, in the Infloww family). RRGGBB, no 0x. ──
@@ -43,20 +45,20 @@ MainGui.OnEvent("Close",  GuiClosed)
 MainGui.OnEvent("Escape", GuiClosed)
 
 ; title + live count
-MainGui.SetFont("s14 Bold c" ACCENT, "Segoe UI")
-MainGui.Add("Text", "x16 y13 w400", GLYPH_STAR "  Hotstrings")
-MainGui.SetFont("s10 Norm c" MUTED, "Segoe UI")
+MainGui.SetFont("s15 Bold c" ACCENT, "Segoe UI")
+MainGui.Add("Text", "x16 y12 w400", GLYPH_STAR "  Hotstrings")
+MainGui.SetFont("s11 Norm c" MUTED, "Segoe UI")
 countTxt := MainGui.Add("Text", "x600 y21 w360 Right", "")
 
 ; search
-MainGui.SetFont("s11 c" TXT, "Segoe UI")
-searchEd := MainGui.Add("Edit", "x16 y48 w948 h30 Background" FIELDBG)
+MainGui.SetFont("s12 c" TXT, "Segoe UI")
+searchEd := MainGui.Add("Edit", "x16 y48 w948 h32 Background" FIELDBG)
 searchEd.OnEvent("Change", OnSearch)
 CueBanner(searchEd, "Search trigger or message text" Chr(0x2026) "   (spaces = all terms must match)")
 
 ; list (full width; the showcase sits beneath it)
-MainGui.SetFont("s10 c" TXT, "Segoe UI")
-LV := MainGui.Add("ListView", "x16 y88 w948 h250 Background" LISTBG,
+MainGui.SetFont("s11 c" TXT, "Segoe UI")
+LV := MainGui.Add("ListView", "x16 y90 w948 h250 Background" LISTBG,
                   ["Trigger", "Message preview", "#", "Var", "File", "idx"])
 LV.OnEvent("ItemFocus",   OnRowFocus)
 LV.OnEvent("DoubleClick", OnRowOpen)
@@ -68,27 +70,29 @@ LV.ModifyCol(5, 120)
 LV.ModifyCol(6, 0)                 ; hidden: master index into gRecords, rides with its row
 
 ; showcase / detail pane — full width, word-wrapped so long messages read cleanly
-MainGui.SetFont("s11 c" TXT, "Segoe UI")
-detailEd := MainGui.Add("Edit", "x16 y348 w948 h170 ReadOnly +VScroll Background" SURFACE)
+MainGui.SetFont("s12 c" TXT, "Segoe UI")
+detailEd := MainGui.Add("Edit", "x16 y350 w948 h170 ReadOnly +VScroll Background" SURFACE)
 
 ; footer
-MainGui.SetFont("s9 c" TXT, "Segoe UI")
-btnOpen   := MainGui.Add("Button", "x16 y530 w112 h28", "Open source")
-btnCopy   := MainGui.Add("Button", "x134 y530 w112 h28", "Copy trigger")
-btnRescan := MainGui.Add("Button", "x252 y530 w92 h28", "Rescan")
-btnOver   := MainGui.Add("Button", "x352 y530 w118 h28", "Overload" Chr(0x2026))
+MainGui.SetFont("s10 c" TXT, "Segoe UI")
+btnOpen   := MainGui.Add("Button", "x16 y534 w112 h30", "Open source")
+btnCopy   := MainGui.Add("Button", "x134 y534 w112 h30", "Copy trigger")
+btnRescan := MainGui.Add("Button", "x252 y534 w92 h30", "Rescan")
+btnOver   := MainGui.Add("Button", "x352 y534 w118 h30", "Overload" Chr(0x2026))
+btnDelete := MainGui.Add("Button", "x478 y534 w92 h30", "Delete")
 btnOpen.OnEvent("Click",   OpenSelected)
 btnCopy.OnEvent("Click",   CopySelected)
 btnRescan.OnEvent("Click", RescanFiles)
 btnOver.OnEvent("Click",   EditOverload)
+btnDelete.OnEvent("Click", DeleteSelected)
 ; ask-vs-random is NOT global: each overloaded trigger carries its own mode,
 ; set in the variant editor and stored with its variants.
 
 ; text-size control — applies to the list + showcase, remembered across runs
-MainGui.SetFont("s9 c" MUTED, "Segoe UI")
-lblSize := MainGui.Add("Text", "x800 y536 w62 h20 +0x200 Right", "Text size")
-MainGui.SetFont("s9 c" TXT, "Segoe UI")
-sizeDD := MainGui.Add("DropDownList", "x866 y532 w58", gSizes)
+MainGui.SetFont("s10 c" MUTED, "Segoe UI")
+lblSize := MainGui.Add("Text", "x836 y540 w62 h22 +0x200 Right", "Text size")
+MainGui.SetFont("s10 c" TXT, "Segoe UI")
+sizeDD := MainGui.Add("DropDownList", "x902 y536 w62", gSizes)
 sizeIdx := 3
 for i, sv in gSizes
     if (Integer(sv) = gFontSize)
@@ -99,7 +103,7 @@ sizeDD.OnEvent("Change", OnFontSize)
 ApplyDarkTheme()
 ApplyContentFont(gFontSize)
 PopulateList("")
-MainGui.Show("w980 h580")
+MainGui.Show("w1000 h600")
 
 ; ═══════════════════════════════════════════════════════════════════════════════
 ;  behaviour
@@ -129,7 +133,7 @@ PopulateList(query) {
     shown := 0
     for i, r in gRecords {
         if MatchRec(r, terms) {
-            LV.Add(, r.trigger, FlattenOneLine(r.preview), r.steps.Length, VarCell(r.trigger), r.file, i)
+            LV.Add(, r.trigger, FlattenOneLine(r.preview), r.steps.Length, VarCell(r.trigger), HsFileLabel(r.file), i)
             shown++
         }
     }
@@ -168,20 +172,19 @@ OnRowFocus(ctrl, row) {
     detailEd.Value := BuildDetail(gRecords[idx])
 }
 
-; The right-hand pane: header, source location, then each send step tagged with the
-; function that sends it (snd = sends + Enter, SendText = pastes only).
+; The showcase pane: the message, and nothing else. The trigger, source file and
+; line already sit in the list columns, and which function sends a step is an
+; implementation detail — repeating them here just buried the text you came to read.
 BuildDetail(r) {
-    global GLYPH_ARROW, gOverloads
-    out := ":" r.options ":" r.trigger "::`r`n"
-        . r.file "   line " r.line "`r`n"
-        . "----------------------------------------`r`n`r`n"
+    global gOverloads
+    out := ""
     if !r.steps.Length {
         out .= "(empty " Chr(0x2014) " no send steps)`r`n"
     } else {
         for st in r.steps {
             t := StrReplace(st.text, "`r`n", "`n")     ; normalise, then give the Edit CRLFs
             t := StrReplace(t, "`n", "`r`n")
-            out .= GLYPH_ARROW " " st.fn "`r`n" t "`r`n`r`n"
+            out .= t "`r`n`r`n"
         }
     }
     if gOverloads.Has(r.trigger) {
@@ -192,12 +195,19 @@ BuildDetail(r) {
             out .= "[" vi "]`r`n"
             for st in steps {
                 t := StrReplace(StrReplace(st.text, "`r`n", "`n"), "`n", "`r`n")
-                out .= "     " GLYPH_ARROW " " st.fn "   " t "`r`n"
+                out .= "     " t "`r`n"
             }
             out .= "`r`n"
         }
     }
     return RTrim(out, "`r`n")
+}
+
+; "acc\TEMP.ahk" -> "TEMP", "general.ahk" -> "general". Display only — every path
+; the code actually opens still goes through r.file.
+HsFileLabel(f) {
+    SplitPath(f, , , , &base)
+    return base
 }
 
 ; Blank unless the trigger is overloaded, in which case its variant count.
@@ -250,6 +260,57 @@ RescanFiles(*) {
     gRecords   := HSI_Build()
     gOverloads := OL_Load()
     PopulateList(searchEd.Value)
+}
+
+; ── delete: the one action that edits a message .ahk file ─────────────────────
+;
+; Everything else here is a view. This cuts the block out of the source, so it
+; asks first, shows exactly what is going: trigger, file, line, and the message
+; body, because a trigger alone ("_g3") is not enough to recognise what you are
+; about to lose. hotstring_index.ahk writes the .bak and re-verifies the line.
+DeleteSelected(*) {
+    global LV, gRecords, gOverloads, searchEd
+    row := LV.GetNext(0, "F")
+    if !row {
+        Notify("Select a hotstring first")
+        return
+    }
+    idx := Integer(LV.GetText(row, 6))
+    if (idx < 1 || idx > gRecords.Length)
+        return
+    r := gRecords[idx]
+
+    body := FlattenOneLine(r.preview)
+    if (StrLen(body) > 220)
+        body := SubStr(body, 1, 220) Chr(0x2026)
+
+    warn := ""
+    if gOverloads.Has(r.trigger)
+        warn := "`n`nIts " gOverloads[r.trigger].variants.Length " overload variants will be "
+              . "removed too " Chr(0x2014) " left behind, they would keep firing for a "
+              . "trigger whose source is gone."
+
+    prompt := "Delete this hotstring from " r.file "?`n`n"
+            . ":" r.options ":" r.trigger "::   (line " r.line ")`n`n"
+            . (body = "" ? "(empty)" : body)
+            . warn
+            . "`n`nThis edits the source file. A copy is saved as "
+            . HsFileLabel(r.file) ".ahk.bak first, and "
+            . OL_BaseName(r.file) " must be restarted for the change to take effect."
+    if (MsgBox(prompt, "Delete hotstring", 0x24) != "Yes")
+        return
+
+    res := HSI_DeleteBlock(r.file, r.line, r.trigger)
+    if !res.ok {
+        MsgBox(res.why, "Delete hotstring", 0x30)
+        return
+    }
+    if gOverloads.Has(r.trigger)
+        OL_Remove(r.trigger)
+
+    RescanFiles()
+    Notify(r.trigger " deleted from " OL_BaseName(r.file) " (" res.removed " lines, .bak saved)"
+         . "  " Chr(0x2014) " restart " OL_BaseName(r.file) " to apply")
 }
 
 ; ═══════════════════════════════════════════════════════════════════════════════
@@ -417,11 +478,14 @@ OpenVariantEditor(r) {
             MsgBox("Every variant is empty " Chr(0x2014) " nothing to save.", "Overload", 0x30)
             return
         }
-        OL_Save(r.trigger, r.file, r.options, built, pickSel.Text)
+        ; Read the control BEFORE the window goes away — eg.Destroy() takes pickSel
+        ; with it, and touching it afterwards throws "The control is destroyed."
+        mode := pickSel.Text
+        OL_Save(r.trigger, r.file, r.options, built, mode)
         gOverloads := OL_Load()
         PopulateList(searchEd.Value)
         eg.Destroy()
-        Notify(r.trigger " overloaded " Chr(0x2014) " " built.Length " variants, pick: " pickSel.Text
+        Notify(r.trigger " overloaded " Chr(0x2014) " " built.Length " variants, pick: " mode
              . "  " Chr(0x2014) " restart " OL_BaseName(r.file) " to apply")
     }
 
@@ -447,14 +511,14 @@ Notify(msg) {
 ; ── resize: search spans the width; list on top, showcase (full width) beneath ──
 OnSize(g, minMax, w, h) {
     global searchEd, LV, detailEd, countTxt, btnOpen, btnCopy, btnRescan, lblSize, sizeDD
-    global btnOver
+    global btnOver, btnDelete
     if (minMax = -1)
         return
-    m := 16, gap := 10, footerH := 28, footerGap := 14
+    m := 16, gap := 10, footerH := 30, footerGap := 14
     countTxt.Move(w - 376, 21, 360)
-    searchEd.Move(m, 48, w - 2 * m, 30)
+    searchEd.Move(m, 48, w - 2 * m, 32)
 
-    top := 88
+    top := 90
     contentH := h - top - m - footerH - footerGap
     if (contentH < 220)
         contentH := 220
@@ -465,19 +529,20 @@ OnSize(g, minMax, w, h) {
     detailEd.Move(m, top + listH + gap, listW, detailH)
 
     ; preview column soaks up the list's spare width
-    LV.ModifyCol(1, 170)
-    LV.ModifyCol(3, 50)
-    LV.ModifyCol(4, 50)
-    LV.ModifyCol(5, 120)
-    LV.ModifyCol(2, Max(160, listW - 170 - 50 - 50 - 120 - 24))
+    LV.ModifyCol(1, 190)
+    LV.ModifyCol(3, 54)
+    LV.ModifyCol(4, 54)
+    LV.ModifyCol(5, 130)
+    LV.ModifyCol(2, Max(160, listW - 190 - 54 - 54 - 130 - 24))
 
     by := top + contentH + footerGap
     btnOpen.Move(m, by)
     btnCopy.Move(m + 118, by)
     btnRescan.Move(m + 236, by)
     btnOver.Move(m + 336, by)
-    sizeDD.Move(w - m - 58, by, 58)
-    lblSize.Move(w - m - 58 - 66, by + 5, 62)
+    btnDelete.Move(m + 462, by)
+    sizeDD.Move(w - m - 62, by, 62)
+    lblSize.Move(w - m - 62 - 66, by + 6, 62)
 }
 
 ; ── text size: live-apply to list + showcase and remember the choice ──
@@ -517,8 +582,10 @@ ApplyDarkTheme() {
     for hwnd in [LV.Hwnd, detailEd.Hwnd, searchEd.Hwnd]
         try DllCall("uxtheme\SetWindowTheme", "ptr", hwnd, "str", "DarkMode_Explorer", "ptr", 0)
     ; The column header is a separate SysHeader32 child and does NOT inherit the
-    ; list's theme — without this it stays white on top of the dark list.
+    ; list's theme. Use DarkMode_Explorer, not DarkMode_ItemsView: ItemsView
+    ; darkens the header background but leaves the LABEL text dark too, which
+    ; reads as an empty/transparent header rather than a themed one.
     hHdr := SendMessage(0x101F, 0, 0, LV)        ; LVM_GETHEADER
     if hHdr
-        try DllCall("uxtheme\SetWindowTheme", "ptr", hHdr, "str", "DarkMode_ItemsView", "ptr", 0)
+        try DllCall("uxtheme\SetWindowTheme", "ptr", hHdr, "str", "DarkMode_Explorer", "ptr", 0)
 }

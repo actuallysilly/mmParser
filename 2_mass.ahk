@@ -27,25 +27,23 @@ ppv_f1: "",
 ppv_f2: "",
 ppv_f3: "",
 
-orOr: "",
-b1_label: "",
-b2_label: "",
-b2_fu1: "",
-b2_fu1_5: "",
-b2_fu1_7: "",
+br1_name: "",
+br1_fu1: "",
+br1_fu2: "",
+br1_fu3: "",
+br1_ppv: "",
 
-b2_fu2: "",
-b2_fu2_5: "",
-b2_fu2_7: "",
+br2_name: "",
+br2_fu1: "",
+br2_fu2: "",
+br2_fu3: "",
+br2_ppv: "",
 
-b2_fu3: "",
-b2_fu3_5: "",
-b2_fu3_7: "",
-
-b2_ppv_base: "",
-b2_ppv_f1: "",
-b2_ppv_f2: "",
-b2_ppv_f3: "",
+br3_name: "",
+br3_fu1: "",
+br3_fu2: "",
+br3_fu3: "",
+br3_ppv: "",
 
 fu1_alt0: "",
 fu1_alt1: "",
@@ -81,25 +79,23 @@ ppv_f1: "",
 ppv_f2: "",
 ppv_f3: "",
 
-orOr: "",
-b1_label: "",
-b2_label: "",
-b2_fu1: "",
-b2_fu1_5: "",
-b2_fu1_7: "",
+br1_name: "",
+br1_fu1: "",
+br1_fu2: "",
+br1_fu3: "",
+br1_ppv: "",
 
-b2_fu2: "",
-b2_fu2_5: "",
-b2_fu2_7: "",
+br2_name: "",
+br2_fu1: "",
+br2_fu2: "",
+br2_fu3: "",
+br2_ppv: "",
 
-b2_fu3: "",
-b2_fu3_5: "",
-b2_fu3_7: "",
-
-b2_ppv_base: "",
-b2_ppv_f1: "",
-b2_ppv_f2: "",
-b2_ppv_f3: "",
+br3_name: "",
+br3_fu1: "",
+br3_fu2: "",
+br3_fu3: "",
+br3_ppv: "",
 
 fu1_alt0: "Honestly I've changed my mind about six times since this morning",
 fu1_alt1: "You get to decide, I'm useless at picking",
@@ -135,25 +131,23 @@ ppv_f1: "",
 ppv_f2: "",
 ppv_f3: "",
 
-orOr: "",
-b1_label: "",
-b2_label: "",
-b2_fu1: "",
-b2_fu1_5: "",
-b2_fu1_7: "",
+br1_name: "",
+br1_fu1: "",
+br1_fu2: "",
+br1_fu3: "",
+br1_ppv: "",
 
-b2_fu2: "",
-b2_fu2_5: "",
-b2_fu2_7: "",
+br2_name: "",
+br2_fu1: "",
+br2_fu2: "",
+br2_fu3: "",
+br2_ppv: "",
 
-b2_fu3: "",
-b2_fu3_5: "",
-b2_fu3_7: "",
-
-b2_ppv_base: "",
-b2_ppv_f1: "",
-b2_ppv_f2: "",
-b2_ppv_f3: "",
+br3_name: "",
+br3_fu1: "",
+br3_fu2: "",
+br3_fu3: "",
+br3_ppv: "",
 
 fu1_alt0: "",
 fu1_alt1: "",
@@ -263,6 +257,46 @@ DoAltFu3() {
         DoFu3()
 }
 
+; ── --Name branches ───────────────────────────────────────────────────────────
+; The trunk (base fu1/fu2/fu3) sends on the normal keys. A branch is a continuation
+; you switch to: pick one, then walk its follow-ups and ppv. The chosen branch is
+; remembered per mass (_activeBranch) so fu2/fu3/ppv keep sending the same one.
+DoBranchPick() {
+    global _activeBranch, massNo
+    if !FuGate()
+        return
+    brs := BranchList(CurMass())
+    if !brs.Length
+        return
+    idx := 1
+    if brs.Length > 1 {
+        labels := []
+        for b in brs
+            labels.Push(b.name (b.fu[1].Length ? "  —  " b.fu[1][1] : ""))
+        idx := Overload_Choose(labels)
+        if !idx
+            return
+    }
+    _activeBranch[massNo] := idx
+    BranchSendGroup(brs[idx].fu[1])
+}
+DoBranchFu2() => BranchSendActiveGroup(2)
+DoBranchFu3() => BranchSendActiveGroup(3)
+DoBranchPpv() {
+    global _activeBranch, massNo
+    brs := BranchList(CurMass())
+    if _activeBranch.Has(massNo) && _activeBranch[massNo] <= brs.Length
+        BranchSendPpv(brs[_activeBranch[massNo]].ppv)
+}
+BranchSendActiveGroup(g) {
+    global _activeBranch, massNo
+    if !FuGate()
+        return
+    brs := BranchList(CurMass())
+    if _activeBranch.Has(massNo) && _activeBranch[massNo] <= brs.Length
+        BranchSendGroup(brs[_activeBranch[massNo]].fu[g])
+}
+
 HK_Bind("mass.2.fu1",    DoFu1)
 HK_Bind("mass.2.fu2",    DoFu2)
 HK_Bind("mass.2.fu3",    DoFu3)
@@ -274,8 +308,29 @@ HK_Bind("mass.2.ppvFus", DoPpvFus)
 HK_Bind("mass.2.altFu1", DoAltFu1)
 HK_Bind("mass.2.altFu2", DoAltFu2)
 HK_Bind("mass.2.altFu3", DoAltFu3)
+HK_Bind("mass.2.brPick", DoBranchPick)
+HK_Bind("mass.2.brFu2",  DoBranchFu2)
+HK_Bind("mass.2.brFu3",  DoBranchFu3)
+HK_Bind("mass.2.brPpv",  DoBranchPpv)
 
 ; The Scimitar keys are the same F13-F15 that models 1 and 3 use, so without this
 ; one press fired every model's follow-up at once.
 StartFuGating(HK_ModelSendIds(modelFileNo))
+
+; sends the mass body itself — pastes only, so you can review before sending.
+DoMass(){
+    global massNo, m1, m2, m3
+    m := massNo = 1 ? m1 : massNo = 2 ? m2 : m3
+    if m.mass = ""
+        return
+    A_Clipboard := m.mass
+    ClipWait(0.5)
+    Send "^v"
+}
+
+; type __mm to paste the ACTIVE model's mass body (review, then send). Gated so
+; only the focused model's script fires it — see UniversalSendActive in utils.ahk.
+#HotIf UniversalSendActive()
+:*X:__mm::DoMass()
+#HotIf
 

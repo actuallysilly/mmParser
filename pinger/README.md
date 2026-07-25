@@ -32,6 +32,25 @@ strip (not the model strip), match the exact colour (not a range), and require
 the blob to be the right size and shape. On the reference captures this finds
 every real marker with zero false positives.
 
+## Why size and shape are not enough
+
+The tab's **✕ close button** is drawn in a pink-red about `(251,88,129)`. That is
+56 away from `#ff7c71` by sum-of-channels, so the original `CORAL_TOL = 60` let
+it through — and a 10x10 ✕ is indistinguishable from a 6x6 dot to a filter that
+only knows size and aspect ratio: same square box, 28 pixels versus 24. The
+pinger alerted over an empty strip.
+
+Two things fixed it, and the measurements matter because both were free:
+
+- **`CORAL_TOL` 60 → 45.** The slack was documented as covering antialiased edge
+  pixels. There are none: the dot is a solid block of exactly `#ff7c71` and comes
+  out 6x6 / 24px *identically* at every tolerance from 30 to 70. The ✕ stops
+  matching below 55.
+- **`MIN_EXTENT` (new).** The fraction of the bounding box actually filled. Real
+  markers are solid — dot 0.67, badge 0.51 — while stroke-drawn icons are not
+  (the ✕ is 0.28). This catches line art regardless of colour, so the next
+  pink icon Infloww adds does not reproduce the bug.
+
 ## Geometry is measured, not hard-coded
 
 `../infloww ui elements/UI-ELEMENT-MAP.md` records fan tabs at a fixed 170px
@@ -79,5 +98,30 @@ this rebuild exists to remove.
 ## Tuning
 
 Everything adjustable is a constant at the top of `pinger.pyw`: `POLL_INTERVAL`,
-`REPEAT_EVERY` (re-alert cadence while something stays unread), `CORAL_TOL`, the
-shape profiles, and `SOUND_FILE` if you want a .wav instead of the system beep.
+`REPEAT_EVERY` (re-alert cadence while something stays unread), `CORAL_TOL`,
+`MIN_EXTENT`, the shape profiles, and `SOUND_FILE` if you want a .wav of your own.
+
+**If it alerts over an empty strip**, run `python pinger.pyw --once --debug
+--save strip.png`. The debug line prints each blob's size and pixel count; a real
+dot is `6x6 24px` and a real badge `12x12 ~73px`. Anything with a much larger box
+than its pixel count is line art being mistaken for a marker.
+
+### The alert sound
+
+It used to be the `SystemExclamation` alias, which was quiet in a way no setting
+in this file could fix: **Windows plays system sounds at the System Sounds mixer
+level**, a slider separate from master volume that is easy to leave low. So the
+pinger now synthesises its own two-tone beep (880Hz + 1320Hz square, 0.37s) and
+plays it on its own mixer channel, where `ALERT_VOLUME` genuinely controls it.
+
+    python pinger.pyw --test-sound     play it once, for tuning
+
+`ALERT_VOLUME` ships at 1.0 (full scale) — to go louder still, raise the pythonw
+channel in the Windows volume mixer, or point `SOUND_FILE` at your own .wav.
+`ALERT_TONES`, `ALERT_BEEP_MS` and `ALERT_GAP_MS` change the pattern; the tone is
+a square wave rather than a sine deliberately, for ~3dB more energy at the same
+peak and a harsher timbre that carries over other audio.
+
+The tone goes to a temp .wav rather than playing from memory because `winsound`
+rejects `SND_MEMORY | SND_ASYNC`, and a synchronous play would stall the poll loop
+for the length of the sound.

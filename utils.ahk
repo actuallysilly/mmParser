@@ -58,6 +58,18 @@ ModelIsActive() {
 ; in-handler safety for model-specific sends bound to non-shared keys
 FuGate() => ModelIsActive()
 
+; Which single script answers the universal "send the whole mass" trigger (__mm).
+; Detector ON  -> only the active model's script (so __mm follows the focused tab).
+; Detector OFF -> only model 1, preserving the original single-script behaviour.
+; Gating __mm this way guarantees exactly ONE process ever fires it — otherwise all
+; three would expand the hotstring at once and triple-backspace the typed trigger.
+UniversalSendActive() {
+    global modelFileNo
+    if (ReadActiveModel() = "")
+        return (modelFileNo = 1)
+    return ModelIsActive()
+}
+
 ; Register this model's SHARED send hotkeys only while its model is active, so
 ; several model scripts can share the same keys (only one is registered at a time).
 ; Takes hotkey IDS, not keys: a hard-coded key list stops matching the moment
@@ -110,6 +122,8 @@ Sendt(arg,time){
 ; per-group rules (FuSingle, editable) exactly like the base does.
 
 ALT_MAX_RT := 3          ; must match ALT_MAX in mass_gui.ahk
+BRANCH_MAX_RT := 3       ; must match BRANCH_MAX in mass_gui.ahk
+_activeBranch := Map()   ; massNo -> chosen branch index, per model process
 
 _altStaged  := 0         ; index of the variant currently staged in the chatbox
 _altVariants := []       ; [[part, ...], ...] while staging; empty when idle
@@ -154,6 +168,52 @@ AltVariants(m, group) {
 
 MassUsesAltGui(m) {
     return m.HasOwnProp("altGui") && Trim(m.altGui) = "1"
+}
+
+; ── Named branches (--Name) ───────────────────────────────────────────────────
+; A branch is a whole alternate follow-up sequence sent after the shared trunk.
+; These helpers are pure (take the mass object) so utils.ahk stays free of any
+; CurMass/massNo dependency — the model files own the hotkey handlers.
+
+; Non-empty branches on a mass: [{name, fu:[[p..],[p..],[p..]], ppv}].
+BranchList(m) {
+    global BRANCH_MAX_RT
+    out := []
+    Loop BRANCH_MAX_RT {
+        k  := A_Index
+        f1 := "br" k "_fu1", f2 := "br" k "_fu2", f3 := "br" k "_fu3", pk := "br" k "_ppv"
+        got := false
+        for _, key in [f1, f2, f3, pk]
+            if m.HasOwnProp(key) && Trim(m.%key%) != ""
+                got := true
+        if !got
+            continue
+        nk := "br" k "_name"
+        nm := (m.HasOwnProp(nk) && Trim(m.%nk%) != "") ? Trim(m.%nk%) : "branch " k
+        out.Push({ name: nm,
+                   fu:   [BranchParts(m, f1), BranchParts(m, f2), BranchParts(m, f3)],
+                   ppv:  (m.HasOwnProp(pk) ? Trim(m.%pk%) : "") })
+    }
+    return out
+}
+BranchParts(m, key) {
+    return m.HasOwnProp(key) ? AltPartsRT(m.%key%) : []
+}
+
+; Send one branch follow-up group: each part is its own back-to-back message.
+BranchSendGroup(parts) {
+    for p in parts
+        if Trim(p) != ""
+            snd(p)
+}
+
+; Paste a branch's ppv base (review-before-send, like DoF4's ppv behaviour).
+BranchSendPpv(ppv) {
+    if Trim(ppv) = ""
+        return
+    A_Clipboard := ppv
+    ClipWait(0.1)
+    Send "^v"
 }
 
 ; Send one already-chosen variant. Routed through the same two paths the base
@@ -684,6 +744,18 @@ FindNthColor(n, color, x1, y1, x2, y2, variation := 10, groupSkip := 1) {
 clickOn(coord){
     MouseMove coord[1], coord[2]
     Click
+}
+
+; Like clickOn, but INSTANT (speed 0 — no drag animation) and it snaps the cursor
+; back where it started afterwards. For side-effect clicks on a fixed-coord button
+; (e.g. "open in new tab") that shouldn't yank your mouse away from what you're
+; doing. Save/restore use the thread's current CoordMode, which is consistent here
+; because the click keeps the same window active.
+clickReturn(coord){
+    MouseGetPos &sx, &sy
+    MouseMove coord[1], coord[2], 0
+    Click
+    MouseMove sx, sy, 0
 }
 
 _lastTyped := ""

@@ -4,8 +4,11 @@
 ; ───────────────────────────────────────────────────────────────────────────────
 ;  The manager GUI needs to SEARCH hotstrings by trigger AND by the text inside
 ;  them. That text lives inside  :*:trigger::{ snd("…") }  blocks in the source,
-;  so this module parses those files into a plain list of records. It NEVER writes
-;  — the .ahk files stay the single source of truth (editing comes later).
+;  so this module parses those files into a plain list of records.
+;
+;  Reading is the bulk of this file. The ONE writer is HSI_DeleteBlock at the
+;  bottom, which removes a whole hotstring block from its source file; it backs
+;  the file up first and refuses to touch anything it cannot re-verify.
 ;
 ;  One record:
 ;      file     — source file, relative to this module's folder
@@ -179,6 +182,126 @@ HSI_Unescape(ch) {
         case "``": return "``"
         default:  return ch
     }
+}
+
+; ═══════════════════════════════════════════════════════════════════════════════
+;  deleting — the only path in this module that writes to a message file
+; ═══════════════════════════════════════════════════════════════════════════════
+
+; Which source lines does the hotstring at `triggerLine` occupy?
+;
+; Returns {first, last} (1-based, inclusive) or 0 if that line is not a trigger.
+; Deliberately re-derives the span from the file rather than trusting the record,
+; because a record can be minutes old and the file may have been hand-edited since
+; — and the caller is about to delete whatever this returns.
+HSI_BlockSpan(lines, triggerLine) {
+    static triggerRe := "^\s*:([^:]*):(.+?)::(.*)$"
+    if (triggerLine < 1 || triggerLine > lines.Length)
+        return 0
+    if !RegExMatch(lines[triggerLine], triggerRe, &m)
+        return 0
+
+    ; Same two shapes HSI_ParseFile handles: brace on the trigger line, or on a
+    ; later line. Keep the two in step — they must agree on where a block ends.
+    if InStr(m[3], "{") {
+        openLine := triggerLine
+        stream   := SubStr(m[3], InStr(m[3], "{"))
+        j := triggerLine + 1
+    } else {
+        j := triggerLine + 1
+        while (j <= lines.Length && !InStr(lines[j], "{"))
+            j++
+        if (j > lines.Length)
+            return {first: triggerLine, last: triggerLine}   ; trigger with no body
+        openLine := j
+        stream   := SubStr(lines[j], InStr(lines[j], "{"))
+        j := openLine + 1
+    }
+    while (j <= lines.Length) {
+        stream .= "`n" lines[j]
+        j++
+    }
+
+    closeIdx := HSI_MatchBrace(stream)
+    if (closeIdx = 0)                                        ; unbalanced source
+        return {first: triggerLine, last: triggerLine}
+    head := SubStr(stream, 1, closeIdx)
+    return {first: triggerLine, last: openLine + StrLen(head) - StrLen(StrReplace(head, "`n"))}
+}
+
+; True if the file starts with a UTF-8 BOM. It is not decoration: general.ahk and
+; acc\UND.ahk have none while the other acc files do, and rewriting a file with
+; the wrong one either injects stray characters at the top or drops the marker
+; AHK uses to read the rest of the file as UTF-8.
+HSI_HasBom(path) {
+    ; Must be FileRead RAW. FileOpen consumes the BOM while opening the file and
+    ; leaves the pointer after it — whatever encoding you pass — so a RawRead
+    ; there reports "no BOM" for every file that has one, and the rewrite below
+    ; would then strip it from acc\ALIW.ahk and friends.
+    try b := FileRead(path, "RAW m3")
+    catch
+        return false
+    return (b.Size = 3 && NumGet(b, 0, "UChar") = 0xEF
+                       && NumGet(b, 1, "UChar") = 0xBB
+                       && NumGet(b, 2, "UChar") = 0xBF)
+}
+
+; Delete one hotstring block from its source file.
+;
+; `expectTrigger` is checked against the trigger actually on that line and the
+; delete is abandoned if they differ — the index is a snapshot, and deleting the
+; wrong block out of a message file is not something the user can easily undo.
+; The file is copied to <name>.bak first for the same reason.
+;
+; Returns {ok: true, removed: n} or {ok: false, why: "…"}.
+HSI_DeleteBlock(rel, triggerLine, expectTrigger) {
+    global HSI_DIR
+    path := HSI_DIR "\" rel
+    if !FileExist(path)
+        return {ok: false, why: "File not found: " rel}
+
+    raw   := FileRead(path, "UTF-8")
+    crlf  := InStr(raw, "`r`n") ? true : false
+    lines := StrSplit(raw, "`n", "`r")
+
+    span := HSI_BlockSpan(lines, triggerLine)
+    if !span
+        return {ok: false, why: "Line " triggerLine " of " rel " is no longer a hotstring."
+                              . "`n`nThe file changed since the list was built — press Rescan."}
+
+    static triggerRe := "^\s*:([^:]*):(.+?)::(.*)$"
+    RegExMatch(lines[span.first], triggerRe, &m)
+    if (m[2] != expectTrigger)
+        return {ok: false, why: "Line " triggerLine " of " rel " now holds " m[2] ", not "
+                              . expectTrigger "."
+                              . "`n`nThe file changed since the list was built — press Rescan."}
+
+    try FileCopy(path, path ".bak", 1)
+    catch as e
+        return {ok: false, why: "Could not write the backup " rel ".bak:`n" e.Message}
+
+    kept := []
+    for i, ln in lines
+        if (i < span.first || i > span.last)
+            kept.Push(ln)
+
+    ; The blank line that separated this block from the next one is now a second
+    ; blank line against the one above it. Collapse the pair, or repeated deletes
+    ; leave a growing hole in the file.
+    if (span.first > 1 && span.first <= kept.Length
+            && Trim(kept[span.first - 1]) = "" && Trim(kept[span.first]) = "")
+        kept.RemoveAt(span.first)
+
+    out := ""
+    for i, ln in kept
+        out .= (i = 1 ? "" : (crlf ? "`r`n" : "`n")) ln
+
+    f := FileOpen(path, "w", HSI_HasBom(path) ? "UTF-8" : "UTF-8-RAW")
+    if !f
+        return {ok: false, why: "Could not open " rel " for writing (is it open elsewhere?)"}
+    f.Write(out)
+    f.Close()
+    return {ok: true, removed: span.last - span.first + 1}
 }
 
 ; Find the "}" that matches the "{" at s[1], ignoring braces that sit inside a

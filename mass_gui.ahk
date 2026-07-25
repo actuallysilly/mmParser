@@ -23,22 +23,6 @@ fieldDefs := [
     ["ppv_f3",   "ppvfu3", false],
 ]
 
-b2FieldDefs := [
-    ["b2_fu1",      "b2.f1",    false],
-    ["b2_fu1_5",    "b2.f1.5",  false],
-    ["b2_fu1_7",    "b2.f1.7",  true],
-    ["b2_fu2",      "b2.f2",    false],
-    ["b2_fu2_5",    "b2.f2.5",  false],
-    ["b2_fu2_7",    "b2.f2.7",  true],
-    ["b2_fu3",      "b2.f3",    false],
-    ["b2_fu3_5",    "b2.f3.5",  false],
-    ["b2_fu3_7",    "b2.f3.7",  true],
-    ["b2_ppv_base", "b2.ppv",   false],
-    ["b2_ppv_f1",   "b2.ppvf1", false],
-    ["b2_ppv_f2",   "b2.ppvf2", false],
-    ["b2_ppv_f3",   "b2.ppvf3", false],
-]
-
 keyMap := Map(
     "!mm",    "mass",    "!mma",   "mass",    "mm",     "mass",    "mma",    "mass",
     "f1",     "fu1",     "f1.5",   "fu1_5",   "f1.7",   "fu1_7",
@@ -79,16 +63,41 @@ AllAltFields() {
     return out
 }
 
+; ── Named branches ────────────────────────────────────────────────────────────
+; A `--Name` marker in a pasted mass opens a whole alternate follow-up sequence
+; (its own fu1/fu2/fu3 + ppv), sent as a continuation after the shared trunk. Each
+; branch is stored in its own fields; a group's parts are `n-joined into one field,
+; the same compact scheme the alts use. This REPLACED the old or-or (b2_*) branch.
+BRANCH_MAX    := 3                     ; --Name branches per mass
+BRANCH_GROUPS := ["fu1", "fu2", "fu3", "ppv"]
+
+; branch 1 -> ["br1_name","br1_fu1","br1_fu2","br1_fu3","br1_ppv"]
+BranchFields(k) {
+    global BRANCH_GROUPS
+    out := ["br" k "_name"]
+    for _, grp in BRANCH_GROUPS
+        out.Push("br" k "_" grp)
+    return out
+}
+
+; Every branch field, in block order.
+AllBranchFields() {
+    global BRANCH_MAX
+    out := []
+    Loop BRANCH_MAX
+        for _, f in BranchFields(A_Index)
+            out.Push(f)
+    return out
+}
+
 ; The mN := {} field list, in block order. Single source of truth — the loader,
 ; the writer and the new-file template all read it, so adding a field here is
 ; enough. They used to carry three separate copies of this list.
 MassBlockProps() {
     props := ["mass","fu1","fu1_5","fu1_7","fu2","fu2_5","fu2_7",
-              "fu3","fu3_5","fu3_7","ppv_base","ppv_f1","ppv_f2","ppv_f3",
-              "orOr","b1_label","b2_label",
-              "b2_fu1","b2_fu1_5","b2_fu1_7","b2_fu2","b2_fu2_5","b2_fu2_7",
-              "b2_fu3","b2_fu3_5","b2_fu3_7","b2_ppv_base",
-              "b2_ppv_f1","b2_ppv_f2","b2_ppv_f3"]
+              "fu3","fu3_5","fu3_7","ppv_base","ppv_f1","ppv_f2","ppv_f3"]
+    for _, f in AllBranchFields()
+        props.Push(f)
     for _, f in AllAltFields()
         props.Push(f)
     props.Push("altGui")
@@ -97,7 +106,9 @@ MassBlockProps() {
 
 ; Fields whose value may span lines, so newlines survive the round trip as `n.
 MassPropIsMultiline(prop) {
-    return prop = "ppv_base" || prop = "b2_ppv_base" || InStr(prop, "_alt")
+    if (prop = "ppv_base" || InStr(prop, "_alt"))
+        return true
+    return RegExMatch(prop, "^br\d+_(fu\d|ppv)$") > 0
 }
 
 ; Parts of one stored alt, splitting the `n join back out.
@@ -170,6 +181,12 @@ OpenAltWindow(*) {
     gAlt.Show("w" ALT_W " h878")
 }
 
+OpenBranchWindow(*) {
+    global gBranch, BR_W, tabs, brTabs
+    brTabs.Value := tabs.Value           ; open on the model you are looking at
+    gBranch.Show("w" BR_W " h862")
+}
+
 AHK_CHARS  := ["``", Chr(34), ";"]   ; backtick must be first
 
 ; A leading "word:" is normally stripped as a field prefix (see StripPrefix). URL
@@ -230,6 +247,13 @@ automationListener := Integer(IniRead(CFG_FILE, "Settings", "AutomationListener"
 ; The pinger (pinger\pinger.pyw) beeps when an Infloww fan tab goes unread. Off by
 ; default — it makes noise, so it should be an opt-in. See LaunchPinger().
 pinger            := Integer(IniRead(CFG_FILE, "Settings", "Pinger", "0"))
+; The model detector (model_detector.ahk) reads the active Infloww tab's name and
+; writes it to detector_status.ini, so one set of f1/f2/f3 keys serves whichever
+; model is on screen. Off by default. See LaunchDetector().
+autoDetect        := Integer(IniRead(CFG_FILE, "Settings", "AutoDetectModel", "0"))
+; The stats overlay (stats_overlay.ahk) OCRs the Infloww stats page and shows a
+; toggleable overlay of Sales + the PPVs-sent/Fans-chatted ratio. See LaunchStatsOverlay().
+statsOverlay      := Integer(IniRead(CFG_FILE, "Settings", "StatsOverlay", "0"))
 UPDATE_URL   := IniRead(CFG_FILE, "Update",   "URL",       "https://raw.githubusercontent.com/actuallysilly/mmParser/main")
 ; Hotkeys used to be mirrored here as hk1_f1..hk3_ppvfu and written into the mass
 ; files as literal `F9::` lines. They now live in hotkeys.ini and are read by the
@@ -455,6 +479,10 @@ c := g.Add("Button", "x" (TAB_X+745) " y" TOGG_Y0 " w95 h28", "Alt FUs…")
 c.OnEvent("Click", OpenAltWindow)
 togCtrls.Push({c: c, x: TAB_X+745, oy: 0})
 
+c := g.Add("Button", "x" (TAB_X+745) " y" (TOGG_Y0+34) " w95 h28", "Branches…")
+c.OnEvent("Click", OpenBranchWindow)
+togCtrls.Push({c: c, x: TAB_X+745, oy: 34})
+
 ; (single/editable follow-up toggles moved inline onto the f1/f2/f3 rows above)
 
 togX := TAB_X
@@ -485,55 +513,51 @@ try {
     A_TrayMenu.Default := "Kill all scripts && Exit"
 }
 
-; ─── Or-Or window (hidden until or-or mode is parsed) ─────────────────────────
+; ─── Branches window (--Name alternate sequences; hidden until opened) ────────
+; One tab per model, BRANCH_MAX branches each. Parsing a `--Name` mass writes
+; straight into these controls, and this is where you see or edit them.
 
-OOR_W     := 720
-OOR_LABEL_X := 12
-OOR_EDIT_X  := 82
-OOR_EDIT_W  := OOR_W - OOR_EDIT_X - 30
+BR_W       := 720
+BR_LABEL_X := 12
+BR_EDIT_X  := 92
+BR_EDIT_W  := BR_W - BR_EDIT_X - 30
 
-gOrOr := Gui("+Resize +MinSize400x300", "Or-Or — Branch 2")
-gOrOr.SetFont("s9", "Segoe UI")
-oorTabs := gOrOr.Add("Tab3", "x10 y10 w" (OOR_W-20) " h560", ["M1", "M2", "M3"])
+gBranch := Gui("+Resize +MinSize420x300", "Branches (--Name)")
+gBranch.SetFont("s9", "Segoe UI")
+brTabs := gBranch.Add("Tab3", "x10 y10 w" (BR_W-20) " h800", ["M1", "M2", "M3"])
 
 Loop 3 {
     mNo := A_Index
-    oorTabs.UseTab(mNo)
+    brTabs.UseTab(mNo)
     y := 40
+    Loop BRANCH_MAX {
+        k := A_Index
+        gBranch.SetFont("s10 Bold", "Segoe UI")
+        gBranch.Add("Text", "x" BR_LABEL_X " y" y " w200", "BRANCH " k)
+        gBranch.SetFont("s9 Norm", "Segoe UI")
+        y += 22
 
-    ec := gOrOr.Add("Edit", "x" OOR_EDIT_X " y" y " w0 h0")
-    edCtrls["m" mNo "_orOr"] := ec
+        gBranch.Add("Text", "x" BR_LABEL_X " y" (y+3) " w74 Right", "name:")
+        ec := gBranch.Add("Edit", "x" BR_EDIT_X " y" y " w" BR_EDIT_W " h22")
+        edCtrls["m" mNo "_br" k "_name"] := ec
+        y += 28
 
-    gOrOr.Add("Text", "x" OOR_LABEL_X " y" (y+4) " w65 Right", "B1 label:")
-    ec := gOrOr.Add("Edit", "x" OOR_EDIT_X " y" y " w130 h22 ReadOnly")
-    edCtrls["m" mNo "_b1_label"] := ec
-    gOrOr.Add("Text", "x" (OOR_EDIT_X+138) " y" (y+4), "B2 label:")
-    ec := gOrOr.Add("Edit", "x" (OOR_EDIT_X+200) " y" y " w130 h22 ReadOnly")
-    edCtrls["m" mNo "_b2_label"] := ec
-    y += 32
-
-    for _, fd in b2FieldDefs {
-        prop  := fd[1]
-        label := fd[2]
-        sep   := fd[3]
-        gOrOr.Add("Text", "x" OOR_LABEL_X " y" y " w65 Right", label ":")
-        if prop = "b2_ppv_base" {
-            ec := gOrOr.Add("Edit", "x" OOR_EDIT_X " y" (y-2) " w" OOR_EDIT_W " h103 Multi")
-            edCtrls["m" mNo "_" prop] := ec
-            y += 109
-        } else {
-            ec := gOrOr.Add("Edit", "x" OOR_EDIT_X " y" (y-2) " w" OOR_EDIT_W " h22")
-            edCtrls["m" mNo "_" prop] := ec
-            y += 27
-            if sep
-                y += 6
+        for _, grp in ["fu1", "fu2", "fu3"] {
+            gBranch.Add("Text", "x" BR_LABEL_X " y" (y+3) " w74 Right", grp ":")
+            ec := gBranch.Add("Edit", "x" BR_EDIT_X " y" y " w" BR_EDIT_W " h40 Multi +VScroll")
+            edCtrls["m" mNo "_br" k "_" grp] := ec
+            y += 44
         }
+        gBranch.Add("Text", "x" BR_LABEL_X " y" (y+3) " w74 Right", "ppv:")
+        ec := gBranch.Add("Edit", "x" BR_EDIT_X " y" y " w" BR_EDIT_W " h52 Multi +VScroll")
+        edCtrls["m" mNo "_br" k "_ppv"] := ec
+        y += 64
     }
 }
-oorTabs.UseTab()
+brTabs.UseTab()
 
-gOrOr.Add("Button", "x10 y580 w120 h28", "Save to file").OnEvent("Click", (*) => ApplyFile(["1_mass.ahk","2_mass.ahk","3_mass.ahk"][oorTabs.Value]))
-gOrOr.Add("Button", "x140 y580 w80 h28", "Close").OnEvent("Click", (*) => gOrOr.Hide())
+gBranch.Add("Button", "x10 y820 w120 h28", "Save to file").OnEvent("Click", (*) => ApplyFile(["1_mass.ahk","2_mass.ahk","3_mass.ahk"][brTabs.Value]))
+gBranch.Add("Button", "x140 y820 w80 h28", "Close").OnEvent("Click", (*) => gBranch.Hide())
 
 ; ─── Alt follow-up window (hidden; alts never show in the main panel) ─────────
 ; Parsing an alt: line writes straight into these controls, so a pasted mass
@@ -602,6 +626,10 @@ LaunchStartupScripts()
 LaunchAutomationListener()
 if pinger
     LaunchPinger()
+if autoDetect
+    LaunchDetector()
+if statsOverlay
+    LaunchStatsOverlay()
 SetTimer(RefreshPingerLabel, -800)   ; after python has claimed the event
 if autoRestart
     SetTimer(WatchdogTick, 5000)
@@ -860,6 +888,52 @@ ReadArchiveEntries() {
     return entries
 }
 
+; Delete one entry from the archive file.
+;
+; Re-reads the file rather than rewriting from the viewer's own list: parsing a
+; mass appends to the archive, and the viewer can sit open across several parses.
+; Rewriting from a list captured when the window opened would silently drop every
+; mass archived since. Matched on ts+model+content, which is what identifies an
+; entry — the viewer's row index means nothing to the file.
+;
+; Returns true if an entry was removed.
+DeleteArchiveEntry(target) {
+    path := ArchiveFile()
+    if !FileExist(path)
+        return false
+    kept  := []
+    found := false
+    for e in ReadArchiveEntries() {
+        if (!found && e.ts = target.ts && e.model = target.model && e.content = target.content) {
+            found := true            ; first match only: identical re-pastes are
+            continue                 ; separate entries, delete asks for one
+        }
+        kept.Push(e)
+    }
+    if !found
+        return false
+
+    out := ""
+    for e in kept
+        out .= "[" e.ts "] [" e.model "]`n" e.content "`n===END===`n`n"
+
+    ; Write beside the file and swap, so a failure mid-write cannot leave the
+    ; archive truncated — this is the only place MMA rewrites it wholesale.
+    tmp := path ".tmp"
+    try {
+        f := FileOpen(tmp, "w", "UTF-8")
+        if !f
+            return false
+        f.Write(out)
+        f.Close()
+        FileMove(tmp, path, 1)
+    } catch {
+        try FileDelete(tmp)
+        return false
+    }
+    return true
+}
+
 ; Compare on meaning, not layout: trailing spaces and blank lines vary between
 ; two pastes of the same mass. Case is left alone — changing it is a real edit.
 NormalizeMass(s) {
@@ -952,11 +1026,12 @@ ArchiveDarkTheme(guiObj, ctrls) {
     for c in ctrls {
         try DllCall("uxtheme\SetWindowTheme", "ptr", c.Hwnd, "str", "DarkMode_Explorer", "ptr", 0)
         ; The column header is a separate SysHeader32 child and does NOT inherit the
-        ; list's theme — themed alone it stays white on the dark list.
+        ; list's theme. DarkMode_Explorer, not DarkMode_ItemsView — the latter
+        ; darkens the header but leaves its label text dark, so it reads blank.
         if c.Type = "ListView" {
             hHdr := SendMessage(LVM_GETHEADER, 0, 0, c)
             if hHdr
-                try DllCall("uxtheme\SetWindowTheme", "ptr", hHdr, "str", "DarkMode_ItemsView", "ptr", 0)
+                try DllCall("uxtheme\SetWindowTheme", "ptr", hHdr, "str", "DarkMode_Explorer", "ptr", 0)
         }
     }
 }
@@ -1003,36 +1078,38 @@ OpenArchive(*) {
     ag.MarginX := 0
     ag.MarginY := 0
 
-    ag.SetFont("s14 Bold c" ACCENT, "Segoe UI")
-    ag.Add("Text", "x16 y13 w420", Chr(0x2726) "  Mass Archive")
-    ag.SetFont("s10 Norm c" MUTED, "Segoe UI")
+    ag.SetFont("s15 Bold c" ACCENT, "Segoe UI")
+    ag.Add("Text", "x16 y12 w420", Chr(0x2726) "  Mass Archive")
+    ag.SetFont("s11 Norm c" MUTED, "Segoe UI")
     lblCount := ag.Add("Text", "x440 y21 w264 Right", "")
 
-    ag.SetFont("s11 c" TXT, "Segoe UI")
-    edSearch := ag.Add("Edit", "x16 y48 w688 h30 Background" FIELDBG)
+    ag.SetFont("s12 c" TXT, "Segoe UI")
+    edSearch := ag.Add("Edit", "x16 y48 w688 h32 Background" FIELDBG)
     ArchiveCueBanner(edSearch, "Search model or message text" Chr(0x2026)
                              . "   (spaces = all terms must match)")
 
-    ag.SetFont("s10 c" TXT, "Segoe UI")
-    lv := ag.Add("ListView", "x16 y88 w688 h230 -Multi Background" LISTBG,
+    ag.SetFont("s11 c" TXT, "Segoe UI")
+    lv := ag.Add("ListView", "x16 y92 w688 h232 -Multi Background" LISTBG,
                  ["When", "Model", "Preview", "idx"])
-    lv.ModifyCol(1, 140)
-    lv.ModifyCol(2, 80)
-    lv.ModifyCol(3, 430)              ; leaves room for the vertical scrollbar
+    lv.ModifyCol(1, 155)
+    lv.ModifyCol(2, 90)
+    lv.ModifyCol(3, 405)              ; leaves room for the vertical scrollbar
     lv.ModifyCol(4, 0)                ; hidden: index into `all`, rides with its row
 
-    edDetail := ag.Add("Edit", "x16 y328 w688 h150 ReadOnly +VScroll Background" SURFACE)
+    edDetail := ag.Add("Edit", "x16 y334 w688 h152 ReadOnly +VScroll Background" SURFACE)
 
-    ag.SetFont("s9 c" TXT, "Segoe UI")
-    btnLoad  := ag.Add("Button", "x16  y490 w110 h28", "Load")
-    btnCopy  := ag.Add("Button", "x132 y490 w110 h28", "Copy")
-    btnClose := ag.Add("Button", "x614 y490 w90  h28", "Close")
+    ag.SetFont("s10 c" TXT, "Segoe UI")
+    btnLoad   := ag.Add("Button", "x16  y498 w110 h30", "Load")
+    btnCopy   := ag.Add("Button", "x132 y498 w110 h30", "Copy")
+    btnDelete := ag.Add("Button", "x248 y498 w110 h30", "Delete")
+    btnClose  := ag.Add("Button", "x614 y498 w90  h30", "Close")
 
     edSearch.OnEvent("Change",      DoSearch)
     lv.OnEvent("ItemFocus",         DoFocus)
     lv.OnEvent("DoubleClick",       DoLoad)
     btnLoad.OnEvent("Click",        DoLoad)
     btnCopy.OnEvent("Click",        DoCopy)
+    btnDelete.OnEvent("Click",      DoDelete)
     btnClose.OnEvent("Click",       DoClose)
     ag.OnEvent("Close",             DoClose)
     ag.OnEvent("Escape",            DoClose)
@@ -1040,10 +1117,12 @@ OpenArchive(*) {
 
     ArchiveDarkTheme(ag, [lv, edDetail, edSearch])
     Populate("")
-    ag.Show("w720 h532")
+    ag.Show("w720 h542")
     return
 
-    Populate(query) {
+    ; wantRow keeps the caret where it was across a delete; without it every
+    ; delete jumps you back to the top of the list.
+    Populate(query, wantRow := 1) {
         terms := []
         for t in StrSplit(Trim(query), " ")
             if t != ""
@@ -1065,8 +1144,9 @@ OpenArchive(*) {
             : shown " of " all.Length " shown"
 
         if shown {
-            lv.Modify(1, "Select Focus Vis")
-            DoFocus(lv, 1)
+            wantRow := Max(1, Min(wantRow, shown))
+            lv.Modify(wantRow, "Select Focus Vis")
+            DoFocus(lv, wantRow)
         } else {
             edDetail.Value := "No matches."
         }
@@ -1123,6 +1203,39 @@ OpenArchive(*) {
         SetTimer(ClearArchiveTip, -1200)
     }
 
+    ; Once a mass has left the paste box the archive is the only copy of it, so
+    ; this confirms and shows the text — a timestamp and a model name are not
+    ; enough to tell two masses apart at a glance.
+    DoDelete(*) {
+        row := lv.GetNext(0)
+        idx := Selected()
+        if !idx
+            return
+        e := all[idx]
+        body := ArchiveFlatten(e.content)
+        if (StrLen(body) > 220)
+            body := SubStr(body, 1, 220) Chr(0x2026)
+        if (MsgBox("Delete this mass from the archive?`n`n"
+                 . e.ts "   " Chr(0x2022) "   " e.model "`n`n"
+                 . (body = "" ? "(empty)" : body)
+                 . "`n`nThis cannot be undone.", "Delete from archive", 0x24) != "Yes")
+            return
+
+        if !DeleteArchiveEntry(e) {
+            MsgBox("Could not delete it. The archive file may have changed or be in use.",
+                   "Delete from archive", 0x30)
+            return
+        }
+        all.RemoveAt(idx)
+        if !all.Length {
+            DoClose()
+            return
+        }
+        Populate(edSearch.Value, row)
+        ToolTip("Deleted from archive")
+        SetTimer(ClearArchiveTip, -1200)
+    }
+
     DoClose(*) {
         ag.Destroy()
     }
@@ -1132,17 +1245,18 @@ OpenArchive(*) {
             return
         pad  := 16
         cw   := W - pad * 2
-        listH := H - 302              ; footer + detail keep fixed heights
+        listH := H - 310              ; footer + detail keep fixed heights
         if listH < 80
             listH := 80
         lblCount.Move(pad + 240, 21, cw - 240)
         edSearch.Move(pad, 48, cw)
-        lv.Move(pad, 88, cw, listH)
-        lv.ModifyCol(3, cw - 258)     ; 140 + 80 cols + scrollbar
-        edDetail.Move(pad, 88 + listH + 10, cw, H - (88 + listH + 10) - 54)
-        btnLoad.Move(pad, H - 42)
-        btnCopy.Move(pad + 116, H - 42)
-        btnClose.Move(W - pad - 90, H - 42)
+        lv.Move(pad, 92, cw, listH)
+        lv.ModifyCol(3, cw - 265)     ; 155 + 90 cols + scrollbar
+        edDetail.Move(pad, 92 + listH + 10, cw, H - (92 + listH + 10) - 56)
+        btnLoad.Move(pad, H - 44)
+        btnCopy.Move(pad + 116, H - 44)
+        btnDelete.Move(pad + 232, H - 44)
+        btnClose.Move(W - pad - 90, H - 44)
     }
 }
 
@@ -1233,31 +1347,90 @@ FPrefixToSlot(s) {
     return ""
 }
 
-ParseBranch(lines, mNo, pfx) {
-    global edCtrls
+; Blank-line-separated groups, honouring `---` multiline fences. Returns
+; {groups, fenced}: `fenced` maps a group index → true when that group is a
+; fenced multiline block (its internal blanks are kept as paragraph breaks and it
+; must go to ppv_base, never a ppv follow-up). Shared by the trunk parser and
+; FillBranch so both split text the same way.
+PositionalGroups(filtered) {
     groups := [], cur := []
-    for _, rawLn in lines {
-        t := Trim(rawLn)
+    groupStart := []
+    fenced := Map()
+    curStart := 0
+    prevFenceEnd := 0
+    fi := 0
+    while fi < filtered.Length {
+        fi++
+        t := filtered[fi]
+        if RegExMatch(t, "^-{3,}$") {
+            gatherStart := prevFenceEnd + 1
+            gs := fi - 1
+            while gs > prevFenceEnd {
+                if RegExMatch(filtered[gs], "i)^ppv") {
+                    gatherStart := gs
+                    break
+                }
+                gs--
+            }
+            while groups.Length && groupStart[groups.Length] >= gatherStart {
+                groups.Pop()
+                groupStart.Pop()
+            }
+            cur := [], curStart := 0
+            block := []
+            Loop fi - gatherStart
+                block.Push(filtered[gatherStart + A_Index - 1])
+            while block.Length && block[1] = ""
+                block.RemoveAt(1)
+            while block.Length && block[block.Length] = ""
+                block.RemoveAt(block.Length)
+            if block.Length {
+                groups.Push(block)
+                groupStart.Push(gatherStart)
+                fenced[groups.Length] := true
+            }
+            prevFenceEnd := fi
+            continue
+        }
         if t = "" {
             if cur.Length {
                 groups.Push(cur)
-                cur := []
+                groupStart.Push(curStart)
+                cur := [], curStart := 0
             }
-        } else
-            cur.Push(t)
-    }
-    if cur.Length
-        groups.Push(cur)
-
-    fSlotGroups := [
-        [pfx "fu1",  pfx "fu1_5", pfx "fu1_7"],
-        [pfx "fu2",  pfx "fu2_5", pfx "fu2_7"],
-        [pfx "fu3",  pfx "fu3_5", pfx "fu3_7"],
-    ]
-    fIdx := 0, skipIdx := 0
-    for gi, grp in groups {
-        if gi = skipIdx
             continue
+        }
+        if !cur.Length
+            curStart := fi
+        cur.Push(t)
+    }
+    if cur.Length {
+        groups.Push(cur)
+        groupStart.Push(curStart)
+    }
+    return {groups: groups, fenced: fenced}
+}
+
+; Parse one `--Name` branch segment into its br* fields. Same positional layout as
+; the trunk (blank-separated groups → fu1/fu2/fu3, a `ppv` group → the branch ppv),
+; but no per-group alts and each group is `n-joined into one field.
+FillBranch(brLines, mNo, k, name) {
+    global edCtrls
+    nk := "m" mNo "_br" k "_name"
+    if edCtrls.Has(nk)
+        edCtrls[nk].Value := name
+    filtered := []
+    for _, l in brLines
+        filtered.Push(Trim(l))
+    pg     := PositionalGroups(filtered)
+    groups := pg.groups
+    fenced := pg.fenced
+    fIdx := 0
+    for gi, grp in groups {
+        if fenced.Has(gi) {
+            SetBranchField(mNo, k, "ppv", FencedPpvText(grp))
+            continue
+        }
         firstLine := Trim(grp[1])
         if RegExMatch(firstLine, "i)^ppv") {
             ppvParts := []
@@ -1266,85 +1439,91 @@ ParseBranch(lines, mNo, pfx) {
             for i, l in grp
                 if i > 1
                     ppvParts.Push(StripPrefix(Trim(l)))
-            ppvBase := ""
-            for _, part in ppvParts
-                ppvBase .= (ppvBase != "" ? "`r`n" : "") part
-            ck := "m" mNo "_" pfx "ppv_base"
-            if edCtrls.Has(ck)
-                edCtrls[ck].Value := ppvBase
-            if gi + 1 <= groups.Length {
-                skipIdx := gi + 1
-                fuGrp := groups[gi + 1]
-                for si, slot in [pfx "ppv_f1", pfx "ppv_f2", pfx "ppv_f3"] {
-                    if si > fuGrp.Length
-                        break
-                    ck := "m" mNo "_" slot
-                    if edCtrls.Has(ck)
-                        edCtrls[ck].Value := StripPrefix(Trim(fuGrp[si]))
-                }
-            }
+            SetBranchField(mNo, k, "ppv", JoinRN(ppvParts))
             continue
         }
         fIdx++
         if fIdx > 3
             continue
-        slots := fSlotGroups[fIdx]
-        for si, slot in slots {
-            if si > grp.Length
-                break
-            ck := "m" mNo "_" slot
-            if edCtrls.Has(ck)
-                edCtrls[ck].Value := StripPrefix(Trim(grp[si]))
-        }
+        parts := []
+        for _, l in grp
+            parts.Push(StripPrefix(Trim(l)))
+        SetBranchField(mNo, k, "fu" fIdx, JoinRN(parts))
     }
+}
+
+SetBranchField(mNo, k, grp, val) {
+    global edCtrls
+    ck := "m" mNo "_br" k "_" grp
+    if edCtrls.Has(ck)
+        edCtrls[ck].Value := val
+}
+
+; Join follow-up parts into one field, `r`n between them (round-trips through
+; MassPropIsMultiline as `n; AltPartsRT splits them back at send time).
+JoinRN(parts) {
+    out := ""
+    for _, p in parts
+        if Trim(p) != ""
+            out .= (out != "" ? "`r`n" : "") Trim(p)
+    return out
+}
+
+; A fenced multiline block → ppv text, keeping internal blank lines as paragraph
+; breaks and dropping a leading `ppv` marker.
+FencedPpvText(grp) {
+    out := ""
+    for i, l in grp {
+        v := Trim(l)
+        if i = 1 {
+            if RegExMatch(v, "i)^ppv[:\s]+(.*)$", &pm)
+                v := Trim(pm[1])
+            else if RegExMatch(v, "i)^ppv$")
+                v := ""
+        }
+        out .= (out != "" ? "`r`n" : "") v
+    }
+    return out
 }
 
 FillTab(lines, mNo) {
     global
-    ; ── or-or mode detection ─────────────────────────────────────────────────────
-    firstContent := ""
+    ; ── strip -- comments ─────────────────────────────────────────────────────
+    ; A line that is `--` alone or begins with `-- ` is a comment, dropped before
+    ; any parsing. `--word` (an alt marker) and `---` (a multiline fence) are NOT
+    ; comments — their third character is not whitespace.
+    cleaned := []
+    for _, rawLn in lines {
+        if RegExMatch(Trim(rawLn), "^--(\s|$)")
+            continue
+        cleaned.Push(rawLn)
+    }
+    lines := cleaned
+
+    ; ── --Name branch segmentation ────────────────────────────────────────────
+    ; A `--Name` marker opens a whole alternate follow-up sequence. Split those out
+    ; and parse each into its br* fields; everything before the first marker is the
+    ; shared trunk, parsed by the normal modes below.
+    branches := []
+    trunkLines := []
+    curBr := 0
     for _, rawLn in lines {
         t := Trim(rawLn)
-        if t != "" {
-            firstContent := t
-            break
+        if RegExMatch(t, "^--(?=[^\s-])") {
+            branches.Push({ name: Trim(SubStr(t, 3)), lines: [] })
+            curBr := branches.Length
+            continue
         }
+        if curBr = 0
+            trunkLines.Push(rawLn)
+        else
+            branches[curBr].lines.Push(rawLn)
     }
-    if RegExMatch(firstContent, "i)^!?mm[a]?\s+(.+?)\s+or\s+(.+)$", &om) {
-        tagPositions := []
-        for i, rawLn in lines {
-            t := Trim(rawLn)
-            if RegExMatch(t, "i)^(\w+):$", &tm) && StrLower(tm[1]) != "ppv"
-                tagPositions.Push(i)
-        }
-        if tagPositions.Length >= 1 {
-            b1Label := Trim(om[1])
-            b2Label := Trim(om[2])
-            for prop, val in Map("orOr", "1", "b1_label", b1Label, "b2_label", b2Label, "mass", b1Label " or " b2Label) {
-                ck := "m" mNo "_" prop
-                if edCtrls.Has(ck)
-                    edCtrls[ck].Value := val
-            }
-            b1Lines := [], b2Lines := []
-            if tagPositions.Length >= 2 {
-                b1Start := tagPositions[1] + 1
-                b2Start := tagPositions[2] + 1
-                Loop tagPositions[2] - b1Start
-                    b1Lines.Push(lines[b1Start + A_Index - 1])
-                Loop lines.Length - b2Start + 1
-                    b2Lines.Push(lines[b2Start + A_Index - 1])
-            } else {
-                b1Start := tagPositions[1] + 1
-                Loop lines.Length - b1Start + 1
-                    b1Lines.Push(lines[b1Start + A_Index - 1])
-            }
-            ParseBranch(b1Lines, mNo, "")
-            ParseBranch(b2Lines, mNo, "b2_")
-            oorTabs.Value := mNo
-            gOrOr.Show("w" OOR_W " h620")
-            return
-        }
+    Loop Min(branches.Length, BRANCH_MAX) {
+        k := A_Index
+        FillBranch(branches[k].lines, mNo, k, branches[k].name)
     }
+    lines := trunkLines
 
     ; ── keyword mode: any non-mass line starts with a known keyword ────────────
     hasKw := false
@@ -1448,18 +1627,14 @@ FillTab(lines, mNo) {
     }
 
     ; ── pure positional mode: no prefixes, position within blank-groups ───────
-    groups := [], cur := []
-    for _, t in filtered {
-        if t = "" {
-            if cur.Length {
-                groups.Push(cur)
-                cur := []
-            }
-        } else
-            cur.Push(t)
-    }
-    if cur.Length
-        groups.Push(cur)
+    ; A line of 3+ dashes is a multiline fence: everything from the most recent
+    ; `ppv` marker (or, if none precedes it, the start of the positional content)
+    ; up to the fence collapses into ONE group whose internal blank lines are kept
+    ; as paragraph breaks. That group is routed to ppv_base and never spills a line
+    ; into a ppv follow-up — a multiline ppv, not a ppv + ppvfu.
+    pg     := PositionalGroups(filtered)
+    groups := pg.groups
+    fenced := pg.fenced
 
     fSlotGroups := [
         ["fu1",  "fu1_5", "fu1_7"],
@@ -1471,6 +1646,26 @@ FillTab(lines, mNo) {
     for gi, grp in groups {
         if gi = skipIdx
             continue
+
+        ; fenced multiline block — the whole thing is the ppv base, no ppv f-ups
+        if fenced.Has(gi) {
+            ppvBase := ""
+            for i, l in grp {
+                v := Trim(l)
+                if i = 1 {
+                    if RegExMatch(v, "i)^ppv[:\s]+(.*)$", &pm)
+                        v := Trim(pm[1])
+                    else if RegExMatch(v, "i)^ppv$")
+                        v := ""
+                }
+                ppvBase .= (ppvBase != "" ? "`r`n" : "") v
+            }
+            ck := "m" mNo "_ppv_base"
+            if edCtrls.Has(ck)
+                edCtrls[ck].Value := ppvBase
+            continue
+        }
+
         firstLine := Trim(grp[1])
 
         ; ppv group — first line starts with "ppv"
@@ -1732,6 +1927,22 @@ BuildMassTemplate(fname) {
         out .= "HK_Bind(" q "mass." num "." slot q ", " fn ")`n"
     }
     out .= "`nStartFuGating(HK_ModelSendIds(modelFileNo))`n"
+
+    ; type __mm to paste the ACTIVE model's mass, gated so only the focused model's
+    ; script fires it (UniversalSendActive lives in utils.ahk). Mirrors the hand-
+    ; written copy in 1_mass.ahk so every model behaves the same.
+    out .= "`nDoMass(){`n"
+         . "    global massNo, m1, m2, m3`n"
+         . "    m := massNo = 1 ? m1 : massNo = 2 ? m2 : m3`n"
+         . "    if m.mass = " q q "`n"
+         . "        return`n"
+         . "    A_Clipboard := m.mass`n"
+         . "    ClipWait(0.5)`n"
+         . "    Send " q "^v" q "`n"
+         . "}`n"
+         . "#HotIf UniversalSendActive()`n"
+         . ":*X:__mm::DoMass()`n"
+         . "#HotIf`n"
     return out
 }
 
@@ -1739,8 +1950,9 @@ BuildMassTemplate(fname) {
 BuildBlock(mNo) {
     global
     props  := MassBlockProps()
-    breaks := Map("fu1_7", 1, "fu2_7", 1, "fu3_7", 1, "ppv_f3", 1, "b2_fu1_7", 1, "b2_fu2_7", 1, "b2_fu3_7", 1,
-                  "fu1_alt2", 1, "fu2_alt2", 1, "fu3_alt2", 1, "b2_ppv_f3", 1)
+    breaks := Map("fu1_7", 1, "fu2_7", 1, "fu3_7", 1, "ppv_f3", 1,
+                  "br1_ppv", 1, "br2_ppv", 1, "br3_ppv", 1,
+                  "fu1_alt2", 1, "fu2_alt2", 1, "fu3_alt2", 1)
     out    := "m" mNo " := {`n"
     Loop props.Length {
         p     := props[A_Index]
@@ -1917,6 +2129,52 @@ StopPinger() {
     DllCall("CloseHandle", "Ptr", h)
 }
 
+; ─── Model detector ───────────────────────────────────────────────────────────
+; An AHK script (not python), so its hidden main window — titled with its full
+; path, class AutoHotkey — is both the "is it up?" probe and the kill target.
+_DetectorTitle() {
+    global SCRIPT_DIR
+    return SCRIPT_DIR "\model_detector.ahk ahk_class AutoHotkey"
+}
+DetectorRunning() {
+    return WinExist(_DetectorTitle()) != 0
+}
+LaunchDetector() {
+    global SCRIPT_DIR
+    path := SCRIPT_DIR "\model_detector.ahk"
+    if !FileExist(path) || DetectorRunning()
+        return
+    try Run(path)
+}
+StopDetector() {
+    global SCRIPT_DIR
+    if WinExist(_DetectorTitle())
+        try ProcessClose(WinGetPID(_DetectorTitle()))
+    ; clear the gate so every model responds again once detection is off
+    try IniWrite("", SCRIPT_DIR "\detector_status.ini", "detector", "active_model")
+}
+
+; ─── Stats overlay ────────────────────────────────────────────────────────────
+; Resident AHK script that owns the gui.toggleStats hotkey and the OCR overlay.
+_StatsTitle() {
+    global SCRIPT_DIR
+    return SCRIPT_DIR "\stats_overlay.ahk ahk_class AutoHotkey"
+}
+StatsOverlayRunning() {
+    return WinExist(_StatsTitle()) != 0
+}
+LaunchStatsOverlay() {
+    global SCRIPT_DIR
+    path := SCRIPT_DIR "\stats_overlay.ahk"
+    if !FileExist(path) || StatsOverlayRunning()
+        return
+    try Run(path)
+}
+StopStatsOverlay() {
+    if WinExist(_StatsTitle())
+        try ProcessClose(WinGetPID(_StatsTitle()))
+}
+
 TogglePinger(*) {
     global pinger, CFG_FILE
     if PingerRunning() {
@@ -1938,11 +2196,15 @@ RefreshPingerLabel() {
 }
 
 WatchdogTick() {
-    global pinger
+    global pinger, autoDetect, statsOverlay
     LaunchStartupScripts()
     LaunchAutomationListener()
     if pinger
         LaunchPinger()
+    if autoDetect
+        LaunchDetector()
+    if statsOverlay
+        LaunchStatsOverlay()
     RefreshPingerLabel()
 }
 
@@ -2124,10 +2386,16 @@ OpenSettings(*) {
     ; Read the live process, not the setting — they disagree whenever the pinger
     ; was toggled from the main window, or died on its own.
     lblPinger := sg.Add("Text", "x360 y" (_sy + 78) " w230", "")
+    chkAutoDetect := sg.Add("Checkbox", "x10 y" (_sy + 102) " w340", "Auto-detect active model (OCR/CV) — one f1/f2/f3 set, gated by tab")
+    chkAutoDetect.Value := autoDetect
+    lblDetector := sg.Add("Text", "x360 y" (_sy + 102) " w230", "")
+    chkStats := sg.Add("Checkbox", "x10 y" (_sy + 126) " w340", "Run stats overlay (OCR of Infloww stats — toggle hotkey: gui.toggleStats)")
+    chkStats.Value := statsOverlay
+    lblStats := sg.Add("Text", "x360 y" (_sy + 126) " w230", "")
     PaintPingerStatus()
     sg.OnEvent("Close", StopPingerStatusTimer)
     SetTimer(PaintPingerStatus, 1500)
-    y := _sy + 104
+    y := _sy + 152
     sg.Add("Text",   "x10  y" (y+8)  " w580 h2 0x10")
     sg.Add("Button", "x10  y" (y+18) " w85 h28",  "Save").OnEvent("Click", SaveCfg)
     sg.Add("Button", "x105 y" (y+18) " w85 h28",  "Reset").OnEvent("Click", ResetCfg)
@@ -2149,6 +2417,20 @@ OpenSettings(*) {
                 lblPinger.SetFont("cGray")
                 lblPinger.Text := "○ not running"
             }
+            if DetectorRunning() {
+                lblDetector.SetFont("cGreen")
+                lblDetector.Text := "● running"
+            } else {
+                lblDetector.SetFont("cGray")
+                lblDetector.Text := "○ not running"
+            }
+            if StatsOverlayRunning() {
+                lblStats.SetFont("cGreen")
+                lblStats.Text := "● running"
+            } else {
+                lblStats.SetFont("cGray")
+                lblStats.Text := "○ not running"
+            }
         } catch {
             SetTimer(PaintPingerStatus, 0)
         }
@@ -2161,7 +2443,7 @@ OpenSettings(*) {
     SaveCfg(*) {
         global model1Name, model2Name, model3Name, modelCount, CFG_FILE
         global defaultHotkeyFile, mouseControl, fastParseAutosave
-        global startupScripts, autoRestart, automationListener, pinger, promptAltCtrl
+        global startupScripts, autoRestart, automationListener, pinger, promptAltCtrl, autoDetect, statsOverlay
 
         newCount          := rdMC1.Value ? 1 : rdMC2.Value ? 2 : 3
         model1Name        := ed1.Value
@@ -2236,6 +2518,20 @@ OpenSettings(*) {
         else
             StopPinger()
         SetTimer(RefreshPingerLabel, -600)
+
+        autoDetect := chkAutoDetect.Value ? 1 : 0
+        IniWrite(autoDetect, CFG_FILE, "Settings", "AutoDetectModel")
+        if autoDetect
+            LaunchDetector()
+        else
+            StopDetector()
+
+        statsOverlay := chkStats.Value ? 1 : 0
+        IniWrite(statsOverlay, CFG_FILE, "Settings", "StatsOverlay")
+        if statsOverlay
+            LaunchStatsOverlay()
+        else
+            StopStatsOverlay()
 
         StopPingerStatusTimer()
         sg.Destroy()

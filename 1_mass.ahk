@@ -61,43 +61,41 @@ SndFuEditable(parts*) {
 }
 
 m1 := {
-mass: "Are you feeling obedient?",
-fu1: "I'm in the mood to be quite dominant today, and for domination you need two things, a cute English girl and a naked boy... Will it take more than 1 min?",
+mass: "Are my buttox cute?",
+fu1: "I reckon that I would be quite photogenic `"arse up face down`", what do you think?",
 fu1_5: "",
 fu1_7: "",
 
-fu2: "I've been fantasizing about controlling your cock and making it submit to my will, or my nudes, both work. Do you mind gripping it tightly and calling me mistress?",
-fu2_5: "",
+fu2: "And if I were to find myself in that kind of predicament would you `"slap it before you clap it`"?",
+fu2_5: "Would you make my naked arsecheeks bright red 🥺?",
 fu2_7: "",
 
-fu3: "Give me 21 strokes now... Tight grip and tell me how it felt",
+fu3: "",
 fu3_5: "",
 fu3_7: "",
 
-ppv_base: "",
-ppv_f1: "I'm going all out tonight, it will be an insanely hard try not to cum and you will probably cum right away... But just try okay?",
+ppv_base: "Imagine having me in doggy just like this, with my naked arse cheeks in a close up, wiggling up and down your nose so you can give me a little kiss before you slap and clap me mercilessly ❤️",
+ppv_f1: "Would that make you into a British patriot?",
 ppv_f2: "",
 ppv_f3: "",
 
-orOr: "",
-b1_label: "",
-b2_label: "",
-b2_fu1: "",
-b2_fu1_5: "",
-b2_fu1_7: "",
+br1_name: "",
+br1_fu1: "",
+br1_fu2: "",
+br1_fu3: "",
+br1_ppv: "",
 
-b2_fu2: "",
-b2_fu2_5: "",
-b2_fu2_7: "",
+br2_name: "",
+br2_fu1: "",
+br2_fu2: "",
+br2_fu3: "",
+br2_ppv: "",
 
-b2_fu3: "",
-b2_fu3_5: "",
-b2_fu3_7: "",
-
-b2_ppv_base: "",
-b2_ppv_f1: "",
-b2_ppv_f2: "",
-b2_ppv_f3: "",
+br3_name: "",
+br3_fu1: "",
+br3_fu2: "",
+br3_fu3: "",
+br3_ppv: "",
 
 fu1_alt0: "",
 fu1_alt1: "",
@@ -115,16 +113,16 @@ altGui: ""
 }
 
 m2 := {
-mass: "Beach or bedroom tonight? 🏖️",
-fu1: "I've been going back and forth on it all day",
+mass: "",
+fu1: "",
 fu1_5: "",
 fu1_7: "",
 
-fu2: "Because one of them involves a lot less clothing",
+fu2: "",
 fu2_5: "",
 fu2_7: "",
 
-fu3: "So which is it, before I pick for you? 😌",
+fu3: "",
 fu3_5: "",
 fu3_7: "",
 
@@ -133,35 +131,33 @@ ppv_f1: "",
 ppv_f2: "",
 ppv_f3: "",
 
-orOr: "",
-b1_label: "",
-b2_label: "",
-b2_fu1: "",
-b2_fu1_5: "",
-b2_fu1_7: "",
+br1_name: "",
+br1_fu1: "",
+br1_fu2: "",
+br1_fu3: "",
+br1_ppv: "",
 
-b2_fu2: "",
-b2_fu2_5: "",
-b2_fu2_7: "",
+br2_name: "",
+br2_fu1: "",
+br2_fu2: "",
+br2_fu3: "",
+br2_ppv: "",
 
-b2_fu3: "",
-b2_fu3_5: "",
-b2_fu3_7: "",
+br3_name: "",
+br3_fu1: "",
+br3_fu2: "",
+br3_fu3: "",
+br3_ppv: "",
 
-b2_ppv_base: "",
-b2_ppv_f1: "",
-b2_ppv_f2: "",
-b2_ppv_f3: "",
-
-fu1_alt0: "Honestly I've changed my mind about six times since this morning",
-fu1_alt1: "You get to decide, I'm useless at picking",
+fu1_alt0: "",
+fu1_alt1: "",
 fu1_alt2: "",
 
-fu2_alt0: "One of those options has a strict no-clothing policy`nI'll let you guess which",
-fu2_alt1: "Fair warning though`nOnly one of them has a door that locks`nChoose carefully x",
+fu2_alt0: "",
+fu2_alt1: "",
 fu2_alt2: "",
 
-fu3_alt0: "Don't leave me hanging, I'm already halfway packed",
+fu3_alt0: "",
 fu3_alt1: "",
 fu3_alt2: "",
 
@@ -187,25 +183,23 @@ ppv_f1: "",
 ppv_f2: "",
 ppv_f3: "",
 
-orOr: "",
-b1_label: "",
-b2_label: "",
-b2_fu1: "",
-b2_fu1_5: "",
-b2_fu1_7: "",
+br1_name: "",
+br1_fu1: "",
+br1_fu2: "",
+br1_fu3: "",
+br1_ppv: "",
 
-b2_fu2: "",
-b2_fu2_5: "",
-b2_fu2_7: "",
+br2_name: "",
+br2_fu1: "",
+br2_fu2: "",
+br2_fu3: "",
+br2_ppv: "",
 
-b2_fu3: "",
-b2_fu3_5: "",
-b2_fu3_7: "",
-
-b2_ppv_base: "",
-b2_ppv_f1: "",
-b2_ppv_f2: "",
-b2_ppv_f3: "",
+br3_name: "",
+br3_fu1: "",
+br3_fu2: "",
+br3_fu3: "",
+br3_ppv: "",
 
 fu1_alt0: "",
 fu1_alt1: "",
@@ -268,7 +262,7 @@ DoFu2(){
         }
     }
     if openTabFu2
-        clickOn(openInNewTabButton)
+        clickReturn(openInNewTabButton)
 }
 DoFu3(){
     global massNo, m1, m2, m3, doubleMM, walletCheckFu3, editableFu3, openTabFu3
@@ -292,7 +286,7 @@ DoFu3(){
         }
     }
     if openTabFu3
-        clickOn(openInNewTabButton)
+        clickReturn(openInNewTabButton)
 }
 
 ; sends the mass body itself (the text that follows !mm / !mma) — pastes only, so
@@ -307,37 +301,6 @@ DoMass(){
     Send "^v"
 }
 
-IsOrOr() {
-    global massNo, m1, m2, m3
-    m := massNo = 1 ? m1 : massNo = 2 ? m2 : m3
-    return m.orOr
-}
-
-DoB2Fu1(){
-    global massNo, m1, m2, m3
-    switch massNo {
-        case 1: sndFu(1, m1.b2_fu1, m1.b2_fu1_5, m1.b2_fu1_7)
-        case 2: sndFu(1, m2.b2_fu1, m2.b2_fu1_5, m2.b2_fu1_7)
-        case 3: sndFu(1, m3.b2_fu1, m3.b2_fu1_5, m3.b2_fu1_7)
-    }
-}
-DoB2Fu2(){
-    global massNo, m1, m2, m3
-    switch massNo {
-        case 1: sndFu(2, m1.b2_fu2, m1.b2_fu2_5, m1.b2_fu2_7)
-        case 2: sndFu(2, m2.b2_fu2, m2.b2_fu2_5, m2.b2_fu2_7)
-        case 3: sndFu(2, m3.b2_fu2, m3.b2_fu2_5, m3.b2_fu2_7)
-    }
-}
-DoB2Fu3(){
-    global massNo, m1, m2, m3
-    switch massNo {
-        case 1: sndFu(3, m1.b2_fu3, m1.b2_fu3_5, m1.b2_fu3_7)
-        case 2: sndFu(3, m2.b2_fu3, m2.b2_fu3_5, m2.b2_fu3_7)
-        case 3: sndFu(3, m3.b2_fu3, m3.b2_fu3_5, m3.b2_fu3_7)
-    }
-}
-
 DoF4(){
     global massNo, m1, m2, m3, openTabPpv
     m := massNo = 1 ? m1 : massNo = 2 ? m2 : m3
@@ -345,29 +308,15 @@ DoF4(){
     ClipWait(0.1)
     Send "^v"
     if openTabPpv
-        clickOn(openInNewTabButton)
+        clickReturn(openInNewTabButton)
 }
 
 DoF5(){
     global massNo, m1, m2, m3
-    if IsOrOr() {
-        DoB2Fu1()
-        return
-    }
     m := massNo = 1 ? m1 : massNo = 2 ? m2 : m3
     snd(m.ppv_f1)
     snd(m.ppv_f2)
     snd(m.ppv_f3)
-}
-
-DoF6(){
-    if IsOrOr()
-        DoB2Fu2()
-}
-
-DoF7(){
-    if IsOrOr()
-        DoB2Fu3()
 }
 
 DoAltF4(){
@@ -376,26 +325,6 @@ DoAltF4(){
     snd(m.ppv_f1)
     snd(m.ppv_f2)
     snd(m.ppv_f3)
-}
-
-DoF8(){
-    global massNo, m1, m2, m3
-    if !IsOrOr()
-        return
-    m := massNo = 1 ? m1 : massNo = 2 ? m2 : m3
-    A_Clipboard := m.b2_ppv_base
-    ClipWait(0.1)
-    Send "^v"
-}
-
-DoAltF8(){
-    global massNo, m1, m2, m3
-    if !IsOrOr()
-        return
-    m := massNo = 1 ? m1 : massNo = 2 ? m2 : m3
-    snd(m.b2_ppv_f1)
-    snd(m.b2_ppv_f2)
-    snd(m.b2_ppv_f3)
 }
 
 ; ── hotkey registrations ──────────────────────────────────────────────────────
@@ -452,6 +381,46 @@ DoAltFu3() {
         DoFu3()
 }
 
+; ── --Name branches ───────────────────────────────────────────────────────────
+; The trunk (base fu1/fu2/fu3) sends on the normal keys. A branch is a continuation
+; you switch to: pick one, then walk its follow-ups and ppv. The chosen branch is
+; remembered per mass (_activeBranch) so fu2/fu3/ppv keep sending the same one.
+DoBranchPick() {
+    global _activeBranch, massNo
+    if !FuGate()
+        return
+    brs := BranchList(CurMass())
+    if !brs.Length
+        return
+    idx := 1
+    if brs.Length > 1 {
+        labels := []
+        for b in brs
+            labels.Push(b.name (b.fu[1].Length ? "  —  " b.fu[1][1] : ""))
+        idx := Overload_Choose(labels)
+        if !idx
+            return
+    }
+    _activeBranch[massNo] := idx
+    BranchSendGroup(brs[idx].fu[1])
+}
+DoBranchFu2() => BranchSendActiveGroup(2)
+DoBranchFu3() => BranchSendActiveGroup(3)
+DoBranchPpv() {
+    global _activeBranch, massNo
+    brs := BranchList(CurMass())
+    if _activeBranch.Has(massNo) && _activeBranch[massNo] <= brs.Length
+        BranchSendPpv(brs[_activeBranch[massNo]].ppv)
+}
+BranchSendActiveGroup(g) {
+    global _activeBranch, massNo
+    if !FuGate()
+        return
+    brs := BranchList(CurMass())
+    if _activeBranch.Has(massNo) && _activeBranch[massNo] <= brs.Length
+        BranchSendGroup(brs[_activeBranch[massNo]].fu[g])
+}
+
 HK_Bind("nav.unread",      Unread)
 HK_Bind("nav.focusAuto",   focusAuto)
 HK_Bind("nav.nextChat",    nextChat)
@@ -476,11 +445,14 @@ HK_Bind("mass.1.smFu2",    DoFu2)
 HK_Bind("mass.1.smFu3",    DoFu3)
 HK_Bind("mass.1.ppv",      DoF4)
 HK_Bind("mass.1.ppvFus",   DoF5)
-HK_Bind("mass.1.b2Fu2",    DoF6)
-HK_Bind("mass.1.b2Fu3",    DoF7)
 HK_Bind("mass.1.b1Ppv",    DoAltF4)
-HK_Bind("mass.1.b2Ppv",    DoF8)
-HK_Bind("mass.1.b2PpvFus", DoAltF8)
+; --Name branches. brPick picks a branch + sends its fu1; brFu2/brFu3 walk that
+; branch's fu2/fu3; brPpv pastes its ppv. Gated to the active model (like the
+; follow-ups), so these keys can overlap another model's keys without clashing.
+HK_Bind("mass.1.brPick", DoBranchPick)
+HK_Bind("mass.1.brFu2",  DoBranchFu2)
+HK_Bind("mass.1.brFu3",  DoBranchFu3)
+HK_Bind("mass.1.brPpv",  DoBranchPpv)
 HK_Bind("mass.1.altFu1", DoAltFu1)
 HK_Bind("mass.1.altFu2", DoAltFu2)
 HK_Bind("mass.1.altFu3", DoAltFu3)
@@ -501,6 +473,9 @@ if !mouseControl {
 ; while its tab is active.
 StartFuGating(HK_ModelSendIds(modelFileNo))
 
-; type __mm to paste the current mass body (what follows !mm / !mma); review, then send.
+; type __mm to paste the ACTIVE model's mass body (review, then send). Gated so
+; only the focused model's script fires it — see UniversalSendActive in utils.ahk.
+#HotIf UniversalSendActive()
 :*X:__mm::DoMass()
+#HotIf
 

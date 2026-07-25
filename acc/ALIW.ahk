@@ -262,3 +262,10 @@ HK_Bind("aliw.whatLoved",    AliwWhatLoved)
 HK_Bind("aliw.ascend",       AliwAscend)
 HK_Bind("aliw.openThat",     AliwOpenThat)
 HK_Bind("aliw.infiniteLust", AliwInfiniteLust)
+
+:*:newsub1::
+{
+    snd("Hello there <3")
+    snd("Welcome to my page")
+    snd("My name is Alice <3")
+}
