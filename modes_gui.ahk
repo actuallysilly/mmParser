@@ -78,9 +78,15 @@ OpenModesWindow(*) {
         mg.Destroy()
         ; A hotkey is registered at bind time, so a feature switched off keeps its
         ; key until its script reloads. Restarting is what makes the change real.
-        RestartMassScripts()
+        ;
+        ; NOT RestartMassScripts(): that one belongs to the Settings window. It
+        ; asks "Mouse control changed. Restart?" (nonsense here), does nothing at
+        ; all if the answer is No — while this window then claimed success — and
+        ; only ever touches scripts that are ALREADY RUNNING. That last part is
+        ; what broke coming back from Easy: Easy stops the model scripts, so there
+        ; was nothing running to restart, and Advanced returned with no hotkeys.
         ApplyModeToRunning()
-        MsgBox "Saved. Scripts were restarted so the hotkeys match.",
+        MsgBox "Saved.`n`nScripts were restarted so the hotkeys match the mode.",
                "Mode & features", 0x40
     }
 
@@ -92,6 +98,28 @@ OpenModesWindow(*) {
 ; Called after a save so the running children match the checkboxes without needing
 ; a full restart of the panel.
 ApplyModeToRunning() {
+    global SCRIPT_DIR, modelCount
+
+    ; The model scripts first, because they carry the hotkeys and the whole point
+    ; of a mode change is which keys exist. Close whatever is up, then start from
+    ; scratch: a script that was NOT running (as after Easy) still has to be
+    ; started, which is exactly what the old path missed.
+    Loop modelCount {
+        p := SCRIPT_DIR "\" A_Index "_mass.ahk"
+        if !FileExist(p)
+            continue
+        if WinExist(p " ahk_class AutoHotkey") {
+            try ProcessClose(WinGetPID(p " ahk_class AutoHotkey"))
+            Sleep 150
+        }
+        try Run(p)
+    }
+
+    ; Whatever else the user has configured to auto-start (general.ahk, acc
+    ; scripts, sequences). Respects the startupScripts feature on its own, so Easy
+    ; leaves them stopped and Advanced brings them back.
+    LaunchStartupScripts()
+
     if FEAT("automation")
         LaunchAutomationListener()
     else

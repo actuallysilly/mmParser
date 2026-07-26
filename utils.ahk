@@ -815,19 +815,6 @@ nextChat(){
 }
 
 ; ─── Crash logging ────────────────────────────────────────────────────────────
-; Every script that #Includes utils.ahk records its uncaught errors here, so a
-; script that "randomly dies" leaves a breadcrumb in error_log.txt (with the
-; message + line). Behaviour is otherwise unchanged (default dialog still shows).
-OnError(_MMA_LogError)
-_MMA_LogError(err, mode) {
-    try {
-        detail := IsObject(err) ? (err.HasProp("Message") ? err.Message : Type(err)) : err
-        line   := (IsObject(err) && err.HasProp("Line")) ? "  (line " err.Line ")" : ""
-        FileAppend(FormatTime(, "yyyy-MM-dd HH:mm:ss") "  [" A_ScriptName "]  " detail line "`n",
-                   A_ScriptDir "\error_log.txt", "UTF-8")
-    }
-    return 0   ; 0 = keep default behaviour (log only)
-}
-
-
-
+; Moved to crashlog.ahk so mass_gui.ahk can have it too without pulling in this
+; file's hotstrings and send helpers.
+#Include "crashlog.ahk"

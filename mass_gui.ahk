@@ -1,5 +1,6 @@
 ﻿#Requires AutoHotkey v2.0
 #SingleInstance Force
+#Include "crashlog.ahk"
 #Include "hotkeys.ahk"
 #Include "archive.ahk"
 #Include "mass_parser.ahk"
