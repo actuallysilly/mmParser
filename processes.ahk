@@ -289,11 +289,16 @@ TogglePinger(*) {
     if PingerRunning() {
         StopPinger()
         pinger := 0
+        IniWrite(pinger, CFG_FILE, "Settings", "Pinger")
     } else {
-        LaunchPinger()
+        ; Write the key BEFORE launching. LaunchPinger gates on FEAT("pinger"),
+        ; which reads this very key — launching first meant it always bailed on
+        ; the old value and the first click did nothing.
         pinger := 1
+        IniWrite(pinger, CFG_FILE, "Settings", "Pinger")
+        ; announce: this is a deliberate click, so say something if Python is absent
+        LaunchPinger(true)
     }
-    IniWrite(pinger, CFG_FILE, "Settings", "Pinger")
     ; the python side takes a moment to claim or release the event
     SetTimer(RefreshPingerLabel, -600)
 }

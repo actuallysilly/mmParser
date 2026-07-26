@@ -312,6 +312,17 @@ FeatCtrl(ctrl, featureId) {
     return ctrl
 }
 
+; For a control that IS a feature's on/off switch. Such a control must not be
+; gated on the feature's own state: the Pinger button was, and since its cfg key
+; means "the pinger is running" rather than "the pinger is available", switching
+; the pinger off hid the only button that could switch it back on. These are
+; hidden by mode alone — Easy has no business showing them, Advanced always does.
+ModeCtrl(ctrl) {
+    if MODE_IsEasy()
+        ctrl.Visible := false
+    return ctrl
+}
+
 RegBtn(ctrl, ox, oy) {
     global btnCtrls
     btnCtrls.Push({c: ctrl, ox: ox, oy: oy})
@@ -492,7 +503,7 @@ togCtrls.Push({c: c, x: TAB_X+530, oy: 0})
 ; Label carries the state, so the button is also the running indicator.
 btnPinger := g.Add("Button", "x" (TAB_X+640) " y" TOGG_Y0 " w95 h28", "Pinger: OFF")
 btnPinger.OnEvent("Click", TogglePinger)
-FeatCtrl(btnPinger, "pinger")
+ModeCtrl(btnPinger)   ; NOT FeatCtrl: this button is the pinger's own on/off switch
 togCtrls.Push({c: btnPinger, x: TAB_X+640, oy: 0})
 
 c := g.Add("Button", "x" (TAB_X+745) " y" TOGG_Y0 " w95 h28", "Alt FUs…")
