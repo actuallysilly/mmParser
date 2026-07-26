@@ -15,17 +15,14 @@ detector_status.ini
 # live Infloww UI in particular show real handles in the tab strip and chat.
 # The code needs none of it at runtime — only slice_elements.py and
 # `automation.py --image` read these, and both are pointed at a file by hand.
+#
+# The listener itself is NOT in here: it is runtime, so it lives in automation/
+# and is tracked. Only the screenshots and the one-off detector prototypes stay.
 infloww ui elements/
+
+# Screenshots automation.py drops while debugging a miss. Live UI, so same rule
+# as above — the code recreates the folder on demand.
+automation/debug/
 
 # Message content. Kept local; MMA regenerates it as you archive.
 mass_archive.txt
-
-# Same reason, for the portable build: masses.txt is the real message library
-# and settings.json carries the live window filter. masses.example.txt is the
-# generic seed that ships inside the app and IS meant to be public.
-portable/masses.txt
-portable/settings.json
-
-# Build output — rebuilt by build_macos.sh / the macOS workflow.
-portable/build/
-portable/dist/

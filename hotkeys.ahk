@@ -189,7 +189,7 @@ HK_Def("recorder.toggle", "Start / stop recording", , "recorder.ahk")
 
 ; Declared here so the GUI lists, edits and conflict-checks them like any other
 ; key — but BOUND BY PYTHON, not AHK: no script calls HK_Bind for these. The
-; listener ("infloww ui elements\automation.py" --listen) reads the same ini and
+; listener (automation\automation.py --listen) reads the same ini and
 ; polls, so it must be running for them to fire. It gates itself to the Infloww
 ; Messages window, which is why "when" is blank rather than a registered context.
 HK_Section("automation", "Automation (automation.py)")

@@ -1,5 +1,40 @@
 # Changelog
 
+## 1.9.0 — 2026-07-26
+
+Structural release. No new features; the point is that a model file is now data,
+the shared behaviour has one definition, and the Python listener is in the repo.
+
+### Bug fixes
+
+- **Settings did nothing for models 2 and 3** — `EditableFu1/2/3`, `WalletCheckFu3`,
+  `OpenTabFu2/3` and `OpenTabPpv` existed only in `1_mass.ahk`. The Settings window
+  broadcast every toggle to all three model scripts (`_BroadcastEditableFu`), but 2 and 3
+  had no handler and passed a hard-coded `false` instead, so the checkboxes moved and
+  nothing happened. All models now share one implementation and honour all of them.
+  **If `OpenTabFu2` is on, models 2 and 3 will start opening a new tab after follow-up 2 —
+  that is the fix, not a regression.**
+- **Ctrl+follow-up was ungated on models 2 and 3** — their `DoAltFu*` skipped the
+  `FuGate()` check that model 1 ran, so the key could fire while another model was active.
+- **Regenerating a model file deleted its branches** — `BuildMassTemplate` emitted its own
+  copy of `DoFu1/2/3` and `DoPpv` but never the alt or branch functions, so rebuilding a
+  model silently dropped `--Name` branch support and the Settings-aware follow-ups. It now
+  emits data plus one `MassInit()` call, identical in shape to a hand-written model file.
+- **PPV pasted a stale clipboard** — `DoPpv` with an empty `ppv_base` cleared the clipboard,
+  timed out on `ClipWait`, then pasted whatever was there before. It now returns early.
+
+### Internal
+
+- **`automation.py` is in version control** — the 1,705-line listener that serves the
+  `[automation]` hotkeys lived in the gitignored `infloww ui elements/` folder, so a fresh
+  clone produced a silently half-working install. Moved to `automation/` and tracked, with
+  its launcher and UI map. Only the screenshots and detector prototypes stay ignored.
+- **New `mass_runtime.ahk`** — every model's behaviour, once. `1_mass.ahk` 481→225 lines,
+  `2_mass.ahk` 336→170, `3_mass.ahk` 331→170; message content untouched.
+- **`mass_gui.ahk` split 2,971→1,757 lines** — `archive.ahk` (the archive file format, its
+  readers and its window), `mass_parser.ahk` (the mass text format and its escaping) and
+  `processes.ahk` (launching, stopping and watching the five child processes).
+
 ## 2026-07-20
 
 ### Features
