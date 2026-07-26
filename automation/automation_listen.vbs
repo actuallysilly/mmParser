@@ -10,11 +10,15 @@
 ' Single-instance is enforced inside automation.py (a named mutex, same idea as
 ' #SingleInstance), so running this twice is harmless - the second exits.
 '
+' Exit codes:  0 = launched   1 = the .py is missing
+'              2 = no usable Python   3 = the launch itself failed
+'
 ' To stop it:    python automation.py --stop
 ' Is it up?:     python automation.py --status
 
 Option Explicit
 Dim shell, fso, here, script, pyw, cmd
+Dim exec, pyPath, cand, f
 
 Set shell = CreateObject("WScript.Shell")
 Set fso = CreateObject("Scripting.FileSystemObject")
@@ -27,22 +31,71 @@ If Not fso.FileExists(script) Then
     WScript.Quit 1
 End If
 
-' Resolve pythonw.exe next to whatever python is on PATH; fall back to the bare
-' name and let PATH resolve it. Using pythonw (not python) is what makes it silent.
-pyw = "pythonw.exe"
+' Resolve a REAL pythonw.exe. Three things this must not do:
+'
+'   - Fall back to the bare name "pythonw.exe" and hope PATH resolves it. When it
+'     does not, shell.Run RAISES, and MMA starts this automatically at launch --
+'     so that was an error dialog on every single startup of a machine with no
+'     Python installed.
+'
+'   - Accept a zero-byte hit. Those are the Microsoft Store's App Execution
+'     Aliases (a reparse-point stub in WindowsApps): running one opens the Store
+'     instead of starting Python.
+'
+'   - Look only at the FIRST line `where` prints. On a machine with both, the
+'     Store stub is listed FIRST and the real interpreter second, so checking one
+'     line finds the stub, rejects it, and wrongly concludes there is no Python.
+pyw = ""
 On Error Resume Next
-Dim exec, pyPath
-Set exec = shell.Exec("cmd /c where python")
-If Err.Number = 0 Then
-    pyPath = Trim(Split(exec.StdOut.ReadAll, vbCrLf)(0))
-    If pyPath <> "" And fso.FileExists(pyPath) Then
-        Dim cand
-        cand = fso.BuildPath(fso.GetParentFolderName(pyPath), "pythonw.exe")
-        If fso.FileExists(cand) Then pyw = cand
+
+Set exec = shell.Exec("cmd /c where pythonw.exe")
+If Err.Number = 0 Then pyw = FirstRealExe(exec.StdOut.ReadAll)
+Err.Clear
+
+' Nothing usable named pythonw - try python, and take the pythonw beside it.
+If pyw = "" Then
+    Set exec = shell.Exec("cmd /c where python.exe")
+    If Err.Number = 0 Then
+        pyPath = FirstRealExe(exec.StdOut.ReadAll)
+        If pyPath <> "" Then
+            cand = fso.BuildPath(fso.GetParentFolderName(pyPath), "pythonw.exe")
+            If fso.FileExists(cand) Then
+                Set f = fso.GetFile(cand)
+                If f.Size > 0 Then pyw = cand
+            End If
+        End If
     End If
 End If
-On Error GoTo 0
+Err.Clear
+
+' No usable interpreter. Quit QUIETLY: a .vbs has nowhere to report a failure
+' except its own dialog, and this one runs at startup. MMA decides what to say,
+' and says it only when the feature is switched on by hand -- see
+' PythonAvailable() in processes.ahk.
+If pyw = "" Then WScript.Quit 2
 
 cmd = """" & pyw & """ """ & script & """ --listen"
 ' 0 = hidden window, False = do not wait for it to exit
 shell.Run cmd, 0, False
+If Err.Number <> 0 Then WScript.Quit 3
+On Error GoTo 0
+
+' First line of `where` output naming a file that exists and is not a zero-byte
+' Store alias stub. "" when there is no such line.
+Function FirstRealExe(listing)
+    Dim lines, i, p, ff
+    FirstRealExe = ""
+    lines = Split(listing, vbCrLf)
+    For i = 0 To UBound(lines)
+        p = Trim(lines(i))
+        If p <> "" Then
+            If fso.FileExists(p) Then
+                Set ff = fso.GetFile(p)
+                If ff.Size > 0 Then
+                    FirstRealExe = p
+                    Exit For
+                End If
+            End If
+        End If
+    Next
+End Function

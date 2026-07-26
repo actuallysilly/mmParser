@@ -1325,16 +1325,18 @@ OpenSettings(*) {
                 startupScripts.Push(Trim(_s))
         SetTimer(WatchdogTick, autoRestart ? 5000 : 0)
         LaunchStartupScripts()
-        ; apply the toggle now, both ways - unticking it should stop the running one
+        ; apply the toggle now, both ways - unticking it should stop the running one.
+        ; announce := true so ticking it on a machine with no Python explains itself
+        ; instead of silently doing nothing.
         if automationListener
-            LaunchAutomationListener()
+            LaunchAutomationListener(true)
         else
             StopAutomationListener()
 
         pinger := chkPinger.Value ? 1 : 0
         IniWrite(pinger, CFG_FILE, "Settings", "Pinger")
         if pinger
-            LaunchPinger()
+            LaunchPinger(true)
         else
             StopPinger()
         SetTimer(RefreshPingerLabel, -600)

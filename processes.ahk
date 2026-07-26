@@ -91,6 +91,42 @@ LaunchStartupScripts() {
     }
 }
 
+; ── is there a Python to run the Python children with? ───────────────────────
+; Both Python children start through a .vbs, and a .vbs has nowhere to report a
+; failure except its own error dialog. The listener starts automatically at
+; STARTUP and defaults to ON, so on a machine with no Python that dialog used to
+; greet you on EVERY launch. The .vbs files now quit quietly when they cannot
+; find an interpreter; this stops us even spawning them, and lets the Settings
+; toggles say something useful instead of appearing to do nothing.
+;
+; Scans PATH directly rather than shelling out to `where`, which would flash a
+; console window every startup.
+PythonAvailable() {
+    static cached := ""
+    if cached != ""
+        return cached = "1"
+
+    found := false
+    for _, dir in StrSplit(EnvGet("PATH"), ";") {
+        dir := Trim(dir, " `t`"")
+        if dir = ""
+            continue
+        for _, exe in ["pythonw.exe", "python.exe"] {
+            path := RTrim(dir, "\") "\" exe
+            ; A zero-byte hit is the Microsoft Store's App Execution Alias — a
+            ; reparse-point stub that opens the Store instead of running Python.
+            ; Treating it as an interpreter is how you get the Store popping up
+            ; instead of the listener starting.
+            if FileExist(path) && FileGetSize(path) > 0 {
+                found := true
+                break 2
+            }
+        }
+    }
+    cached := found ? "1" : "0"
+    return found
+}
+
 ; ── the Python automation listener ────────────────────────────────────────────
 ;  automation.py serves the [automation] hotkeys. It cannot ride on startupScripts:
 ;  that path tests WinExist("… ahk_class AutoHotkey") and KillAllScripts only closes
@@ -120,10 +156,20 @@ AutomationListenerRunning() {
     return true
 }
 
-LaunchAutomationListener() {
+; announce := true when the user just switched this on by hand, so "nothing
+; happened" gets an explanation. Silent at startup — see PythonAvailable().
+LaunchAutomationListener(announce := false) {
     global SCRIPT_DIR, automationListener
     if !automationListener || AutomationListenerRunning()
         return
+    if !PythonAvailable() {
+        if announce
+            MsgBox "The automation listener needs Python, which isn't installed.`n`n"
+                 . "Run install.bat to set it up, or leave this off — the "
+                 . "[automation] hotkeys (" HK_Key("automation.unsendLast") " and friends) "
+                 . "are the only thing that needs it.", "No Python found", 0x40
+        return
+    }
     vbs := SCRIPT_DIR "\automation\automation_listen.vbs"
     if FileExist(vbs)
         try Run('wscript.exe "' vbs '"', SCRIPT_DIR, "Hide")
@@ -159,10 +205,16 @@ PingerRunning() {
     return true
 }
 
-LaunchPinger() {
+LaunchPinger(announce := false) {
     global SCRIPT_DIR
     if PingerRunning()
         return
+    if !PythonAvailable() {
+        if announce
+            MsgBox "The unread pinger needs Python, which isn't installed.`n`n"
+                 . "Run install.bat to set it up.", "No Python found", 0x40
+        return
+    }
     vbs := SCRIPT_DIR "\pinger\pinger_start.vbs"
     if FileExist(vbs)
         try Run('wscript.exe "' vbs '"', SCRIPT_DIR, "Hide")

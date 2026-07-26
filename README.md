@@ -4,13 +4,38 @@ AHK v2 GUI for managing message templates and sending them instantly via hotkeys
 
 ## Requirements
 
-- [AutoHotkey v2](https://www.autohotkey.com/)
+- **[AutoHotkey v2](https://www.autohotkey.com/)** — required, and the only hard requirement.
+- **Python 3.9+** — *optional*, and only for two things:
+  - `automation/automation.py`, which serves the `[automation]` hotkeys (hop kebabs,
+    unsend last, count sales). Needs `numpy`; count-sales also needs `pillow`.
+  - `pinger/pinger.pyw`, which beeps when a fan tab goes unread. Needs `numpy` and
+    `opencv-python`.
+
+Everything else is pure AutoHotkey — masses, follow-ups, alts, branches, PPV, the GUI,
+the archive, the parser, the hotkey registry, and even the OCR: `lib/OCR.ahk` drives the
+OCR engine already built into Windows, so model detection and the stats overlay need
+nothing installed. **Without Python, MMA runs fine; you just lose those two features.**
 
 ## Installation
 
-1. Download and extract the repo
-2. Run `createShortcut.bat` to create a desktop shortcut
-3. Launch `mass_gui.ahk`
+Run **`install.bat`**. It:
+
+1. installs AutoHotkey v2 via `winget` if it is missing — existing installs are left
+   alone, never silently upgraded;
+2. asks whether you want the optional Python features, and installs Python plus
+   `numpy`, `pillow` and `opencv-python` if you say yes;
+3. **if you say no, switches those features off in `mass_gui.cfg`** so MMA does not try
+   to start a Python it hasn't got;
+4. creates a desktop shortcut.
+
+```
+install.bat                 interactive
+install.bat -WithPython     assume yes to the optional Python features
+install.bat -NoPython       assume no
+```
+
+Prefer to do it by hand? Install AutoHotkey v2, run `createShortcut.bat`, and launch
+`mass_gui.ahk`. If you have no Python, turn **Automation listener** off in Settings.
 
 ## Features
 
