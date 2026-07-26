@@ -46,6 +46,11 @@ DefaultGroupName={#MyAppName}
 PrivilegesRequired=lowest
 DisableProgramGroupPage=yes
 AllowNoIcons=yes
+; MUST be no. The default is "auto", which HIDES the folder page whenever a
+; previous install of this AppId is found — so anyone reinstalling never gets to
+; choose a path, and setup silently reuses the old one even if that folder has
+; since been deleted.
+DisableDirPage=no
 
 InfoBeforeFile=WELCOME.txt
 OutputDir=dist
@@ -95,22 +100,41 @@ var
 // what winget installed, and reports "not installed" for a perfectly good
 // AutoHotkey or Python that arrived some other way.
 
+// Built from ENVIRONMENT VARIABLES, not from {commonpf}.
+//
+// PrivilegesRequired=lowest means setup runs as a 32-bit process, and there
+// {commonpf} expands to "C:\Program Files (x86)" — where AutoHotkey is NOT. That
+// is why a machine with a perfectly good AutoHotkey in C:\Program Files was told
+// it was missing. ProgramW6432 always names the real 64-bit Program Files, even
+// when read from a 32-bit process, so it is the one that can be trusted here.
 function FindAhk(): String;
 var
-  Candidates: array[0..3] of String;
-  I: Integer;
+  Roots: array[0..3] of String;
+  Names: array[0..1] of String;
+  I, J: Integer;
+  P: String;
 begin
   Result := '';
-  Candidates[0] := ExpandConstant('{commonpf}\AutoHotkey\v2\AutoHotkey64.exe');
-  Candidates[1] := ExpandConstant('{commonpf32}\AutoHotkey\v2\AutoHotkey64.exe');
-  Candidates[2] := ExpandConstant('{localappdata}\Programs\AutoHotkey\v2\AutoHotkey64.exe');
-  Candidates[3] := ExpandConstant('{commonpf}\AutoHotkey\v2\AutoHotkey32.exe');
+  Roots[0] := GetEnv('ProgramW6432');                          // real Program Files
+  Roots[1] := GetEnv('ProgramFiles');
+  Roots[2] := GetEnv('ProgramFiles(x86)');
+  Roots[3] := ExpandConstant('{localappdata}') + '\Programs';  // per-user install
+  Names[0] := 'AutoHotkey64.exe';
+  Names[1] := 'AutoHotkey32.exe';
+
   for I := 0 to 3 do
-    if FileExists(Candidates[I]) then
+  begin
+    if Roots[I] = '' then Continue;
+    for J := 0 to 1 do
     begin
-      Result := Candidates[I];
-      Exit;
+      P := RemoveBackslash(Roots[I]) + '\AutoHotkey\v2\' + Names[J];
+      if FileExists(P) then
+      begin
+        Result := P;
+        Exit;
+      end;
     end;
+  end;
 end;
 
 // Used by [Icons] and [Run]. Re-checked after the install step, because on a
@@ -120,7 +144,8 @@ begin
   if CachedAhk = '' then
     CachedAhk := FindAhk;
   if CachedAhk = '' then
-    CachedAhk := ExpandConstant('{commonpf}\AutoHotkey\v2\AutoHotkey64.exe');
+    // Same reason as FindAhk: {commonpf} would point at Program Files (x86).
+    CachedAhk := RemoveBackslash(GetEnv('ProgramW6432')) + '\AutoHotkey\v2\AutoHotkey64.exe';
   Result := CachedAhk;
 end;
 
@@ -200,15 +225,16 @@ begin
   ModePage.SelectedValueIndex := 0;
 
   PythonPage := CreateInputOptionPage(ModePage.ID,
-    'Optional Python extras',
-    'Two features need Python. Everything else does not.',
+    'Python extras',
+    'Two of MMA''s features need Python. This is set up for you by default.',
     'These are the automation hotkeys (unsend last message, count sales) and the ' +
-    'pinger that beeps when a fan tab goes unread. Skipping them is completely fine — ' +
-    'the rest of MMA does not care.',
+    'pinger that beeps when a fan tab goes unread. Leave the first option selected ' +
+    'unless you have a reason not to — opting out only costs you those two features, ' +
+    'and you can run this installer again later to add them.',
     True, False);
-  PythonPage.Add('Skip them — do not install Python.');
-  PythonPage.Add('Set them up — install Python and the packages they need.');
-  PythonPage.SelectedValueIndex := 0;
+  PythonPage.Add('Set up the Python extras  (recommended)');
+  PythonPage.Add('Do not install Python — skip those two features');
+  PythonPage.SelectedValueIndex := 0;   // installing is the default
 
   DownloadPage := CreateDownloadPage('Downloading MMA',
     'Fetching the latest version from GitHub', nil);
@@ -219,9 +245,10 @@ begin
   Result := ModePage.SelectedValueIndex = 1;
 end;
 
+// Option 0 is "set them up", so installing is what happens unless they opt out.
 function WantPython(): Boolean;
 begin
-  Result := PythonPage.SelectedValueIndex = 1;
+  Result := PythonPage.SelectedValueIndex = 0;
 end;
 
 // Grab the repo between the last wizard page and the install step, so a failed

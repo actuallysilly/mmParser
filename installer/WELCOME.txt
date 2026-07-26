@@ -4,11 +4,10 @@ This installer will:
 
   - install AutoHotkey v2 if you do not already have it
   - download the latest MMA from GitHub for you
-  - optionally set up the Python extras
+  - optionally set up the Python extras (advanced features)
   - put a shortcut on your desktop
 
-You never need to touch GitHub yourself.
+For any questions ask actually.silly on discord
 
 --
-EDIT THIS FILE to say whatever you want. It is shown as a page in the
-wizard before anything is installed.
+
