@@ -6,7 +6,7 @@
 ;  before britishizer and the feature run that followed: paste, Parse, Clear,
 ;  Export, per-file load/save/massNo, the model tabs, the script toggles, and a
 ;  Settings window with model count, Add Hotkey, How to Use, New Script, Wipe
-;  Temp, Report Bug and Check Update. Nothing else.
+;  Temp and Check Update. Nothing else.
 ;
 ;  ADVANCED is everything since.
 ;

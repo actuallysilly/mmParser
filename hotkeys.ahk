@@ -206,17 +206,13 @@ HK_Def("general.openFast",    "Open-fast pitch",     , "general.ahk")
 HK_Def("general.openAndRate", "Open-and-rate pitch", , "general.ahk")
 HK_Def("general.antiCc",      "Type a random 199.00-200.00 amount", , "general.ahk")
 
-HK_Section("aliw", "Account — ALIW")
-HK_Def("aliw.intro",        "Intro greeting",      , "acc\ALIW.ahk")
-HK_Def("aliw.loved",        "Unforgettable journey", , "acc\ALIW.ahk")
-HK_Def("aliw.glimpse",      "Glimpse / trousers down", , "acc\ALIW.ahk")
-HK_Def("aliw.whatLoved",    "What did you love",   , "acc\ALIW.ahk")
-HK_Def("aliw.ascend",       "Ascend to highest heights", , "acc\ALIW.ahk")
-HK_Def("aliw.openThat",     "You were supposed to open that", , "acc\ALIW.ahk")
-HK_Def("aliw.infiniteLust", "Infinite lust",       , "acc\ALIW.ahk")
-
-HK_Section("temp", "Account — TEMP")
-HK_Def("temp.fantasy", "Wildest fantasy", , "acc\TEMP.ahk")
+; No per-account sections. There was an [aliw] one holding seven keys, each firing
+; a function in acc\ALIW.ahk that did nothing but send a canned message — a
+; hotstring wearing a hotkey. Those are hotstrings now (..intro, ..loved, …), so
+; there is nothing to declare. A message belongs in a message file as data; only
+; keys that RUN SOMETHING (open a chat, type an amount, drive the mouse) belong
+; here. [temp] went the same way: it declared temp.fantasy, which acc\TEMP.ahk
+; never bound, so the Hotkeys window has been offering a key that did nothing.
 
 HK_Section("cap", "Capitalizer")
 HK_Def("cap.enterCap",   "Enter + capitalize next",  , "capitalizer.ahk")

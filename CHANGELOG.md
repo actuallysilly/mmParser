@@ -1,5 +1,67 @@
 ﻿# Changelog
 
+## Unreleased
+
+### Breaking
+
+- **The `[aliw]` and `[temp]` hotkey sections are gone.** Seven messages in
+  `acc/ALIW.ahk` were written as *functions* — `AliwIntro()`, `AliwWhatLoved()` and friends —
+  each bound to an alt-key through `hotkeys.ini`. A canned message had been turned into a
+  named, resident piece of code: invisible to the Hotstrings manager (which indexes
+  `:trigger::` blocks, not functions), so it could not be searched, edited or overloaded,
+  while every other message in the same file was plain data.
+
+  They are hotstrings now, with the text unchanged:
+
+  | was | now |
+  |---|---|
+  | `!I` `AliwIntro()` | `..intro` |
+  | `!e` `AliwLoved()` | `..loved` |
+  | `!F1` `AliwGlimpse()` | `..glimpse` |
+  | `!L` `AliwWhatLoved()` | `..whatloved` |
+  | `!F2` `AliwAscend()` | `..ascend` |
+  | `!9` `AliwOpenThat()` | `..openthat` |
+  | `!8` `AliwInfiniteLust()` | `..infinitelust` |
+
+  (`..openthat`, not `_OPENTHAT` — `general.ahk` already owns that trigger, with a different
+  message.) All seven now show up in the Hotstrings manager; the library went from 103
+  indexed messages to 110. `temp.fantasy` went with them: it was declared in `hotkeys.ahk`
+  and offered in the Hotkeys window, but `acc/TEMP.ahk` never bound it, so the key did
+  nothing.
+
+  Only keys that **run something** — open a chat, type an amount, drive the mouse — belong
+  in `hotkeys.ini`.
+
+### Bug fixes
+
+- **The Settings window overlapped itself.** Rows were placed with hand-counted offsets
+  (`y + 126`, `_sy + 102`), which held only while every label happened to fit on one line.
+  Two of them had outgrown their width, wrapped onto a second line, and printed over the row
+  beneath them and over the button strip. Rows are placed with a running cursor now, so a row
+  that needs more height simply takes it. The per-script checkbox rows also wrap at the window
+  width instead of marching off the edge once you have six acc scripts, and the status lights
+  have their own column that the labels stop short of.
+
+- **Resizing.** Three separate faults:
+  - ~60 controls moved on every `WM_SIZE` with no redraw batching, so dragging an edge tore
+    the window. Drawing is suppressed for the batch and the window repaints once.
+  - The bottom button strip was positioned at fixed x, up to `TAB_X+745`. On any window
+    narrower than ~1300px, "Alt FUs…" and "Branches…" slid underneath the paste panel. The
+    strip now reflows: laid left to right, wrapped to the left panel's current width, and
+    hidden controls are skipped so a switched-off feature closes the gap rather than leaving
+    a hole.
+  - The 66/34 split gave the right panel a couple of hundred pixels on a narrow window, for a
+    column of 460px-wide rows — "Export !mma" and "Load from archive" ran off the edge. The
+    split is now proportional only until a side would be squeezed below what its controls
+    measure. `MinSize` was 750x500, which was wishful; it is 900x640, derived from those
+    measurements.
+  - The paste box kept a flat 52% of the height, pushing the massNo radios past the bottom
+    edge on anything under ~650px tall. It is capped to what is left above the button stack.
+
+### Removed
+
+- **Report Bug.** The button opened a pre-filled GitHub issue.
+
 ## 1.9.2 — 2026-07-26
 
 ### Bug fixes

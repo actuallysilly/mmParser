@@ -264,7 +264,12 @@ UPDATE_URL   := IniRead(CFG_FILE, "Update",   "URL",       "https://raw.githubus
 ; Hotkeys used to be mirrored here as hk1_f1..hk3_ppvfu and written into the mass
 ; files as literal `F9::` lines. They now live in hotkeys.ini and are read by the
 ; scripts themselves — see hotkeys.ahk and the "Hotkeys…" button in Settings.
+; The bottom strip's height is worked out per-layout by ToggleLines(), since it
+; wraps. TOGGLE_H is only the starting guess used to place the controls before
+; the first ApplyLayout runs.
 TOGGLE_H     := 90           ; height reserved below tabs for script toggles (2 rows)
+TOG_GAP      := 10           ; horizontal space between two controls in the strip
+TOG_LINE     := 34           ; one line of the strip, button height included
 PASTE_SPLIT  := 0.66         ; fraction of width left of the right (paste) panel
 INIT_W       := 1500         ; wide by default so the follow-up lines are long
 INIT_H       := 700
@@ -292,7 +297,11 @@ btnSaveM := []
 
 ; ─── GUI ──────────────────────────────────────────────────────────────────────
 
-g := Gui("+Resize +MinSize750x500", "MMA v" APP_VER)
+; MinSize is client-area, and 750x500 was wishful: at that size the right panel's
+; rows ran off the edge and the bottom button strip sat under the paste box. This
+; is roughly what the two panels side by side actually need — see LEFT_MIN /
+; RIGHT_MIN below. The field list still wants ~700 tall to show every row.
+g := Gui("+Resize +MinSize900x640", "MMA v" APP_VER)
 g.SetFont("s9", "Segoe UI")
 
 ; ── Right panel helpers ────────────────────────────────────────────────────────
@@ -326,6 +335,17 @@ ModeCtrl(ctrl) {
 RegBtn(ctrl, ox, oy) {
     global btnCtrls
     btnCtrls.Push({c: ctrl, ox: ox, oy: oy})
+}
+
+; The strip along the bottom of the LEFT panel: row 0 is the app buttons, row 1
+; the acc-script toggles. Registered with a width instead of an x, because on
+; resize they REFLOW — laid left to right and wrapped to whatever width the left
+; panel currently has, skipping anything hidden. Fixed x is how "Alt FUs…" and
+; "Branches…" (which start at TAB_X+745) ended up underneath the paste panel on
+; any window narrower than ~1300, and how a feature switched off left a gap.
+RegTog(ctrl, w, row) {
+    global togCtrls
+    togCtrls.Push({c: ctrl, w: w, row: row})
 }
 
 ; ── Right: paste area (top) ────────────────────────────────────────────────────
@@ -475,50 +495,52 @@ tabs.UseTab()
 
 TOGG_Y0 := INIT_H - TOGGLE_H + 8   ; initial y of this section
 
+; The x/y given here are placeholders — ApplyLayout reflows the whole strip
+; before the window is shown, so only the width and the row matter.
+
 c := g.Add("Button", "x" TAB_X " y" TOGG_Y0 " w130 h28", "Open with Code")
 c.OnEvent("Click", (*) => Run(Chr(34) CODE_CMD Chr(34) " " Chr(34) SCRIPT_DIR Chr(34)))
-togCtrls.Push({c: c, x: TAB_X, oy: 0})
+RegTog(c, 130, 0)
 
-c := g.Add("Button", "x" (TAB_X+140) " y" TOGG_Y0 " w80 h28", "Settings")
+c := g.Add("Button", "x" TAB_X " y" TOGG_Y0 " w80 h28", "Settings")
 c.OnEvent("Click", OpenSettings)
-togCtrls.Push({c: c, x: TAB_X+140, oy: 0})
+RegTog(c, 80, 0)
 
-c := g.Add("Button", "x" (TAB_X+230) " y" TOGG_Y0 " w95 h28", "Add Hotkey")
+c := g.Add("Button", "x" TAB_X " y" TOGG_Y0 " w95 h28", "Add Hotkey")
 c.OnEvent("Click", (*) => OpenAddHotkey())
-togCtrls.Push({c: c, x: TAB_X+230, oy: 0})
+RegTog(c, 95, 0)
 
-c := g.Add("Button", "x" (TAB_X+335) " y" TOGG_Y0 " w85 h28", "How to Use")
+c := g.Add("Button", "x" TAB_X " y" TOGG_Y0 " w85 h28", "How to Use")
 c.OnEvent("Click", OpenGuide)
-togCtrls.Push({c: c, x: TAB_X+335, oy: 0})
+RegTog(c, 85, 0)
 
-c := g.Add("Button", "x" (TAB_X+430) " y" TOGG_Y0 " w90 h28", "New Script")
+c := g.Add("Button", "x" TAB_X " y" TOGG_Y0 " w90 h28", "New Script")
 c.OnEvent("Click", NewAccScript)
-togCtrls.Push({c: c, x: TAB_X+430, oy: 0})
+RegTog(c, 90, 0)
 
-c := g.Add("Button", "x" (TAB_X+530) " y" TOGG_Y0 " w100 h28", "Hotstrings")
+c := g.Add("Button", "x" TAB_X " y" TOGG_Y0 " w100 h28", "Hotstrings")
 c.OnEvent("Click", OpenHotstrings)
 FeatCtrl(c, "hotstrings")
-togCtrls.Push({c: c, x: TAB_X+530, oy: 0})
+RegTog(c, 100, 0)
 
 ; Label carries the state, so the button is also the running indicator.
-btnPinger := g.Add("Button", "x" (TAB_X+640) " y" TOGG_Y0 " w95 h28", "Pinger: OFF")
+btnPinger := g.Add("Button", "x" TAB_X " y" TOGG_Y0 " w95 h28", "Pinger: OFF")
 btnPinger.OnEvent("Click", TogglePinger)
 ModeCtrl(btnPinger)   ; NOT FeatCtrl: this button is the pinger's own on/off switch
-togCtrls.Push({c: btnPinger, x: TAB_X+640, oy: 0})
+RegTog(btnPinger, 95, 0)
 
-c := g.Add("Button", "x" (TAB_X+745) " y" TOGG_Y0 " w95 h28", "Alt FUs…")
+c := g.Add("Button", "x" TAB_X " y" TOGG_Y0 " w95 h28", "Alt FUs…")
 c.OnEvent("Click", OpenAltWindow)
 FeatCtrl(c, "altFollowups")
-togCtrls.Push({c: c, x: TAB_X+745, oy: 0})
+RegTog(c, 95, 0)
 
-c := g.Add("Button", "x" (TAB_X+745) " y" (TOGG_Y0+34) " w95 h28", "Branches…")
+c := g.Add("Button", "x" TAB_X " y" TOGG_Y0 " w95 h28", "Branches…")
 c.OnEvent("Click", OpenBranchWindow)
 FeatCtrl(c, "altFollowups")
-togCtrls.Push({c: c, x: TAB_X+745, oy: 34})
+RegTog(c, 95, 0)
 
 ; (single/editable follow-up toggles moved inline onto the f1/f2/f3 rows above)
 
-togX := TAB_X
 Loop Files, ACC_DIR "\*.ahk" {
     spath := A_LoopFilePath
     sname := StrReplace(A_LoopFileName, ".ahk", "")
@@ -526,15 +548,37 @@ Loop Files, ACC_DIR "\*.ahk" {
         continue
     if hiddenScripts.Has(A_LoopFileName)
         continue
-    btn := g.Add("Button", "x" togX " y" (TOGG_Y0+34) " w70 h28", "◻ " sname)
+    btn := g.Add("Button", "x" TAB_X " y" (TOGG_Y0+34) " w70 h28", "◻ " sname)
     btn.OnEvent("Click", MakeScriptToggle(spath, btn))
-    togCtrls.Push({c: btn, x: togX, oy: 34})
-    togX += 80
+    RegTog(btn, 70, 1)
 }
 
+; ── What the two panels actually need ─────────────────────────────────────────
+; Measured from the controls themselves rather than guessed, so adding a button
+; to either panel keeps the minimums honest with no constant to remember.
+;
+; BTN_STACK_H — the tallest thing hanging off the right panel's button origin.
+;               The paste box above it is capped so this always fits.
+; RIGHT_MIN   — the width the right panel needs before its widest row (the
+;               "Load from archive" line) starts running off the window edge.
+BTN_STACK_H := 0
+RIGHT_MIN   := 0
+for _, bc in btnCtrls {
+    if (bc.oy + 30 > BTN_STACK_H)
+        BTN_STACK_H := bc.oy + 30
+    bc.c.GetPos(, , &_bcW)
+    if (bc.ox + _bcW + 20 > RIGHT_MIN)
+        RIGHT_MIN := bc.ox + _bcW + 20
+}
+; The left panel needs its label gutter plus a usable edit box.
+LEFT_MIN := EDIT_X + 200
 
 lblCredit := g.Add("Text", "x10 y" (TOGG_Y0 + 38), "made by actually.silly")
+; Measured before Show, because ApplyLayout needs the width and a resize can
+; arrive the moment the window appears.
+lblCredit.GetPos(, , &lblCreditW)
 
+ApplyLayout(INIT_W, INIT_H)
 g.Show("w" INIT_W " h" INIT_H)
 g.OnEvent("Size", OnResize)
 g.OnEvent("Close", OnGuiClose)
@@ -651,9 +695,6 @@ gAlt.Add("Text", "x240 y840 w520 c8E8AA6",
          "An alt may span lines — each line is sent as its own message, like the base.")
 ArchiveDarkTheme(gAlt, [])
 
-lblCredit.GetPos(, , &lblCreditW)
-lblCredit.Move(INIT_W - lblCreditW - 10)
-
 ; auto-start configured startup scripts (defaults to general.ahk) if not already running
 LaunchStartupScripts()
 LaunchAutomationListener()
@@ -671,25 +712,109 @@ SetTimer(() => CheckUpdate(true), -3000)  ; silent check 3s after startup
 
 ; ─── Resize ───────────────────────────────────────────────────────────────────
 
+; ── The bottom strip ──────────────────────────────────────────────────────────
+; Two logical rows (app buttons, then script toggles). Each starts on a fresh
+; line and wraps within the left panel, so nothing ever reaches under the paste
+; panel however narrow the window gets. Hidden controls are skipped entirely —
+; a feature switched off closes the gap instead of leaving a hole in the row.
+
+; How many lines the strip needs at this left-panel width. Measured before the
+; tabs are sized, because the tabs get whatever the strip does not.
+ToggleLines(leftW) {
+    global togCtrls, TAB_X, TOG_GAP
+    lines := 0, x := TAB_X, curRow := -1
+    for _, t in togCtrls {
+        if !t.c.Visible
+            continue
+        if (t.row != curRow) {
+            lines  += 1
+            x      := TAB_X
+            curRow := t.row
+        } else if (x + t.w > TAB_X + leftW) {
+            lines += 1
+            x     := TAB_X
+        }
+        x += t.w + TOG_GAP
+    }
+    return Max(lines, 1)
+}
+
+; Same walk, this time moving the controls.
+FlowToggles(leftW, topY) {
+    global togCtrls, TAB_X, TOG_GAP, TOG_LINE
+    x := TAB_X, y := topY, curRow := -1
+    for _, t in togCtrls {
+        if !t.c.Visible
+            continue
+        if (t.row != curRow) {
+            if (curRow != -1)
+                y += TOG_LINE
+            x := TAB_X, curRow := t.row
+        } else if (x + t.w > TAB_X + leftW) {
+            x := TAB_X
+            y += TOG_LINE
+        }
+        t.c.Move(x, y)
+        x += t.w + TOG_GAP
+    }
+}
+
 ApplyLayout(W, H) {
     global
-    pasteX     := Round(W * PASTE_SPLIT)
-    newPasteH  := Floor((H - 20) * 0.52)
-    for _, tc in topCtrls
-        tc.c.Move(pasteX + tc.ox)
-    edPaste.Move(pasteX + 10,, W - pasteX - 20, newPasteH)
-    newBtnOrig := 26 + newPasteH + 12
-    for _, bc in btnCtrls
-        bc.c.Move(pasteX + bc.ox, newBtnOrig + bc.oy)
-    tabW  := pasteX - TAB_X - 10
-    editW := tabW - (EDIT_X - TAB_X) - 15
-    tabs.Move(,, tabW, H - TAB_Y - 10 - TOGGLE_H)
-    for _, ec in resizables
-        ec.Move(,, editW)
-    togY := H - TOGGLE_H + 8
-    for _, tc in togCtrls
-        tc.c.Move(tc.x, togY + tc.oy)
-    lblCredit.Move(W - lblCreditW - 10, togY + 38)
+    ; Around sixty controls move on every WM_SIZE. Left to repaint one at a time,
+    ; dragging an edge tears the window — which is what "hates resizing" looked
+    ; like. Suppress drawing for the batch and repaint once at the end. The
+    ; finally is not optional: bail out with redraw still off and the window stays
+    ; blank until it is next uncovered.
+    DllCall("SendMessage", "Ptr", g.Hwnd, "UInt", 0x000B, "Ptr", 0, "Ptr", 0)  ; WM_SETREDRAW off
+    try {
+        ; The split is a proportion until one side would be squeezed below what
+        ; its controls need. A flat 66% meant the right panel got 34% of a narrow
+        ; window — a couple of hundred pixels for a column of 460px-wide rows, so
+        ; "Export !mma", "load <model>" and "Load from archive" simply ran off the
+        ; edge. Below LEFT_MIN + RIGHT_MIN there is no honest answer; MinSize
+        ; keeps the window above it.
+        pasteX := Round(W * PASTE_SPLIT)
+        if (W - pasteX < RIGHT_MIN)
+            pasteX := W - RIGHT_MIN
+        pasteX := Max(pasteX, LEFT_MIN)
+        leftW  := pasteX - TAB_X - 10
+
+        ; The bottom strip claims its height first; the tabs take what is left.
+        ; TOGGLE_H used to be a constant 90, so a strip that wrapped to a third
+        ; line simply grew off the bottom edge.
+        togH := ToggleLines(leftW) * TOG_LINE + 12
+        togY := H - togH + 6
+
+        ; The right panel's button stack is a fixed height, so the paste box above
+        ; it can only have what is left over. Its old flat 52% share pushed the
+        ; massNo radios past the bottom edge on anything under ~650px tall.
+        newPasteH := Floor((H - 20) * 0.52)
+        maxPasteH := H - 50 - BTN_STACK_H
+        if (newPasteH > maxPasteH)
+            newPasteH := maxPasteH
+        newPasteH := Max(newPasteH, 90)
+
+        for _, tc in topCtrls
+            tc.c.Move(pasteX + tc.ox)
+        edPaste.Move(pasteX + 10,, W - pasteX - 20, newPasteH)
+        newBtnOrig := 26 + newPasteH + 12
+        for _, bc in btnCtrls
+            bc.c.Move(pasteX + bc.ox, newBtnOrig + bc.oy)
+
+        editW := leftW - (EDIT_X - TAB_X) - 15
+        tabs.Move(,, leftW, Max(togY - TAB_Y - 6, 120))
+        for _, ec in resizables
+            ec.Move(,, editW)
+
+        FlowToggles(leftW, togY)
+        lblCredit.Move(W - lblCreditW - 10, H - 20)
+    }
+    finally {
+        DllCall("SendMessage", "Ptr", g.Hwnd, "UInt", 0x000B, "Ptr", 1, "Ptr", 0)
+        ; RDW_INVALIDATE | RDW_ERASE | RDW_ALLCHILDREN | RDW_UPDATENOW
+        DllCall("RedrawWindow", "Ptr", g.Hwnd, "Ptr", 0, "Ptr", 0, "UInt", 0x0185)
+    }
 }
 
 OnResize(gObj, minMax, W, H) {
@@ -1123,29 +1248,48 @@ OpenSettings(*) {
     sg := Gui("+Owner" g.Hwnd, "Settings")
     sg.SetFont("s9", "Segoe UI")
 
-    ; ── Model count ────────────────────────────────────────────────────────────
-    sg.Add("Text", "x10 y15", "Active models:")
-    rdMC1 := sg.Add("Radio", "x118 y12 Group", "1")
-    rdMC2 := sg.Add("Radio", "x158 y12",       "2")
-    rdMC3 := sg.Add("Radio", "x198 y12",       "3")
+    ; ── Layout ─────────────────────────────────────────────────────────────────
+    ; Rows are placed with a running cursor. This used to be hand-counted offsets
+    ; ("y + 126", "_sy + 102"), which held only while every label happened to fit
+    ; on one line. Two of them outgrew their width, wrapped onto a second line and
+    ; printed over the row beneath them and over the button strip — the window in
+    ; the bug report. A cursor cannot drift: a row that needs more height takes it,
+    ; and everything after it moves down.
+    ;
+    ; Two rules keep it that way:
+    ;   • a checkbox with a status light gets LBL_W, which stops short of STAT_X
+    ;   • rows of per-script checkboxes wrap at CW instead of running off the edge
+    PAD    := 12
+    W      := 620                  ; client width
+    CW     := W - PAD * 2          ; usable content width
+    STAT_X := PAD + CW - 96        ; the "● running" column
+    LBL_W  := CW - 104             ; label width for a row that has one
+    y      := 12
+
+    ; ── Models ─────────────────────────────────────────────────────────────────
+    sg.Add("Text", "x" PAD " y" (y+4) " w96", "Active models:")
+    rdMC1 := sg.Add("Radio", "x" (PAD+100) " y" (y+2) " w36 Group", "1")
+    rdMC2 := sg.Add("Radio", "x" (PAD+140) " y" (y+2) " w36",       "2")
+    rdMC3 := sg.Add("Radio", "x" (PAD+180) " y" (y+2) " w36",       "3")
     rdMC1.Value := modelCount = 1
     rdMC2.Value := modelCount = 2
     rdMC3.Value := modelCount = 3
+    y += 30
 
-    ; ── Model names ────────────────────────────────────────────────────────────
-    sg.Add("Text", "x10  y48 w70 Right", "Model 1:")
-    ed1 := sg.Add("Edit", "x85  y45 w120", model1Name)
-    sg.Add("Text", "x215 y48 w70 Right", "Model 2:")
-    ed2 := sg.Add("Edit", "x290 y45 w120", model2Name)
-    sg.Add("Text", "x420 y48 w70 Right", "Model 3:")
-    ed3 := sg.Add("Edit", "x495 y45 w95",  model3Name)
+    sg.Add("Text", "x" PAD        " y" (y+3) " w62 Right", "Model 1:")
+    ed1 := sg.Add("Edit", "x" (PAD+68)  " y" y " w118", model1Name)
+    sg.Add("Text", "x" (PAD+196) " y" (y+3) " w62 Right", "Model 2:")
+    ed2 := sg.Add("Edit", "x" (PAD+264) " y" y " w118", model2Name)
+    sg.Add("Text", "x" (PAD+392) " y" (y+3) " w62 Right", "Model 3:")
+    ed3 := sg.Add("Edit", "x" (PAD+460) " y" y " w118", model3Name)
+    y += 30
 
-    sg.Add("Text", "x10 y78 w70 Right", "Wait time:")
-    edWT := sg.Add("Edit", "x85 y75 w60", waitTime)
-    sg.Add("Text", "x150 y78", "ms")
-    sg.Add("Text", "x220 y78 w80 Right", "Default file:")
-    ddlDef := sg.Add("DropDownList", "x305 y75 w165", _dhfList)
-    chkMC := sg.Add("Checkbox", "x480 y78", "Mouse control")
+    sg.Add("Text", "x" PAD " y" (y+3) " w62 Right", "Wait time:")
+    edWT := sg.Add("Edit", "x" (PAD+68) " y" y " w58", waitTime)
+    sg.Add("Text", "x" (PAD+132) " y" (y+3) " w24", "ms")
+    sg.Add("Text", "x" (PAD+166) " y" (y+3) " w76 Right", "Default file:")
+    ddlDef := sg.Add("DropDownList", "x" (PAD+248) " y" y " w158", _dhfList)
+    chkMC := sg.Add("Checkbox", "x" (PAD+418) " y" (y+3) " w160", "Mouse control")
     chkMC.Value := mouseControl
     for i, f in _dhfList
         if f = defaultHotkeyFile {
@@ -1154,50 +1298,83 @@ OpenSettings(*) {
         }
     if ddlDef.Value = 0
         ddlDef.Value := 1
+    y += 38
 
     ; ── Hotkeys ────────────────────────────────────────────────────────────────
     ; Every hotkey in MMA — not just the 15 model-send keys this grid used to
     ; show — is edited in its own window now, backed by hotkeys.ini.
-    sg.Add("Text", "x10 y115 w590", "── Hotkeys ─────────────────────────────────────────────────────────────────")
-    sg.Add("Button", "x10 y138 w150 h28", "Hotkeys…").OnEvent("Click", (*) => OpenHotkeysGui())
-    sg.Add("Text", "x170 y144 w420", "Every hotkey, grouped by feature. Applies live.")
-    y := 176
-    sg.Add("Text",   "x10  y" (y+8)  " w580 h2 0x10")
+    sg.Add("Text", "x" PAD " y" y " w" CW " h1 0x10")
+    y += 12
+    sg.SetFont("s9 Bold")
+    sg.Add("Text", "x" PAD " y" y " w" CW, "Hotkeys")
+    sg.SetFont("s9 Norm")
     y += 22
-    sg.Add("Text",   "x10  y" (y+8)  " w200", "── Open new tab after send ──")
-    chkTabFu2 := sg.Add("Checkbox", "x10  y" (y+28), "FU2")
-    chkTabFu3 := sg.Add("Checkbox", "x70  y" (y+28), "FU3")
-    chkTabPpv := sg.Add("Checkbox", "x130 y" (y+28), "PPV")
+    sg.Add("Button", "x" PAD " y" y " w150 h28", "Hotkeys…").OnEvent("Click", (*) => OpenHotkeysGui())
+    sg.Add("Text", "x" (PAD+160) " y" (y+6) " w" (CW-160), "Every hotkey, grouped by feature. Applies live.")
+    y += 40
+
+    ; ── Sending ────────────────────────────────────────────────────────────────
+    sg.Add("Text", "x" PAD " y" y " w" CW " h1 0x10")
+    y += 12
+    sg.SetFont("s9 Bold")
+    sg.Add("Text", "x" PAD " y" y " w" CW, "Sending")
+    sg.SetFont("s9 Norm")
+    y += 22
+    sg.Add("Text", "x" PAD " y" (y+2) " w130", "Open new tab after:")
+    chkTabFu2 := sg.Add("Checkbox", "x" (PAD+136) " y" y " w52", "FU2")
+    chkTabFu3 := sg.Add("Checkbox", "x" (PAD+192) " y" y " w52", "FU3")
+    chkTabPpv := sg.Add("Checkbox", "x" (PAD+248) " y" y " w52", "PPV")
     chkTabFu2.Value := openTabFu2
     chkTabFu3.Value := openTabFu3
     chkTabPpv.Value := openTabPpv
-    chkDMM    := sg.Add("Checkbox", "x230 y" (y+28), "Double MM")
+    y += 26
+    chkDMM := sg.Add("Checkbox", "x" PAD " y" y " w160", "Double MM")
     chkDMM.Value := _doubleMM
     chkDMM.OnEvent("Click", (*) => (ToggleDoubleMM(), chkDMM.Value := _doubleMM))
-    chkWallet := sg.Add("Checkbox", "x330 y" (y+28), "Wallet check FU3")
+    chkWallet := sg.Add("Checkbox", "x" (PAD+176) " y" y " w180", "Wallet check FU3")
     chkWallet.Value := walletCheckFu3
     chkWallet.OnEvent("Click", (*) => _BroadcastWallet(chkWallet.Value ? 1 : 0))
-    chkFastSave := sg.Add("Checkbox", "x10 y" (y+52), "Fast parse+autosave (auto-saves current model, no prompts)")
+    y += 26
+    chkFastSave := sg.Add("Checkbox", "x" PAD " y" y " w" CW, "Fast parse+autosave (auto-saves current model, no prompts)")
     chkFastSave.Value := fastParseAutosave
+    y += 26
     ; On  = the plain follow-up key always sends the main branch, ctrl+key picks.
     ; Off = the plain key prompts whenever the follow-up has alts.
-    chkPromptAlt := sg.Add("Checkbox", "x10 y" (y+74) " w560", "Prompt for Alt-FUs using ctrl+hotkey (off = the plain key always prompts)")
+    chkPromptAlt := sg.Add("Checkbox", "x" PAD " y" y " w" CW, "Prompt for Alt-FUs using ctrl+hotkey (off = the plain key always prompts)")
     chkPromptAlt.Value := promptAltCtrl
-    y += 102
-    sg.Add("Text",   "x10  y" (y+8)  " w580 h2 0x10")
+    y += 38
+
+    ; ── Visible scripts ────────────────────────────────────────────────────────
+    sg.Add("Text", "x" PAD " y" y " w" CW " h1 0x10")
+    y += 12
+    sg.SetFont("s9 Bold")
+    sg.Add("Text", "x" PAD " y" y " w" CW, "Visible scripts")
+    sg.SetFont("s9 Norm")
     y += 22
-    sg.Add("Text",   "x10  y" (y+8)  " w200", "── Visible scripts ──")
     accChks := Map()
-    xSc := 10
+    ; Wraps at CW. It used to march right at a fixed 80px step with no wrap, so a
+    ; sixth acc script simply left the window.
+    xSc := PAD
     Loop Files, ACC_DIR "\*.ahk" {
         fname := A_LoopFileName
-        chk := sg.Add("Checkbox", "x" xSc " y" (y+28), StrReplace(fname, ".ahk", ""))
+        if (xSc + 96 > PAD + CW) {
+            xSc := PAD
+            y += 24
+        }
+        chk := sg.Add("Checkbox", "x" xSc " y" y " w92", StrReplace(fname, ".ahk", ""))
         chk.Value := !hiddenScripts.Has(fname)
         accChks[fname] := chk
-        xSc += 80
+        xSc += 96
     }
-    y += 52
-    sg.Add("Text",   "x10  y" (y+8)  " w200", "── Run on startup ──")
+    y += 38
+
+    ; ── Run on startup ─────────────────────────────────────────────────────────
+    sg.Add("Text", "x" PAD " y" y " w" CW " h1 0x10")
+    y += 12
+    sg.SetFont("s9 Bold")
+    sg.Add("Text", "x" PAD " y" y " w" CW, "Run on startup")
+    sg.SetFont("s9 Norm")
+    y += 22
     startChks := Map()
     _startSet := Map()
     for _s in startupScripts
@@ -1215,44 +1392,63 @@ OpenSettings(*) {
             _eligible.Push(_mf)
     Loop Files, ACC_DIR "\*.ahk"
         _eligible.Push(A_LoopFileName)
-    _sx := 10, _sy := y + 28
+    _sx := PAD
     for _, efn in _eligible {
-        chk := sg.Add("Checkbox", "x" _sx " y" _sy, StrReplace(efn, ".ahk", ""))
+        if (_sx + 100 > PAD + CW) {
+            _sx := PAD
+            y += 24
+        }
+        chk := sg.Add("Checkbox", "x" _sx " y" y " w96", StrReplace(efn, ".ahk", ""))
         chk.Value := _startSet.Has(efn)
         startChks[efn] := chk
-        _sx += 90
-        if _sx > 500 {
-            _sx := 10
-            _sy += 24
-        }
+        _sx += 100
     }
-    chkAutoRestart := sg.Add("Checkbox", "x10 y" (_sy + 30), "Auto-restart these if they die (watchdog, checks every 5s)")
+    y += 30
+
+    chkAutoRestart := sg.Add("Checkbox", "x" PAD " y" y " w" CW, "Auto-restart these if they die (watchdog, checks every 5s)")
     chkAutoRestart.Value := autoRestart
-    chkAutomation := sg.Add("Checkbox", "x10 y" (_sy + 54), "Run the automation listener (serves the [automation] hotkeys)")
+    y += 24
+    chkAutomation := sg.Add("Checkbox", "x" PAD " y" y " w" LBL_W, "Run the automation listener (serves the [automation] hotkeys)")
     chkAutomation.Value := automationListener
-    chkPinger := sg.Add("Checkbox", "x10 y" (_sy + 78), "Run the pinger (beeps when an Infloww tab goes unread)")
+    y += 24
+    chkPinger := sg.Add("Checkbox", "x" PAD " y" y " w" LBL_W, "Run the pinger (beeps when an Infloww tab goes unread)")
     chkPinger.Value := pinger
     ; Read the live process, not the setting — they disagree whenever the pinger
     ; was toggled from the main window, or died on its own.
-    lblPinger := sg.Add("Text", "x360 y" (_sy + 78) " w230", "")
-    chkAutoDetect := sg.Add("Checkbox", "x10 y" (_sy + 102) " w340", "Auto-detect active model (OCR/CV) — one f1/f2/f3 set, gated by tab")
+    lblPinger := sg.Add("Text", "x" STAT_X " y" y " w96", "")
+    y += 24
+    chkAutoDetect := sg.Add("Checkbox", "x" PAD " y" y " w" LBL_W, "Auto-detect the active model (OCR) — one f1/f2/f3 set, gated by tab")
     chkAutoDetect.Value := autoDetect
-    lblDetector := sg.Add("Text", "x360 y" (_sy + 102) " w230", "")
-    chkStats := sg.Add("Checkbox", "x10 y" (_sy + 126) " w340", "Run stats overlay (OCR of Infloww stats — toggle hotkey: gui.toggleStats)")
+    lblDetector := sg.Add("Text", "x" STAT_X " y" y " w96", "")
+    y += 24
+    ; The key, not the hotkey id: "gui.toggleStats" told you nothing about which
+    ; keys to press, and it was the longer of the two labels that wrapped.
+    chkStats := sg.Add("Checkbox", "x" PAD " y" y " w" LBL_W,
+                       "Stats overlay (OCR of Infloww stats) — toggle: " HK_Key("gui.toggleStats"))
     chkStats.Value := statsOverlay
-    lblStats := sg.Add("Text", "x360 y" (_sy + 126) " w230", "")
+    lblStats := sg.Add("Text", "x" STAT_X " y" y " w96", "")
+    y += 36
+
     PaintPingerStatus()
     sg.OnEvent("Close", StopPingerStatusTimer)
     SetTimer(PaintPingerStatus, 1500)
-    y := _sy + 152
-    sg.Add("Text",   "x10  y" (y+8)  " w580 h2 0x10")
-    sg.Add("Button", "x10  y" (y+18) " w85 h28",  "Save").OnEvent("Click", SaveCfg)
-    sg.Add("Button", "x105 y" (y+18) " w85 h28",  "Reset").OnEvent("Click", ResetCfg)
-    sg.Add("Button", "x200 y" (y+18) " w90 h28",  "Wipe Temp").OnEvent("Click", (*) => (WipeTemp(), sg.Destroy()))
-    sg.Add("Button", "x300 y" (y+18) " w85 h28",  "Report Bug").OnEvent("Click", (*) => Run("https://github.com/actuallysilly/mmParser/issues/new?title=Bug+Report&labels=bug"))
-    sg.Add("Button", "x395 y" (y+18) " w90 h28",  "Mode…").OnEvent("Click", (*) => (sg.Destroy(), OpenModesWindow()))
-    sg.Add("Button", "x490 y" (y+18) " w100 h28", "Check Update").OnEvent("Click", (*) => CheckUpdate())
-    sg.Show("w600 h" (y + 62))
+
+    ; ── Buttons ────────────────────────────────────────────────────────────────
+    sg.Add("Text", "x" PAD " y" y " w" CW " h1 0x10")
+    y += 12
+    _bx := PAD
+    sg.Add("Button", "x" _bx " y" y " w88 h28", "Save").OnEvent("Click", SaveCfg)
+    _bx += 96
+    sg.Add("Button", "x" _bx " y" y " w88 h28", "Reset").OnEvent("Click", ResetCfg)
+    _bx += 96
+    sg.Add("Button", "x" _bx " y" y " w96 h28", "Wipe Temp").OnEvent("Click", (*) => (WipeTemp(), sg.Destroy()))
+    _bx += 104
+    sg.Add("Button", "x" _bx " y" y " w88 h28", "Mode…").OnEvent("Click", (*) => (sg.Destroy(), OpenModesWindow()))
+    _bx += 96
+    sg.Add("Button", "x" _bx " y" y " w104 h28", "Check Update").OnEvent("Click", (*) => CheckUpdate())
+    y += 40
+
+    sg.Show("w" W " h" y)
 
     ; The sign that it is actually up. Polls the named event the pinger holds, so
     ; it stays honest if the process dies or is toggled from the main window.

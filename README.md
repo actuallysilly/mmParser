@@ -66,7 +66,6 @@ Open via the **Settings** button:
 | Model 1 / 2 | Display names for each account |
 | Hotkeys | Remap F-key bindings per model |
 | Wipe Temp | Clear `acc/TEMP.ahk` and reload it |
-| Report Bug | Opens a pre-filled GitHub issue |
 | Check Update | Manually trigger the updater |
 
 ## File structure

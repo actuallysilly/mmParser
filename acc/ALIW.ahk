@@ -17,7 +17,8 @@
     snd("I hope you have patience")
     snd("I usually reward patience :)")
 }
-AliwIntro()
+; @added 2026-07-26
+:*:..intro::
 {
     snd("Hello!")
     snd("do you mind introducing yourself to me `;3?")
@@ -42,7 +43,8 @@ AliwIntro()
     snd("Bralessness is scary so please protect me!")
 }
 
-AliwLoved()
+; @added 2026-07-26
+:*:..loved::
 {
     snd("Oh tell me did you absolutely love that")
     snd("Because I plan to take you on an unforgettable journey of explicitness")
@@ -78,21 +80,24 @@ AliwLoved()
     snd("Excellent, thank you for asking! What about you? ")
 }
 
-AliwGlimpse()
+; @added 2026-07-26
+:*:..glimpse::
 {
     snd("I really hope I was right on the fact that your cock is eager when I allow you a glimpse of the perfection that is my body.")
     snd("Because I want you to dive deeper in my beauty, and explore all there is to it. Although, I do want your trousers to be down.")
     snd("Is that too much of a fair woman to ask for?")
 }
 
-AliwWhatLoved()
+; @added 2026-07-26
+:*:..whatloved::
 {
     snd("So tell me what did you love so much about me")
     snd("And does it have anything to do with missionary")
 }
 
 
-AliwAscend()
+; @added 2026-07-26
+:*:..ascend::
 {
     snd("Oh we shall ascend to the highest heights of nakedness tonight!")
     snd("Grip you sword and let us embark on this journey tonight, together hand in hand... And you cock in your hand as well")
@@ -125,7 +130,9 @@ AliwAscend()
     SendText("I would be the tittyfuck vixen youve always dreamed of pleasing and I'd torment your cock until it bursts volcanically all over me, prompting me to swallow")
 }
 
-AliwOpenThat()
+; @added 2026-07-26
+; Not "_OPENTHAT" — general.ahk already owns that trigger, with a longer message.
+:*:..openthat::
 {
     snd("Oh and you were supposed to open that ^, sorry I'm still figuring out how all of this works, running an OF is hard!")
 }
@@ -145,7 +152,8 @@ AliwOpenThat()
     snd("Would that drive you feral")
 }
 
-AliwInfiniteLust()
+; @added 2026-07-26
+:*:..infinitelust::
 {
     snd("Tell me are you feeling infinite lust and hardness for me right now")
 }
@@ -288,17 +296,17 @@ AliwInfiniteLust()
     snd("Now... Do I deserve to be endlessly wet for you in this scorching heat?")
 }
 
-; ── hotkey registrations ──────────────────────────────────────────────────────
-; No keys here — every key lives in hotkeys.ini, under [aliw].
-; (Hotstrings like :*:..ppv4f2:: stay where they are; only real hotkeys move.)
-
-HK_Bind("aliw.intro",        AliwIntro)
-HK_Bind("aliw.loved",        AliwLoved)
-HK_Bind("aliw.glimpse",      AliwGlimpse)
-HK_Bind("aliw.whatLoved",    AliwWhatLoved)
-HK_Bind("aliw.ascend",       AliwAscend)
-HK_Bind("aliw.openThat",     AliwOpenThat)
-HK_Bind("aliw.infiniteLust", AliwInfiniteLust)
+; ── no hotkeys here ───────────────────────────────────────────────────────────
+; Seven messages in this file used to be FUNCTIONS (AliwIntro, AliwWhatLoved, …)
+; bound to alt-keys through the [aliw] section of hotkeys.ini. That made a canned
+; message into a named, resident piece of code: invisible to the Hotstrings
+; manager (which indexes :trigger:: blocks, not functions), un-searchable,
+; un-editable, and impossible to overload — while every other message in this
+; file was plain data. They are now ..intro, ..loved, ..glimpse, ..whatloved,
+; ..ascend, ..openthat and ..infinitelust, with the text unchanged.
+;
+; A message file holds messages. If one ever needs a key rather than a trigger,
+; that is the hotstring manager's job, not a function's.
 
 ; @added 2026-07-25
 :*:newsub1::
