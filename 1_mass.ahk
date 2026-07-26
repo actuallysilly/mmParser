@@ -13,21 +13,21 @@ massNo := 1
 modelFileNo := 1
 
 m1 := {
-mass: "Are my buttox cute?",
-fu1: "I reckon that I would be quite photogenic `"arse up face down`", what do you think?",
-fu1_5: "",
+mass: "Can you keep a secret?",
+fu1: "I happen to have two big secrets i need to get off my chest",
+fu1_5: "Do you promise I could count on your to keep them just between us? :3",
 fu1_7: "",
 
-fu2: "And if I were to find myself in that kind of predicament would you `"slap it before you clap it`"?",
-fu2_5: "Would you make my naked arsecheeks bright red 🥺?",
+fu2: "You are kind of familiar with them already.. Would you say it's too easy to get fully lost in them?",
+fu2_5: "",
 fu2_7: "",
 
-fu3: "",
-fu3_5: "",
+fu3: "I'm willing to let you care for them... Cherish them.. And if you do get lost in them then...",
+fu3_5: "I want you to try and snap out of it by doing lots of sucking, licking and nibbling.. Do we have a deal?",
 fu3_7: "",
 
-ppv_base: "Imagine having me in doggy just like this, with my naked arse cheeks in a close up, wiggling up and down your nose so you can give me a little kiss before you slap and clap me mercilessly ❤️",
-ppv_f1: "Would that make you into a British patriot?",
+ppv_base: "",
+ppv_f1: "",
 ppv_f2: "",
 ppv_f3: "",
 
