@@ -1,4 +1,5 @@
 ﻿#Requires AutoHotkey v2.0
+#Include "paths.ahk"
 ; ═══════════════════════════════════════════════════════════════════════════════
 ;  archive.ahk — the mass archive: its file format, its readers, and its window.
 ; ───────────────────────────────────────────────────────────────────────────────
@@ -16,7 +17,7 @@
 ; used to be the same code twice, which is how they would drift apart.
 
 ArchiveFile() {
-    return A_ScriptDir "\mass_archive.txt"
+    return MMA_ARCHIVE
 }
 
 ReadArchiveEntries() {

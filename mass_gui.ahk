@@ -1,4 +1,5 @@
 ﻿#Requires AutoHotkey v2.0
+#Include "paths.ahk"
 #SingleInstance Force
 #Include "crashlog.ahk"
 #Include "hotkeys.ahk"
@@ -211,15 +212,15 @@ _lastImportModel := 0 ; slot the last import was routed to; fast-parse reuses it
 
 ; ─── Layout constants ─────────────────────────────────────────────────────────
 
-SCRIPT_DIR   := A_ScriptDir
-ACC_DIR      := A_ScriptDir "\acc"
-CFG_FILE     := A_ScriptDir "\mass_gui.cfg"
-_verFile     := A_ScriptDir "\version.txt"
+SCRIPT_DIR   := MMA_ROOT
+ACC_DIR      := MMA_ACC_DIR
+CFG_FILE     := MMA_CFG
+_verFile     := MMA_VERSION
 APP_VER      := FileExist(_verFile) ? Trim(FileRead(_verFile, "UTF-8")) : "?"
 _codePath    := EnvGet("LOCALAPPDATA") "\Programs\Microsoft VS Code\Code.exe"
 CODE_CMD     := FileExist(_codePath) ? _codePath : "C:\Program Files\Microsoft VS Code\Code.exe"
 modelCount        := Integer(IniRead(CFG_FILE, "Settings", "ModelCount",        "2"))
-_utilsRaw         := FileExist(A_ScriptDir "\utils.ahk") ? FileRead(A_ScriptDir "\utils.ahk", "UTF-8") : ""
+_utilsRaw         := FileExist(MMA_SRC_UTILS) ? FileRead(MMA_SRC_UTILS, "UTF-8") : ""
 waitTime          := RegExMatch(_utilsRaw, "\bwaitTime\b\s*:=\s*(\d+)", &_wm) ? Integer(_wm[1]) : 350
 model1Name        := IniRead(CFG_FILE, "Settings", "Model1",            "Model 1")
 model2Name        := IniRead(CFG_FILE, "Settings", "Model2",            "Model 2")

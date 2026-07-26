@@ -1,14 +1,15 @@
 #Requires AutoHotkey v2.0
+#Include "paths.ahk"
 #SingleInstance Force
 #Include "coords.ahk"
 #Include "utils.ahk"
 #Include "lib/OCR.ahk"
 
 DetectHiddenWindows true
-MMA_GUI_WIN := A_ScriptDir "\mass_gui.ahk ahk_class AutoHotkey"
+MMA_GUI_WIN := MMA_SRC_GUI " ahk_class AutoHotkey"
 MMA_MSG_AUTOPARSE := 0x8010
-COPY_TEXT_IMG := A_ScriptDir "\assets\copy_text.png"
-SEQ_CFG := A_ScriptDir "\mass_gui.cfg"
+COPY_TEXT_IMG := MMA_ASSETS "\copy_text.png"
+SEQ_CFG := MMA_CFG
 
 ; Seed [Discord] so the band is visible and editable without reading this file.
 ; Measured against a maximized 1920x1032 client: the channel name sat at

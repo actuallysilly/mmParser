@@ -1,4 +1,5 @@
 #Requires AutoHotkey v2.0
+#Include "paths.ahk"
 #SingleInstance Force
 #Include "hotkeys.ahk"
 #Include "ocr_grab.ahk"
@@ -27,7 +28,7 @@
 ; refresh timer only runs while shown) — without this, AHK exits after auto-exec.
 Persistent
 
-CFG := A_ScriptDir "\mass_gui.cfg"
+CFG := MMA_CFG
 
 RedAt    := Number(IniRead(CFG, "StatsOverlay", "RedAt",    "0.30"))
 YellowAt := Number(IniRead(CFG, "StatsOverlay", "YellowAt", "0.40"))

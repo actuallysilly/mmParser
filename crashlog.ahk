@@ -1,4 +1,5 @@
 #Requires AutoHotkey v2.0
+#Include "paths.ahk"
 ; ═══════════════════════════════════════════════════════════════════════════════
 ;  crashlog.ahk — every script's uncaught errors, in one place.
 ; ───────────────────────────────────────────────────────────────────────────────
@@ -21,7 +22,7 @@ _MMA_LogError(err, mode) {
         detail := IsObject(err) ? (err.HasProp("Message") ? err.Message : Type(err)) : err
         line   := (IsObject(err) && err.HasProp("Line")) ? "  (line " err.Line ")" : ""
         FileAppend(FormatTime(, "yyyy-MM-dd HH:mm:ss") "  [" A_ScriptName "]  " detail line "`n",
-                   A_ScriptDir "\error_log.txt", "UTF-8")
+                   MMA_ERRLOG, "UTF-8")
     }
     return 0   ; 0 = keep default behaviour (log only)
 }

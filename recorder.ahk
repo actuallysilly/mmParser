@@ -1,8 +1,9 @@
 #Requires AutoHotkey v2.0
+#Include "paths.ahk"
 #SingleInstance Force
 #Include "hotkeys.ahk"
 
-cfgFile        := A_ScriptDir "\mass_gui.cfg"
+cfgFile        := MMA_CFG
 defaultSleep   := Integer(IniRead(cfgFile, "Recorder", "DefaultSleep", "500"))
 
 recording      := false
@@ -13,7 +14,7 @@ dragStartX     := 0
 dragStartY     := 0
 namedJustFired := false
 actualTiming   := false
-coordsFile     := A_ScriptDir "\coords.ahk"
+coordsFile     := MMA_SRC_COORDS
 
 ; ── overlay ──────────────────────────────────────────────────────────────────
 overlay := Gui("+AlwaysOnTop +ToolWindow -Caption", "")
@@ -168,8 +169,8 @@ ShowOutput() {
             return
         tmpFile := A_Temp "\recorder_replay.ahk"
         script  := "#Requires AutoHotkey v2.0`n"
-            . "#Include `"" A_ScriptDir "\coords.ahk`"`n"
-            . "#Include `"" A_ScriptDir "\utils.ahk`"`n"
+            . "#Include `"" MMA_SRC_COORDS "`"`n"
+            . "#Include `"" MMA_SRC_UTILS "`"`n"
             . "Sleep 3000`n"
             . content
         FileDelete tmpFile
@@ -188,7 +189,7 @@ ShowOutput() {
         name     := StrReplace(name, " ", "_") . "Seq"
         id       := "seq." name
         indented := "    " StrReplace(Trim(ed.Value), "`n", "`n    ")
-        seqFile := A_ScriptDir "\sequences.ahk"
+        seqFile := MMA_SRC_SEQUENCES
         if !FileExist(seqFile)
             FileAppend "#Include `"coords.ahk`"`n#Include `"utils.ahk`"`n`n", seqFile, "UTF-8"
         FileAppend name "() {`n" indented "`n}`n`n", seqFile, "UTF-8"
@@ -204,7 +205,7 @@ ShowOutput() {
                  . 'HK_Def("' id '", "' name '", , "sequences.ahk")',, 0x30
             return
         }
-        IniWrite "", A_ScriptDir "\hotkeys.ini", "seq", name
+        IniWrite "", MMA_HK_INI, "seq", name
 
         nameEd.Value := ""
         ToolTip "Saved as " name "()  — assign a key in the Hotkeys GUI", , , 2
@@ -215,7 +216,7 @@ ShowOutput() {
 ; Add a HK_Def line for a recorded sequence at the marker in hotkeys.ahk, so the
 ; registry knows the id exists (HK_Bind refuses undeclared ids by design).
 DeclareSeqHotkey(id, label) {
-    hkFile := A_ScriptDir "\hotkeys.ahk"
+    hkFile := MMA_SRC_HOTKEYS
     marker := "; @recorder-sequences@"
     if !FileExist(hkFile)
         return false

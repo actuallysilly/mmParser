@@ -1,4 +1,5 @@
 #Requires AutoHotkey v2.0
+#Include "paths.ahk"
 ; ═══════════════════════════════════════════════════════════════════════════════
 ;  mass_runtime.ahk — everything a model script DOES, shared by all of them.
 ; ───────────────────────────────────────────────────────────────────────────────
@@ -28,14 +29,14 @@
 ; ── Settings mirrored from mass_gui.cfg ───────────────────────────────────────
 ; Read once at load, then kept live by the OnMessage handlers below — the GUI
 ; posts on toggle so you never have to restart a model script to change one.
-mouseControl   := Integer(IniRead(A_ScriptDir "\mass_gui.cfg", "Settings", "MouseControl",   "1"))
-openTabFu2     := Integer(IniRead(A_ScriptDir "\mass_gui.cfg", "Settings", "OpenTabFu2",     "0"))
-openTabFu3     := Integer(IniRead(A_ScriptDir "\mass_gui.cfg", "Settings", "OpenTabFu3",     "0"))
-openTabPpv     := Integer(IniRead(A_ScriptDir "\mass_gui.cfg", "Settings", "OpenTabPpv",     "0"))
-walletCheckFu3 := Integer(IniRead(A_ScriptDir "\mass_gui.cfg", "Settings", "WalletCheckFu3", "0"))
-editableFu1    := Integer(IniRead(A_ScriptDir "\mass_gui.cfg", "Settings", "EditableFu1",    "0"))
-editableFu2    := Integer(IniRead(A_ScriptDir "\mass_gui.cfg", "Settings", "EditableFu2",    "0"))
-editableFu3    := Integer(IniRead(A_ScriptDir "\mass_gui.cfg", "Settings", "EditableFu3",    "0"))
+mouseControl   := Integer(IniRead(MMA_CFG, "Settings", "MouseControl",   "1"))
+openTabFu2     := Integer(IniRead(MMA_CFG, "Settings", "OpenTabFu2",     "0"))
+openTabFu3     := Integer(IniRead(MMA_CFG, "Settings", "OpenTabFu3",     "0"))
+openTabPpv     := Integer(IniRead(MMA_CFG, "Settings", "OpenTabPpv",     "0"))
+walletCheckFu3 := Integer(IniRead(MMA_CFG, "Settings", "WalletCheckFu3", "0"))
+editableFu1    := Integer(IniRead(MMA_CFG, "Settings", "EditableFu1",    "0"))
+editableFu2    := Integer(IniRead(MMA_CFG, "Settings", "EditableFu2",    "0"))
+editableFu3    := Integer(IniRead(MMA_CFG, "Settings", "EditableFu3",    "0"))
 
 doubleMM := false
 
@@ -151,7 +152,7 @@ _FuParts(m, group) {
 DefaultFu3Parts() {
     if !FEAT("defaultFu3")
         return ["", "", ""]
-    return AltPartsRT(IniRead(A_ScriptDir "\mass_gui.cfg", "Settings", "DefaultFu3", ""))
+    return AltPartsRT(IniRead(MMA_CFG, "Settings", "DefaultFu3", ""))
 }
 
 DoFu1() {

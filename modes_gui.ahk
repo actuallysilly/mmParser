@@ -1,4 +1,5 @@
 #Requires AutoHotkey v2.0
+#Include "paths.ahk"
 ; ═══════════════════════════════════════════════════════════════════════════════
 ;  modes_gui.ahk — the Easy/Advanced switch and the per-feature checkboxes.
 ; ───────────────────────────────────────────────────────────────────────────────
@@ -145,7 +146,7 @@ ApplyModeToRunning() {
     ; name nobody is updating. Clearing it disables gating, which is the correct
     ; "no detector" behaviour.
     if !FEAT("modelDetector")
-        try IniWrite("", A_ScriptDir "\detector_status.ini", "detector", "active_model")
+        try IniWrite("", MMA_DETECTOR, "detector", "active_model")
 
     try RefreshPingerLabel()
 }

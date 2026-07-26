@@ -1,4 +1,5 @@
 ﻿#Requires AutoHotkey v2.0
+#Include "paths.ahk"
 #Include "hotkeys.ahk"
 #Include "hotstring_overloads.ahk"
 
@@ -24,7 +25,7 @@ global topChat := 300
 ; script runs one model, so its follow-up hotkeys should only fire when ITS model
 ; is the active tab — letting every model share the same 3 hotkeys.
 ReadActiveModel() {
-    return Trim(IniRead(A_ScriptDir "\detector_status.ini", "detector", "active_model", ""))
+    return Trim(IniRead(MMA_DETECTOR, "detector", "active_model", ""))
 }
 
 ; True if THIS model file is the one currently focused on screen.
@@ -37,7 +38,7 @@ ModelIsActive() {
     active := ReadActiveModel()
     if (active = "")
         return true
-    cfg := A_ScriptDir "\mass_gui.cfg"
+    cfg := MMA_CFG
     myName := Trim(IniRead(cfg, "ActiveMap", "File" modelFileNo, ""))
     if (myName != "")
         return (StrLower(active) = StrLower(myName))
@@ -270,7 +271,7 @@ AltDecodeEscapes(s) {
 ; file, rather than being invisible defaults buried in code.
 AltStageSetting(key, fallback) {
     global ALT_SEP_UNSET
-    cfg := A_ScriptDir "\mass_gui.cfg"
+    cfg := MMA_CFG
     v := IniRead(cfg, "Settings", key, ALT_SEP_UNSET)
     if (v == ALT_SEP_UNSET) {
         try IniWrite(fallback, cfg, "Settings", key)
@@ -519,7 +520,7 @@ AltIntercept(m, group, viaCtrl := false, editable := false) {
     if !FEAT("altFollowups")
         return false
     if !viaCtrl {
-        promptCtrl := IniRead(A_ScriptDir "\mass_gui.cfg", "Settings", "PromptAltCtrl", "1") = "1"
+        promptCtrl := IniRead(MMA_CFG, "Settings", "PromptAltCtrl", "1") = "1"
         if promptCtrl
             return false
     }
@@ -541,7 +542,7 @@ sndFu(group, parts*) {
             nonEmpty.Push(p)
     if !nonEmpty.Length
         return
-    fuSingle := IniRead(A_ScriptDir "\mass_gui.cfg", "Settings", "FuSingle_" modelFileNo "_" group, "0") = "1"
+    fuSingle := IniRead(MMA_CFG, "Settings", "FuSingle_" modelFileNo "_" group, "0") = "1"
     if !fuSingle {
         for p in nonEmpty
             snd(p)

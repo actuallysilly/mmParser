@@ -1,4 +1,5 @@
 #Requires AutoHotkey v2.0
+#Include "paths.ahk"
 #SingleInstance Force
 #Include "lib/OCR.ahk"
 
@@ -21,8 +22,8 @@
 ;  Settings (or run directly while tuning). No hotkeys, no window.
 ; ============================================================================
 
-CFG    := A_ScriptDir "\mass_gui.cfg"
-STATUS := A_ScriptDir "\detector_status.ini"
+CFG    := MMA_CFG
+STATUS := MMA_DETECTOR
 
 RegionX  := Integer(IniRead(CFG, "Detector", "RegionX",  "0"))
 RegionY  := Integer(IniRead(CFG, "Detector", "RegionY",  "0"))

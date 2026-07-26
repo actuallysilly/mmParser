@@ -1,4 +1,5 @@
 #Requires AutoHotkey v2.0
+#Include "paths.ahk"
 #SingleInstance Force
 #Include "lib/OCR.ahk"
 
@@ -20,7 +21,7 @@
 ;  front while you do this.
 ; ============================================================================
 
-CFG := A_ScriptDir "\mass_gui.cfg"
+CFG := MMA_CFG
 DetectHiddenWindows false     ; or "ahk_exe Discord.exe" can hit a hidden helper window
 
 g := Gui("+AlwaysOnTop", "Discord header band")

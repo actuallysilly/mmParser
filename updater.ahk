@@ -1,8 +1,9 @@
 #Requires AutoHotkey v2.0
+#Include "paths.ahk"
 #SingleInstance Force
 
-SCRIPT_DIR := A_ScriptDir
-CFG_FILE   := SCRIPT_DIR "\mass_gui.cfg"
+SCRIPT_DIR := MMA_ROOT
+CFG_FILE   := MMA_CFG
 UPDATE_URL := IniRead(CFG_FILE, "Update", "URL", "https://raw.githubusercontent.com/actuallysilly/mmParser/main")
 
 if UPDATE_URL = "" {
