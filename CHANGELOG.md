@@ -1,5 +1,65 @@
 # Changelog
 
+## 1.9.1 — 2026-07-26
+
+### Features
+
+- **Easy vs Advanced mode** — Easy is MMA as it stood at **v1.4.0**, the last version
+  before britishizer and the feature run after it: paste, Parse, Clear, Export, per-file
+  load/save/massNo, the model tabs, the script toggles, and a Settings window with model
+  count, Add Hotkey, How to Use, New Script, Wipe Temp, Report Bug and Check Update.
+  Nothing else. For scale: v1.4.0 was 2,167 lines across 10 files; today is 11,599 across 33.
+
+  Easy switches the extras **off**, it does not hide them. A hidden feature still
+  interferes — the model detector quietly gating a model's send keys off (see below) is
+  exactly the surprise this removes. In Easy, 52 hotkeys register; in Advanced, 92.
+
+  Alt follow-ups, `--Name` branches, the archive, the hotstrings manager, the actions and
+  quick-action menus, the recorder, the capitalizer, sequences/Discord import, editable
+  follow-ups, open-in-new-tab, double-MM, the stats overlay, the model detector, the
+  automation listener and the pinger are all Advanced-only.
+
+- **A toggle for every optional feature** — new `modes.ahk` registry: one `FEAT_Def` line
+  per feature carries its cfg key, label and default. Each can be switched off
+  individually inside Advanced, and Easy switches all of them off **without touching those
+  choices** — flip back and every checkbox is where you left it. Existing cfg keys are
+  reused verbatim, so upgrading loses no settings. Settings gains a **Mode…** button;
+  that window is generated from the registry, so new features appear in it automatically.
+
+  Mode defaults to **Advanced** — an existing install has a workflow built on these
+  features, and demoting it on upgrade would look like MMA had lost half of itself.
+
+- **`install.bat`** — installs AutoHotkey v2 via winget (with `--no-upgrade`, so an
+  existing install is never silently moved), optionally installs Python plus `numpy`,
+  `pillow` and `opencv-python`, and creates the desktop shortcut. Detection asks the tools
+  themselves rather than `winget list`, which only knows what winget installed.
+
+### Bug fixes
+
+- **The model detector read whatever was on screen** — `WinMatch` defaulted to empty,
+  which disabled the foreground check entirely. The scan looks at a fixed screen
+  *rectangle*, not a window, so it published other applications' titles as the active
+  model. Because `ModelIsActive()` auto-claims the first unnamed `[ActiveMap]` slot, a
+  junk reading could be captured permanently, after which that model's name never matched
+  and **every one of its send keys was held off** — with nothing wrong in the model file
+  or the hotkey registry. Now defaults to `Infloww Messages`, the same window
+  `automation.py` gates on. Existing installs must also clear the poisoned `[ActiveMap]`
+  entry; a code default cannot reach it.
+
+- **MMA now runs cleanly with no Python** — only two optional features need it, but
+  `AutomationListener` defaults on and its launcher ended in an unguarded `shell.Run`, so
+  a machine without Python got a WScript error dialog on **every startup**. Both launcher
+  `.vbs` files now resolve a real interpreter and exit quietly when there is none, and
+  `PythonAvailable()` stops MMA spawning them at all. Switching a Python feature on by
+  hand now explains itself instead of appearing to do nothing.
+
+- **Python launchers picked the Microsoft Store stub** — `where` lists the zero-byte
+  WindowsApps App Execution Alias *before* the real interpreter, so reading one line either
+  opened the Store or wrongly concluded there was no Python. Both files now scan every
+  match and take the first with a non-zero size. This also fixes a **duplicate automation
+  listener**: one started through the stub could not see the real one's single-instance
+  mutex across the Store's virtualised namespace, so `^!u` unsent twice.
+
 ## 1.9.0 — 2026-07-26
 
 Structural release. No new features; the point is that a model file is now data,
