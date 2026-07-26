@@ -1233,6 +1233,16 @@ OpenHotstrings(*) {
     try Run(A_AhkPath ' "' path '"')
 }
 
+; mass_gui.cfg is an ini, and an ini value is one line. A multi-line setting is
+; stored with a literal `n per break — the escape the alt fields already use, and
+; the one AltPartsRT reads, so the model scripts need no new decoder.
+_EncodeMultiline(s) {
+    return StrReplace(StrReplace(s, "`r`n", "`n"), "`n", "``n")
+}
+_DecodeMultiline(s) {
+    return StrReplace(s, "``n", "`n")
+}
+
 OpenSettings(*) {
     global model1Name, model2Name, model3Name, modelCount, CFG_FILE, g
     global defaultHotkeyFile, ACC_DIR, SCRIPT_DIR, mouseControl
@@ -1342,7 +1352,15 @@ OpenSettings(*) {
     ; Off = the plain key prompts whenever the follow-up has alts.
     chkPromptAlt := sg.Add("Checkbox", "x" PAD " y" y " w" CW, "Prompt for Alt-FUs using ctrl+hotkey (off = the plain key always prompts)")
     chkPromptAlt.Value := promptAltCtrl
-    y += 38
+    y += 28
+    sg.Add("Text", "x" PAD " y" y " w" CW, "Default FU3 — sent when the mass has no f3 at all (one message per line):")
+    y += 20
+    edDefFu3 := sg.Add("Edit", "x" PAD " y" y " w" CW " h56 Multi WantReturn",
+                       _DecodeMultiline(IniRead(CFG_FILE, "Settings", "DefaultFu3", "")))
+    y += 66
+    sg.Add("Text", "x" PAD " y" y " w" CW " cGray",
+           "Leave blank for the old behaviour: an f3 key on a mass with no f3 does nothing.")
+    y += 32
 
     ; ── Visible scripts ────────────────────────────────────────────────────────
     sg.Add("Text", "x" PAD " y" y " w" CW " h1 0x10")
@@ -1526,6 +1544,9 @@ OpenSettings(*) {
         IniWrite(fastParseAutosave, CFG_FILE, "Settings", "FastParseAutosave")
         promptAltCtrl := chkPromptAlt.Value ? 1 : 0
         IniWrite(promptAltCtrl, CFG_FILE, "Settings", "PromptAltCtrl")
+        ; The model scripts re-read this on every f3 press, so no broadcast and no
+        ; restart — saving is enough.
+        IniWrite(_EncodeMultiline(edDefFu3.Value), CFG_FILE, "Settings", "DefaultFu3")
         _hiddenList := ""
         for fname, chk in accChks
             if !chk.Value

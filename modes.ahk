@@ -110,6 +110,11 @@ FEAT_SetRaw(id, on) {
 ; config carries over; the old Branches key is simply ignored.
 FEAT_Def("altFollowups", "AltFollowups",   "Alt follow-ups and --Name branches",       "1", "Sending")
 FEAT_Def("editableFu",   "EditableFuAny",  "Editable follow-ups / wallet check",       "1", "Sending")
+; The text itself is a Settings field (DefaultFu3); this only says whether the
+; fallback applies at all. Blank text is inert either way, so the switch matters
+; mainly to Easy mode — v1.4.0 sent nothing when a mass had no f3, and Easy has
+; to keep doing that.
+FEAT_Def("defaultFu3",   "DefaultFu3On",   "Default FU3 when the mass has none",      "1", "Sending")
 FEAT_Def("openTab",      "OpenTabAny",     "Open in new tab after a send",             "1", "Sending")
 FEAT_Def("doubleMM",     "DoubleMM",       "Double-MM (send two models at once)",      "1", "Sending")
 FEAT_Def("fuSingle",     "FuSingleAny",    "FuSingle grid (per-model follow-up map)",  "1", "Sending")

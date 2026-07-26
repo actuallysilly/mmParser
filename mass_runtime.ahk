@@ -125,8 +125,33 @@ _DoFuGroup(group, editable, openTab) {
 }
 
 ; The three fields that make up a follow-up group: fuN, fuN_5, fuN_7.
+;
+; Group 3 alone has a fallback: a mass with no f3 at all sends the DefaultFu3 text
+; from Settings instead of nothing. Applied here rather than in sndFu because
+; SndFuEditable takes the same parts and has no idea which group it is holding —
+; one place covers the plain send, the editable/wallet paste, and both halves of
+; a double-MM (so a second model with no f3 still gets the default).
 _FuParts(m, group) {
-    return [m.%"fu" group%, m.%"fu" group "_5"%, m.%"fu" group "_7"%]
+    parts := [m.%"fu" group%, m.%"fu" group "_5"%, m.%"fu" group "_7"%]
+    if (group != 3)
+        return parts
+    for p in parts
+        if Trim(p) != ""
+            return parts
+    return DefaultFu3Parts()
+}
+
+; The fallback FU3, as one part per line. Stored in mass_gui.cfg with `n for a
+; line break — an ini has no other way to hold one — which is the same escape the
+; alt fields use, so AltPartsRT already knows how to read it. Each line goes out
+; as its own message, exactly like the three f3 fields would have.
+;
+; Read per press rather than cached: editing it in Settings then takes effect
+; without restarting the model scripts, the same trade sndFu makes for FuSingle.
+DefaultFu3Parts() {
+    if !FEAT("defaultFu3")
+        return ["", "", ""]
+    return AltPartsRT(IniRead(A_ScriptDir "\mass_gui.cfg", "Settings", "DefaultFu3", ""))
 }
 
 DoFu1() {
