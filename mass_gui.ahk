@@ -4,6 +4,7 @@
 #Include "archive.ahk"
 #Include "mass_parser.ahk"
 #Include "processes.ahk"
+#Include "modes_gui.ahk"
 #Include "ocr_grab.ahk"
 #Include "actions_menu.ahk"
 DetectHiddenWindows true
@@ -300,6 +301,16 @@ RegTop(ctrl, ox) {
     topCtrls.Push({c: ctrl, ox: ox})
 }
 
+; Hide a control whose feature is switched off (or which is Advanced-only while
+; we are in Easy mode). It stays in the layout tables so resizing still works —
+; it is simply not shown. The BEHAVIOUR behind each of these is gated separately;
+; hiding a button is never the only thing stopping a feature.
+FeatCtrl(ctrl, featureId) {
+    if !FEAT(featureId)
+        ctrl.Visible := false
+    return ctrl
+}
+
 RegBtn(ctrl, ox, oy) {
     global btnCtrls
     btnCtrls.Push({c: ctrl, ox: ox, oy: oy})
@@ -331,6 +342,7 @@ c.OnEvent("Click", ExportMMA)
 RegBtn(c, 190, 0)
 
 chkArchive := g.Add("Checkbox", "x" (PX0+322) " y" (BY+6) " Checked", "Archive")
+FeatCtrl(chkArchive, "archive")
 RegBtn(chkArchive, 322, 6)
 
 c := g.Add("Text", "x" PX0 " y" (BY+38) " w" (RIGHT_W-20) " h2 0x10")
@@ -342,6 +354,7 @@ lblLoaded := g.Add("Text", "x" (PX0+190) " y" (BY+52) " w140", "")
 RegBtn(lblLoaded, 190, 52)
 c := g.Add("Button", "x" (PX0+338) " y" (BY+48) " w118 h22", "Load from archive")
 c.OnEvent("Click", OpenArchive)
+FeatCtrl(c, "archive")
 RegBtn(c, 338, 48)
 
 _mNames := [model1Name, model2Name, model3Name]
@@ -472,19 +485,23 @@ togCtrls.Push({c: c, x: TAB_X+430, oy: 0})
 
 c := g.Add("Button", "x" (TAB_X+530) " y" TOGG_Y0 " w100 h28", "Hotstrings")
 c.OnEvent("Click", OpenHotstrings)
+FeatCtrl(c, "hotstrings")
 togCtrls.Push({c: c, x: TAB_X+530, oy: 0})
 
 ; Label carries the state, so the button is also the running indicator.
 btnPinger := g.Add("Button", "x" (TAB_X+640) " y" TOGG_Y0 " w95 h28", "Pinger: OFF")
 btnPinger.OnEvent("Click", TogglePinger)
+FeatCtrl(btnPinger, "pinger")
 togCtrls.Push({c: btnPinger, x: TAB_X+640, oy: 0})
 
 c := g.Add("Button", "x" (TAB_X+745) " y" TOGG_Y0 " w95 h28", "Alt FUs…")
 c.OnEvent("Click", OpenAltWindow)
+FeatCtrl(c, "altFollowups")
 togCtrls.Push({c: c, x: TAB_X+745, oy: 0})
 
 c := g.Add("Button", "x" (TAB_X+745) " y" (TOGG_Y0+34) " w95 h28", "Branches…")
 c.OnEvent("Click", OpenBranchWindow)
+FeatCtrl(c, "branches")
 togCtrls.Push({c: c, x: TAB_X+745, oy: 34})
 
 ; (single/editable follow-up toggles moved inline onto the f1/f2/f3 rows above)
@@ -863,7 +880,7 @@ ParseCurrent(*) {
             c.Value := ""
     FillTab(StrSplit(raw, "`n"), mNo)
     RefreshAltWindow()          ; alts never surface in the main panel; keep their window honest
-    if chkArchive.Value && Trim(raw) != "" {
+    if FEAT("archive") && chkArchive.Value && Trim(raw) != "" {
         mName := mNo = 1 ? model1Name : mNo = 2 ? model2Name : model3Name
         if Trim(mName) = ""
             mName := "m" mNo    ; an unnamed slot used to write "[]", which no dup check could match
@@ -1221,6 +1238,7 @@ OpenSettings(*) {
     sg.Add("Button", "x105 y" (y+18) " w85 h28",  "Reset").OnEvent("Click", ResetCfg)
     sg.Add("Button", "x200 y" (y+18) " w90 h28",  "Wipe Temp").OnEvent("Click", (*) => (WipeTemp(), sg.Destroy()))
     sg.Add("Button", "x300 y" (y+18) " w85 h28",  "Report Bug").OnEvent("Click", (*) => Run("https://github.com/actuallysilly/mmParser/issues/new?title=Bug+Report&labels=bug"))
+    sg.Add("Button", "x395 y" (y+18) " w90 h28",  "Mode…").OnEvent("Click", (*) => (sg.Destroy(), OpenModesWindow()))
     sg.Add("Button", "x490 y" (y+18) " w100 h28", "Check Update").OnEvent("Click", (*) => CheckUpdate())
     sg.Show("w600 h" (y + 62))
 

@@ -83,6 +83,8 @@ ResolveScriptPath(fname) {
 
 ; run each configured startup script that isn't already running (also used by the watchdog)
 LaunchStartupScripts() {
+    if !FEAT("startupScripts")
+        return
     global startupScripts
     for fname in startupScripts {
         path := ResolveScriptPath(fname)
@@ -162,6 +164,8 @@ LaunchAutomationListener(announce := false) {
     global SCRIPT_DIR, automationListener
     if !automationListener || AutomationListenerRunning()
         return
+    if !FEAT("automation")
+        return
     if !PythonAvailable() {
         if announce
             MsgBox "The automation listener needs Python, which isn't installed.`n`n"
@@ -209,6 +213,8 @@ LaunchPinger(announce := false) {
     global SCRIPT_DIR
     if PingerRunning()
         return
+    if !FEAT("pinger")
+        return
     if !PythonAvailable() {
         if announce
             MsgBox "The unread pinger needs Python, which isn't installed.`n`n"
@@ -239,6 +245,8 @@ DetectorRunning() {
     return WinExist(_DetectorTitle()) != 0
 }
 LaunchDetector() {
+    if !FEAT("modelDetector")
+        return
     global SCRIPT_DIR
     path := SCRIPT_DIR "\model_detector.ahk"
     if !FileExist(path) || DetectorRunning()
@@ -263,6 +271,8 @@ StatsOverlayRunning() {
     return WinExist(_StatsTitle()) != 0
 }
 LaunchStatsOverlay() {
+    if !FEAT("statsOverlay")
+        return
     global SCRIPT_DIR
     path := SCRIPT_DIR "\stats_overlay.ahk"
     if !FileExist(path) || StatsOverlayRunning()
@@ -295,6 +305,9 @@ RefreshPingerLabel() {
 }
 
 WatchdogTick() {
+    ; Easy mode runs no children, so the watchdog has nothing to restart.
+    if !FEAT("startupScripts")
+        return
     global pinger, autoDetect, statsOverlay
     LaunchStartupScripts()
     LaunchAutomationListener()

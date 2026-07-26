@@ -1,4 +1,8 @@
 #Requires AutoHotkey v2.0
+; Easy/Advanced and the feature registry. Included here rather than in each
+; script because HK_Bind below is the single gate that keeps a disabled feature's
+; keys from registering, and everything that binds a key already includes this.
+#Include "modes.ahk"
 ; ═══════════════════════════════════════════════════════════════════════════════
 ;  hotkeys.ahk — MMA's central hotkey authority (loader / binder).
 ; ───────────────────────────────────────────────────────────────────────────────
@@ -292,6 +296,13 @@ HK_Bind(id, fn) {
         HK_Log("HK_Bind('" id "') — id not declared in hotkeys.ahk; ignored")
         return
     }
+    ; The one gate for every optional feature's keys. Easy mode, or a feature
+    ; switched off in Advanced, means its hotkeys are never registered at all —
+    ; not registered-then-ignored. Declared in modes.ahk (FEAT_HOTKEY_MAP), so a
+    ; new feature needs no change in any of the scripts that bind keys.
+    ; Silent: a key absent because the feature is off is not a fault.
+    if !FEAT_HotkeyAllowed(id)
+        return
     m := HK_META[id]
     if (m.when != "" && !HK_CTX.Has(m.when)) {
         ; Binding a context-limited key with no context would make it global —

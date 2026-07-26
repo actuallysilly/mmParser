@@ -102,6 +102,11 @@ _DoFuGroup(group, editable, openTab) {
     global massNo, m1, m2, m3, doubleMM, openInNewTabButton
     if !FuGate()
         return
+    ; Each extra is both a user setting and a feature; Easy mode drops all three
+    ; back to "paste the follow-up and press Enter", which is all v1.4.0 did.
+    editable := editable && FEAT("editableFu")
+    openTab  := openTab  && FEAT("openTab")
+    sendBoth := doubleMM && FEAT("doubleMM")
     if AltIntercept(CurMass(), group, false, editable)
         return
     m := CurMass()
@@ -109,7 +114,7 @@ _DoFuGroup(group, editable, openTab) {
         SndFuEditable(_FuParts(m, group)*)
         return
     }
-    if doubleMM {
+    if sendBoth {
         sndFu(group, _FuParts(m1, group)*)
         sndFu(group, _FuParts(m2, group)*)
     } else {
@@ -156,7 +161,7 @@ DoPpv() {
     A_Clipboard := m.ppv_base
     ClipWait(0.1)
     Send "^v"
-    if openTabPpv
+    if openTabPpv && FEAT("openTab")
         clickReturn(openInNewTabButton)
 }
 

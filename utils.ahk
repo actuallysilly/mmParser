@@ -179,6 +179,12 @@ MassUsesAltGui(m) {
 BranchList(m) {
     global BRANCH_MAX_RT
     out := []
+    ; No branches means every branch key and window finds nothing to do, which is
+    ; the pre-branch behaviour. Gating here rather than at each of the six call
+    ; sites keeps the mass data itself untouched — switch branches back on and the
+    ; --Name blocks are still there.
+    if !FEAT("branches")
+        return out
     Loop BRANCH_MAX_RT {
         k  := A_Index
         f1 := "br" k "_fu1", f2 := "br" k "_fu2", f3 := "br" k "_fu3", pk := "br" k "_ppv"
@@ -507,6 +513,11 @@ ArchiveDarkThemeRT(guiObj) {
 ; Read per call like sndFu reads FuSingle, so toggling the setting applies
 ; immediately without restarting the mass scripts.
 AltIntercept(m, group, viaCtrl := false, editable := false) {
+    ; One gate for every caller. Returning false means "nothing intercepted", so
+    ; the plain send runs exactly as it did before alts existed — which is what
+    ; Easy mode is: a follow-up key that sends the follow-up, full stop.
+    if !FEAT("altFollowups")
+        return false
     if !viaCtrl {
         promptCtrl := IniRead(A_ScriptDir "\mass_gui.cfg", "Settings", "PromptAltCtrl", "1") = "1"
         if promptCtrl
