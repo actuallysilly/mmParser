@@ -29,8 +29,14 @@
   and offered in the Hotkeys window, but `acc/TEMP.ahk` never bound it, so the key did
   nothing.
 
+  `acc/TEMP.ahk` had the same thing spelled a third way: a bare `!1::` written straight into
+  the file. Not data, and not declared in `hotkeys.ini` either — the one shape that escapes
+  both. It is `Fu1` now, beside the `Fu2` under it.
+
   Only keys that **run something** — open a chat, type an amount, drive the mouse — belong
-  in `hotkeys.ini`.
+  in `hotkeys.ini`. The message library is at 111 indexed messages, and no trigger is
+  shadowed by a shorter one (a `:*:` trigger fires the moment it is typed, so `..fu` would
+  make `..fu1` unreachable — checked, none are).
 
 ### Bug fixes
 

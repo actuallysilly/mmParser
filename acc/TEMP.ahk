@@ -2,7 +2,11 @@
 #SingleInstance Force
 #Include "../utils.ahk"
 
-!1::
+; @added 2026-07-26
+; Was a bare "!1::" written straight into this file — a message on a hardcoded
+; key, which is the one thing that is neither data nor declared in hotkeys.ini.
+; Named Fu1 to sit beside the Fu2 below it.
+:*:Fu1::
 {
     snd("Now imagine if I let you snatch that bra off me")
     snd("So you can reveal all of my explicitness")
