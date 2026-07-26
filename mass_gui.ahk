@@ -513,7 +513,7 @@ togCtrls.Push({c: c, x: TAB_X+745, oy: 0})
 
 c := g.Add("Button", "x" (TAB_X+745) " y" (TOGG_Y0+34) " w95 h28", "Branches…")
 c.OnEvent("Click", OpenBranchWindow)
-FeatCtrl(c, "branches")
+FeatCtrl(c, "altFollowups")
 togCtrls.Push({c: c, x: TAB_X+745, oy: 34})
 
 ; (single/editable follow-up toggles moved inline onto the f1/f2/f3 rows above)

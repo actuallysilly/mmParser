@@ -1,4 +1,4 @@
-#Requires AutoHotkey v2.0
+﻿#Requires AutoHotkey v2.0
 ; ═══════════════════════════════════════════════════════════════════════════════
 ;  modes.ahk — Easy vs Advanced, and the one registry of every optional feature.
 ; ───────────────────────────────────────────────────────────────────────────────
@@ -21,7 +21,7 @@
 ;
 ;      FEAT_Def(id, cfgKey, label, default, section)
 ;
-;  id       — short name used in code:            if FEAT("branches")
+;  id       — short name used in code:            if FEAT("altFollowups")
 ;  cfgKey   — its key in mass_gui.cfg [Settings]. Existing keys are reused as-is
 ;             so nobody's settings are lost; only genuinely new toggles add keys.
 ;  default  — value when the key is absent
@@ -103,8 +103,12 @@ FEAT_SetRaw(id, on) {
 ; ═══════════════════════════════════════════════════════════════════════════════
 
 ; ── Sending ───────────────────────────────────────────────────────────────────
-FEAT_Def("altFollowups", "AltFollowups",   "Alt follow-ups (Ctrl + a follow-up key)", "1", "Sending")
-FEAT_Def("branches",     "Branches",       "--Name branches",                          "1", "Sending")
+; Alt follow-ups and --Name branches are one feature with two spellings: both are
+; "send something other than the default follow-up". They were separate toggles,
+; which only offered a combination nobody wants (branches on, alts off) and two
+; checkboxes to keep in step. Keeps the AltFollowups cfg key, so an existing
+; config carries over; the old Branches key is simply ignored.
+FEAT_Def("altFollowups", "AltFollowups",   "Alt follow-ups and --Name branches",       "1", "Sending")
 FEAT_Def("editableFu",   "EditableFuAny",  "Editable follow-ups / wallet check",       "1", "Sending")
 FEAT_Def("openTab",      "OpenTabAny",     "Open in new tab after a send",             "1", "Sending")
 FEAT_Def("doubleMM",     "DoubleMM",       "Double-MM (send two models at once)",      "1", "Sending")
@@ -140,7 +144,7 @@ FEAT_Def("startupScripts","StartupScriptsOn",   "Auto-start scripts + restart wa
 ; ═══════════════════════════════════════════════════════════════════════════════
 global FEAT_HOTKEY_MAP := Map(
     "altFu",              "altFollowups",
-    "br",                 "branches",
+    "br",                 "altFollowups",   ; branches ride the same toggle
     "mFu",                "mouseControl",
     "gui.actions",        "actionsMenu",
     "gui.quickActions",   "quickActions",

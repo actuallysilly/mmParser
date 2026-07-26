@@ -183,7 +183,7 @@ BranchList(m) {
     ; the pre-branch behaviour. Gating here rather than at each of the six call
     ; sites keeps the mass data itself untouched — switch branches back on and the
     ; --Name blocks are still there.
-    if !FEAT("branches")
+    if !FEAT("altFollowups")
         return out
     Loop BRANCH_MAX_RT {
         k  := A_Index
