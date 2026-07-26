@@ -35,7 +35,15 @@ ScanStep := Integer(IniRead(CFG, "Detector", "ScanStep", "4"))
 PollMs   := Integer(IniRead(CFG, "Detector", "PollMs",   "500"))
 OcrScale := Integer(IniRead(CFG, "Detector", "OcrScale", "3"))
 MoveTol  := Integer(IniRead(CFG, "Detector", "MoveTol",  "20"))
-WinMatch := Trim(IniRead(CFG, "Detector", "WinMatch",  ""))   ; optional foreground gate
+; Foreground gate. This MUST default to the Infloww window, not to "" — the scan
+; below looks at a fixed screen rectangle, not at a window, so with no gate it
+; happily OCRs whatever else is sitting at those coordinates. That is not
+; hypothetical: with WinMatch empty it read VS Code's menu bar and wrote
+; "File Edit Selection View Go R" as the active model, which then got auto-claimed
+; into an [ActiveMap] slot and permanently gated that model's keys off.
+; Same window as automation.py's TARGET_TITLE and the "chrome" hotkey context.
+; Blank it deliberately only if you want no gate at all.
+WinMatch := Trim(IniRead(CFG, "Detector", "WinMatch",  "Infloww Messages"))
 GreyRGB  := Integer(RegExMatch(GreyHex, "i)^0x") ? GreyHex : "0x" GreyHex)
 
 ; Seed the [Detector] section on first run so the values are visible/editable.
