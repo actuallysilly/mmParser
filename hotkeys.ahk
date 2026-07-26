@@ -501,6 +501,49 @@ _HK_Lift(val, id) {
     IniWrite(Trim(val), HK_INI, s.section, s.key)
 }
 
+; ── keeping a user's hotkeys.ini across updates ───────────────────────────────
+;  hotkeys.ini belongs to the user; hotkeys.default.ini is what ships. The updater
+;  skips the former (see updater.ahk's skipExact), so an update can no longer
+;  overwrite anyone's keys.
+;
+;  That alone would freeze the file: a hotkey added in a later release would be
+;  absent from an existing hotkeys.ini, and HK_Key treats absent as UNBOUND — the
+;  action would simply never work, with nothing but a line in error_log to say so.
+;
+;  So new defaults are merged IN, additively:
+;    • key missing from hotkeys.ini  -> copied from hotkeys.default.ini
+;    • key already present           -> left alone, ALWAYS
+;
+;  A blank value is "deliberately disabled" and counts as present, so a key you
+;  cleared on purpose does not come back to life on the next update.
+HK_MergeDefaults() {
+    if !FileExist(HK_INI_DEFAULT) || !FileExist(HK_INI)
+        return 0
+
+    added := 0
+    for section in StrSplit(Trim(IniRead(HK_INI_DEFAULT)), "`n", "`r") {
+        section := Trim(section)
+        if (section = "")
+            continue
+        body := IniRead(HK_INI_DEFAULT, section, , "")
+        for line in StrSplit(body, "`n", "`r") {
+            eq := InStr(line, "=")
+            if !eq
+                continue
+            key := Trim(SubStr(line, 1, eq - 1))
+            if (key = "")
+                continue
+            if (IniRead(HK_INI, section, key, HK_UNSET) != HK_UNSET)
+                continue                       ; the user's value wins, blank included
+            IniWrite(Trim(SubStr(line, eq + 1)), HK_INI, section, key)
+            added++
+        }
+    }
+    if added
+        HK_Log("merged " added " new default hotkey(s) into hotkeys.ini")
+    return added
+}
+
 ; ── startup ───────────────────────────────────────────────────────────────────
 
 HK_Init() {
@@ -514,6 +557,9 @@ HK_Init() {
         }
     }
     HK_Migrate()
+    ; After migrating, before anything reads a key: pick up hotkeys added by this
+    ; release without disturbing any the user has already set.
+    HK_MergeDefaults()
     ; Seed the double-fire window into the ini once so it's discoverable/editable,
     ; then read it. Set to 0 to disable debouncing entirely.
     if (IniRead(HK_INI, "meta", "DoubleFireWindowMs", HK_UNSET) == HK_UNSET)

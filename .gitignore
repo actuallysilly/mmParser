@@ -24,5 +24,11 @@ infloww ui elements/
 # as above — the code recreates the folder on demand.
 automation/debug/
 
+# The USER's hotkeys. hotkeys.default.ini is what ships; HK_Init creates this from
+# it on first run and merges in anything a later release adds, without touching a
+# key that already has a value. Tracking it would put the maintainer's personal
+# bindings into every fresh clone, and the updater used to overwrite everyone's.
+hotkeys.ini
+
 # Message content. Kept local; MMA regenerates it as you archive.
 mass_archive.txt

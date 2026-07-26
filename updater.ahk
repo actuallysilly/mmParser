@@ -41,7 +41,12 @@ try {
     ExitApp
 }
 
-skipExact  := Map("mass_gui.cfg", 1, "general.ahk", 1)
+; Files that belong to the USER, not to the release. Downloading these would hand
+; someone the maintainer's copy and silently destroy their own — which is exactly
+; what used to happen to hotkeys.ini on every single update: custom keys replaced
+; by whatever was in the repo. hotkeys.default.ini still ships, and HK_Init merges
+; anything new out of it without touching a key that already has a value.
+skipExact  := Map("mass_gui.cfg", 1, "general.ahk", 1, "hotkeys.ini", 1)
 skipPfx    := ["acc/", ".git"]
 binaryExts := Map("ico", 1, "exe", 1, "png", 1, "jpg", 1, "gif", 1)
 
