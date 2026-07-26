@@ -1,4 +1,23 @@
-# Changelog
+﻿# Changelog
+
+## 1.9.2 — 2026-07-26
+
+### Bug fixes
+
+- **Hotkey capture ended on the modifier** — the Hotkeys window set every key as an
+  InputHook end key (`KeyOpt("{All}", "E")`), modifiers included. Pressing Ctrl therefore
+  finished the capture immediately with `EndKey = "LControl"`, while `Mods()` also saw Ctrl
+  held — recording the chord as `^LControl`. The only way to enter a real chord was to hit
+  both keys in the same instant, so it usually took several attempts.
+
+  The eight modifier keys are now excluded from the end-key set, giving the behaviour every
+  other application has: hold the modifiers and the capture waits for an actual key. The
+  overlay also shows the chord as it builds ("Ctrl+Alt+…"), so holding a modifier visibly
+  does something.
+
+  The held modifiers are now read in `InputHook.OnEnd`, at the instant the end key arrives,
+  rather than after the capture loop exits — releasing Ctrl a few milliseconds after F1 used
+  to record plain `F1`.
 
 ## 1.9.1 — 2026-07-26
 

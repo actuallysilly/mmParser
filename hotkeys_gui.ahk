@@ -188,7 +188,7 @@ SetKeyForSelected() {
     ov := Gui("+AlwaysOnTop -Caption +ToolWindow +Owner" g.Hwnd)
     ov.BackColor := "1E1E1E"
     ov.SetFont("s11 cWhite", "Segoe UI")
-    ov.Add("Text", "x0 y18 w400 Center", "Press a key or mouse button…")
+    lblPrompt := ov.Add("Text", "x0 y18 w400 Center", "Press a key or mouse button…")
     ov.SetFont("s9 c9A9A9A")
     ov.Add("Text", "x0 y46 w400 Center", "Esc = cancel     Backspace = disable")
     ov.Show("w400 h80")
@@ -198,7 +198,7 @@ SetKeyForSelected() {
     ; GrabKey throws — otherwise every hotkey in MMA stays dead with no clue why.
     Broadcast(HK_MSG_SUSPEND, 1)
     try
-        k := GrabKey()
+        k := GrabKey(lblPrompt)
     finally {
         Broadcast(HK_MSG_SUSPEND, 0)
         ov.Destroy()
@@ -215,9 +215,11 @@ SetKeyForSelected() {
 ; Reads one chord. InputHook covers the keyboard (F13-F24 included); mouse
 ; buttons never reach it, so those get temporary hotkeys. Capturing XButton1/2
 ; and the Scimitar keys is exactly why this window is native AHK, not a web page.
-GrabKey() {
+GrabKey(fb := "") {
     static btns := ["LButton", "RButton", "MButton", "XButton1", "XButton2",
                     "WheelUp", "WheelDown"]
+    ; The eight keys that are modifiers, never a chord's main key.
+    static MOD_KEYS := "{LControl}{RControl}{LAlt}{RAlt}{LShift}{RShift}{LWin}{RWin}"
     global _grabbed := ""
 
     for b in btns
@@ -227,11 +229,29 @@ GrabKey() {
     ; blocks until one arrives. No V, so the keypress is swallowed rather than
     ; typed into whatever is behind the overlay.
     ih := InputHook("L0")
+    ; Which modifiers were down AT THE INSTANT the end key arrived. Reading them
+    ; afterwards races the user's fingers: release Ctrl a few ms after F1 and the
+    ; chord silently records as plain F1.
+    global _grabMods := ""
+    ih.OnEnd := GrabEndMods
     try {
         ih.KeyOpt("{All}", "E")
+        ; ...but NOT the modifiers. With {All} E they ended the input too, so the
+        ; instant you pressed Ctrl the capture finished with EndKey "LControl"
+        ; while Mods() also saw Ctrl held — giving "^LControl" and leaving no way
+        ; to type a chord unless you hit the second key in the same instant.
+        ; Excluding them gives the behaviour every other app has: hold the
+        ; modifiers, and the capture waits for a real key.
+        ih.KeyOpt(MOD_KEYS, "-E")
         ih.Start()
-        while (ih.InProgress && _grabbed = "")
+        while (ih.InProgress && _grabbed = "") {
+            ; Show the chord as it builds, so holding Ctrl visibly does something.
+            if IsObject(fb) {
+                m := Mods()
+                fb.Value := (m = "") ? "Press a key or mouse button…" : Pretty(m) "…"
+            }
             Sleep(15)
+        }
     } finally {
         if ih.InProgress
             ih.Stop()
@@ -249,7 +269,14 @@ GrabKey() {
         return "<cancel>"
     if (ek = "Backspace")
         return "<clear>"
-    return Mods() ek
+    ; OnEnd is the accurate reading; fall back to a live one if it never ran, so a
+    ; missed callback costs the modifiers rather than the whole chord.
+    return (_grabMods != "" ? _grabMods : Mods()) ek
+}
+
+; InputHook.OnEnd — the one moment the held modifiers are still true.
+GrabEndMods(*) {
+    global _grabMods := Mods()
 }
 
 MouseGrab(btn, *) {
