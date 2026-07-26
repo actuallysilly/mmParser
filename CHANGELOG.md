@@ -48,6 +48,20 @@
   width instead of marching off the edge once you have six acc scripts, and the status lights
   have their own column that the labels stop short of.
 
+- **The Hotkeys window cut its buttons in half.** Two sets of hand-counted offsets that
+  had to agree and didn't: the static layout put the button row at `LV_H+48` with the status
+  line 38px below it, while `OnSize` put the buttons at `h-40` and the status at `h-22` —
+  *inside* the button row. A Text control paints its background, so the status line erased
+  the bottom 12px of all seven buttons. It looked right only until the first `WM_SIZE`, which
+  arrives the moment the window is shown, so nobody ever saw the correct version. Laid out
+  from the floor upwards in one place now.
+
+  Two more in the same window: `AutoHdr` on all five columns overflowed the list and left a
+  horizontal scrollbar hiding the Conflict column — four columns are fixed and Conflict takes
+  the remainder, so widening the window widens the one column with variable-length text. And
+  there was no `MinSize`, while the left button group ends at x548 and Save/Close are placed
+  from the right edge, so under ~780px wide they walked into each other.
+
 - **Resizing.** Three separate faults:
   - ~60 controls moved on every `WM_SIZE` with no redraw batching, so dragging an edge tore
     the window. Drawing is suppressed for the batch and the window repaints once.

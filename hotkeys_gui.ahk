@@ -19,7 +19,9 @@ dirty   := false
 for id in HK_ORDER
     pending[id] := HK_Key(id)
 
-g := Gui("+Resize", "MMA Hotkeys")
+; MinSize, because the left button group ends at x548 while Save and Close are
+; placed from the right edge — under about 780 wide they walk into each other.
+g := Gui("+Resize +MinSize790x320", "MMA Hotkeys")
 g.SetFont("s9", "Segoe UI")
 g.OnEvent("Close", OnClose)
 g.OnEvent("Escape", OnClose)
@@ -57,15 +59,43 @@ g.Show("w" WIN_W " h" (_y + 62))
 
 ; The list is the window's whole point: give it every pixel gained by resizing,
 ; and keep the button row pinned to the bottom.
+;
+; Laid out from the floor upwards, in one place. It used to be two sets of
+; hand-counted offsets that had to agree and didn't: the static layout put the
+; buttons at LV_H+48 and the status 38px under them, while this handler put the
+; buttons at h-40 and the status at h-22 — inside the button row. A Text control
+; paints its background, so the status line was erasing the bottom 12px of all
+; seven buttons, which is what "the buttons are cut in half" was. It only looked
+; right until the first WM_SIZE, which arrives the moment the window is shown.
 OnSize(gg, minMax, w, h) {
     if (minMax = -1)          ; minimised
         return
-    lv.Move(, , w - 24, h - 106)
-    for c in [btnSave, btnClose]
-        c.Move(w - (c = btnSave ? 210 : 112), h - 40)
+    statusY := h - 24         ; ..h-6, on the floor
+    btnY    := h - 62         ; ..h-32, one row above it
+    lv.Move(, , w - 24, btnY - 48)          ; y is 38, so this leaves a 10px gap
     for c in [btnSet, btnDefault, btnDisable, btnResetAll, btnOpenIni]
-        c.Move(, h - 40)
-    txtStatus.Move(, h - 22, w - 24)
+        c.Move(, btnY)
+    btnSave.Move(w - 210, btnY)
+    btnClose.Move(w - 112, btnY)
+    txtStatus.Move(12, statusY, w - 24)
+    SizeCols()
+}
+
+; The five columns have to add up to the list's width, or Windows puts a
+; horizontal scrollbar under them — which it was doing, since AutoHdr on all five
+; overflowed. Four take what their content needs; Conflict gets the remainder, so
+; widening the window widens the one column whose text has no fixed length.
+SizeCols() {
+    global lv
+    lv.GetPos(, , &lvW)
+    fixed := [130, 230, 150, 90]
+    used  := 0
+    for i, cw in fixed {
+        lv.ModifyCol(i, cw)
+        used += cw
+    }
+    ; grid lines, plus the vertical scrollbar this list always has
+    lv.ModifyCol(5, Max(lvW - used - 26, 80))
 }
 
 ; ── list ──────────────────────────────────────────────────────────────────────
@@ -92,10 +122,7 @@ Fill() {
         lv.Add(, secLbl, m.label, KeyLabel(key), m.when, clash.Has(id) ? clash[id] : "")
         lvIds.Push(id)
     }
-    Loop 5
-        lv.ModifyCol(A_Index, "AutoHdr")
-    lv.ModifyCol(2, 230)
-    lv.ModifyCol(3, 150)
+    SizeCols()
     lv.Opt("+Redraw")
 }
 
