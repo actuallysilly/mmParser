@@ -301,14 +301,20 @@ DoBranchPpv() {
 ; ── Wiring ────────────────────────────────────────────────────────────────────
 
 ; Every slot a mass section can declare, and what runs it.
+;
+; Several slots share a handler on purpose — that is what a key OVERLOAD is here.
+; fu1short, mFu1 and fu1 are three ids for one action, so one action can carry a
+; keyboard key, a mouse button and a Scimitar button at once without any of them
+; knowing about the others. Add an id to hotkeys.ahk, add a line here, done.
 MassSlotHandlers() {
     return Map(
         "fu1",      DoFu1,  "fu1short", DoFu1,  "mFu1", DoFu1,
         "fu2",      DoFu2,  "fu2short", DoFu2,  "mFu2", DoFu2,
         "fu3",      DoFu3,  "fu3short", DoFu3,  "mFu3", DoFu3,
-        "ppv",      DoPpv,
-        "ppvFus",   DoPpvFus,
+        "ppv",      DoPpv,      "mPpv",    DoPpv,
+        "ppvFus",   DoPpvFus,   "mPpvFus", DoPpvFus,
         "b1Ppv",    DoPpvFus,
+        "mass",     DoMass,
         "altFu1",   DoAltFu1,
         "altFu2",   DoAltFu2,
         "altFu3",   DoAltFu3,
@@ -337,15 +343,27 @@ MassBindModel(n) {
             HK_Bind(id, _ModelFire(n, fn))
     }
 
-    ; Mouse-control off means the mouse-button follow-ups stay dark. Done after
-    ; binding rather than by skipping the bind, so flipping the setting back on
-    ; only needs a reload, not a rebind.
-    if !mouseControl {
-        for slot in ["mFu1", "mFu2", "mFu3"] {
-            id := "mass." n "." slot
-            if HK_META.Has(id)
-                HK_SetState(id, "Off")
-        }
+    _MassApplyMouseControl("mass." n)
+}
+
+; Mouse-control off means the mouse-button keys stay dark. Done after binding
+; rather than by skipping the bind, so flipping the setting back on only needs a
+; reload, not a rebind.
+;
+; Shared by both binders. It used to be inline in MassBindModel and named only
+; mFu1-3, which is the shape of bug that keeps recurring here: a list of slots
+; written out by hand in one of the two places that binds them, going stale the
+; moment a slot is added. The list comes from the handler table now.
+_MassApplyMouseControl(section) {
+    global mouseControl
+    if mouseControl
+        return
+    for slot in MassSlotHandlers() {
+        if (SubStr(slot, 1, 1) != "m" || SubStr(slot, 1, 4) = "mass")
+            continue                          ; mFu1-3, mPpv, mPpvFus — not "mass"
+        id := section "." slot
+        if HK_META.Has(id)
+            HK_SetState(id, "Off")
     }
 }
 
@@ -366,6 +384,7 @@ MassBindActive() {
         if HK_META.Has(id)
             HK_Bind(id, _ActiveFire(fn))
     }
+    _MassApplyMouseControl("mass.active")
 }
 
 _ActiveFire(fn) {
@@ -377,6 +396,61 @@ _RunOnActiveModel(fn) {
         return
     _SetCurModel(n)
     fn()
+}
+
+; ── picking the active model by hand ──────────────────────────────────────────
+;  [mass.select] in hotkeys.ini. What the shared keys above follow when the screen
+;  detector cannot be trusted — see the header of core/active_model.ahk.
+;
+;  Pressing one of these does TWO things: it records the model, and it switches
+;  ModelMatch to "manual". Both, because either alone is a trap. Recording without
+;  switching leaves the detector in charge, so the key visibly does nothing and
+;  you find out by sending the wrong model's message. Switching without recording
+;  would strand you on whatever was stored last.
+MassBindSelect() {
+    global MASS_MODELS
+    HK_Bind("mass.select.next", SelectNextModel)
+    Loop MASS_MODELS {
+        id := "mass.select.m" A_Index
+        if HK_META.Has(id)
+            ; .Bind, NOT `(*) => SelectModel(n)`. A fat-arrow closure captures the
+            ; enclosing function's local BY REFERENCE, and one function body means
+            ; one `n` shared by all three lambdas — so every key would select the
+            ; last model the loop saw. .Bind copies the value at bind time.
+            HK_Bind(id, SelectModel.Bind(A_Index))
+    }
+}
+
+SelectModel(n) {
+    global MMA_CFG
+    if !SetManualModel(n) {
+        _MassToast("No model " n)
+        return
+    }
+    ; Only written when it is not already manual, so the common case is one ini
+    ; write per press rather than two.
+    if (ModelMatchMode() != "manual")
+        IniWrite("manual", MMA_CFG, "Settings", "ModelMatch")
+    _MassToast("Active model: " ModelLabel(n))
+}
+
+; Cycles over the models you actually have, not all MASS_MODELS: with ModelCount
+; at 2 a third stop would be a slot with no name and no mass, and you would find
+; that out by pressing a follow-up key into a fan's chat.
+SelectNextModel(*) {
+    global MMA_CFG, MASS_MODELS
+    count := _IniInt(MMA_CFG, "Settings", "ModelCount", MASS_MODELS)
+    if (count < 1 || count > MASS_MODELS)
+        count := MASS_MODELS
+    SelectModel(Mod(ManualModelNo(), count) + 1)
+}
+
+; The confirmation. In manual mode this toast is the only thing standing between
+; "I switched tabs" and "I sent the other model's message to this fan", so it is
+; deliberately near the cursor and deliberately not silent-on-repeat.
+_MassToast(text) {
+    ToolTip(text)
+    SetTimer(() => ToolTip(), -1400)
 }
 
 ; ── the "send the whole mass" triggers ────────────────────────────────────────

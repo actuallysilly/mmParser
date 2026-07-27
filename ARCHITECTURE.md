@@ -93,6 +93,7 @@ These are mixed together in the root today, and the git rules for them are incon
 |---|---|
 | [model_detect_test.ahk](tools/model_detect_test.ahk) | The prototype `model_detector.ahk` grew out of. Hard-codes "grey on the left = AW, right = BUT". Superseded. |
 | [discord_header_test.ahk](tools/discord_header_test.ahk) | Still useful: tunes the `[Discord]` header band that the mass-import fallback OCRs. |
+| [detector_probe.ahk](tools/detector_probe.ahk) | **Calibrates the model detector**, which cannot be calibrated by guessing — see §4.8. Put Infloww in front, press F10: it prints the colours actually in the tab strip, what the current `[Detector]` settings find, and what it would hand to OCR. Reads pixels only; never clicks or types. `--now` probes immediately, for scripted checks. |
 | `infloww ui elements/` | Gitignored. Five Python detector prototypes, the sliced element bitmaps, annotated screenshots, and the technique write-ups. Contains **real fan handles** in the screenshots — that is why it is ignored. |
 | [pinger/test_detect.py](src/services/pinger/test_detect.py) | Pinger's detection test against the reference PNGs. |
 
@@ -345,6 +346,34 @@ for migration" comment to maintain. Three constants in `hotkeys.ahk` — `HK_INI
 `HK_INI_DEFAULT`, `HK_CFG` — just become `MMA_*` names in `paths.ahk` pointing at
 `userdata/`, and `HK_CFG`'s migration path can be deleted outright.
 
+**4.8 — the model detector fails by lying, not by going quiet.** It found tabs by grouping
+columns holding *either* pill colour into runs. `InactiveColor` defaulted to `0x0D0D0D`,
+which a probe of the live strip ([detector_probe.ahk](tools/detector_probe.ahk)) found in
+**82 of 83 columns** — it is the page background, because Infloww draws inactive tabs with
+no fill at all. Every column therefore qualified, no gap ever appeared, and one run spanned
+the whole strip. `GreyTol=22` compounded it by also matching `0x3D3D3D`, a border line
+drawn across all 83 columns.
+
+Two consequences, both silent:
+
+- OCR was handed the whole strip and returned **`AW Bellarama`** — two model names in one
+  string, which then matched two slots and resolved to none.
+- The count was reported as **`tab 1 of 1`**, so positional mode answered "model 1" for
+  every tab, forever. Every shared key sent model 1's messages.
+
+Fixed in three parts. The lit pill is now grouped from **active-coloured columns only**, so
+it cannot merge with a neighbour whatever `InactiveColor` turns out to be. A run as wide as
+the region is rejected rather than OCR'd. And a tab count that collapses to one full-width
+run is reported as **`0` — "cannot count"** — not as `1`, so positional mode returns *no
+answer* and the shared keys do nothing instead of guessing.
+
+That last one is the general rule this file keeps re-learning: **a detector that cannot see
+must say so.** The cost of "no answer" is a key that does nothing. The cost of a confident
+wrong answer is one model's message in another model's chat.
+
+Calibration is still per-screen, and `detector_probe.ahk` is how you do it: it prints the
+colours actually present, what the current settings find, and what it would OCR.
+
 ### Suggested order
 
 All of it is done.
@@ -436,8 +465,41 @@ F13 three times in one process just overwrites it twice. Those become one explic
 [mass.1]       fu1=F1   fu2=F2   fu3=F3    …   ← manual. no detector needed.
 [mass.2]       fu1=F9   fu2=F10  fu3=F11   …
 [mass.3]       fu1=F6   fu2=F7   fu3=!F7   …
-[mass.active]  fu1=F13  fu2=F14  fu3=F15       ← follows the detected model
+[mass.active]  fu1=F13  fu2=F14  fu3=F15       ← follows the active model
+               mFu1=XButton2  mFu2=XButton1    ← same actions, mouse buttons
+[mass.select]  m1=^!1   m2=^!2   next=^!w      ← say which model is active
 ```
+
+### 5.1.1 The mouse buttons are shared keys, and were not
+
+`mFu1`-`mFu3` shipped under `[mass.1]`. There is one XButton1 and it is under your thumb
+whichever tab is open, so declaring it under a model means it sends **that** model's
+follow-up forever: pressing it in front of model 2 sent model 1's message to model 2's fan.
+Anything a per-model section declares must be a key you would only press *for that model*.
+A mouse button never is. They live in `[mass.active]` now.
+
+`[mass.active]` also carries the whole action set — PPV, branches, alts, the mass body —
+not just `fu1`-`fu3`. A shared set that stops at follow-ups still leaves you working out
+which numbered key owns the PPV for the model in front, which is the problem it exists to
+remove.
+
+### 5.1.2 `[mass.select]` — the third way to resolve the active model
+
+Name and position both go through the screen detector, and the detector's failure mode is
+not silence. It is a **confident wrong answer**: a scan that merges the strip into one run
+reports "tab 1 of 1" forever, and every shared key then sends model 1 whatever is on
+screen. That is what shipped — see §4.8.
+
+`ModelMatch=manual` reads no pixels. A `[mass.select]` key names the model, MMA stores it
+in `[Settings] CurrentModel`, and the shared keys follow it until you press another one.
+Pressing one also switches `ModelMatch` to `manual`, because a key labelled "active model
+= 2" that left the detector in charge would be lying about what it does.
+
+The trade is real and belongs in the open: **MMA cannot notice you changed tabs.** Switch
+model in Infloww without pressing the key and the next shared key sends the previous
+model's message. That is why the select keys show a tooltip — the confirmation is the
+safety mechanism. Name mode, when the detector can be calibrated, is still the better
+answer; manual is what makes the shared keys usable when it cannot.
 
 `[mass.active]` is precisely what `StartFuGating` is *simulating* today by flipping three
 copies on and off every 350 ms. Naming it directly buys three things:

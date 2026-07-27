@@ -152,6 +152,7 @@ global FEAT_HOTKEY_MAP := Map(
     "altFu",              "altFollowups",
     "br",                 "altFollowups",   ; branches ride the same toggle
     "mFu",                "mouseControl",
+    "mPpv",               "mouseControl",   ; mPpv and mPpvFus, same thumb
     "gui.actions",        "actionsMenu",
     "gui.quickActions",   "quickActions",
     "gui.toggleStats",    "statsOverlay",
@@ -165,9 +166,15 @@ global FEAT_HOTKEY_MAP := Map(
 
 ; Which feature owns this hotkey id, or "" when nothing does.
 ; mass.<n>.<slot> keys are matched on the SLOT, so one entry covers every model.
+;
+; "active" counts as a model here. It is not a digit, so the old \d+ pattern left
+; mass.active.altFu1 and mass.active.mFu1 matching on the FULL id — where no
+; prefix in the map can ever match, since they all start "mass." — and both keys
+; registered with their feature switched off. Turning off alt follow-ups or mouse
+; control silenced the numbered keys and left the shared ones live.
 FEAT_ForHotkey(id) {
     slot := id
-    if RegExMatch(id, "^mass\.\d+\.(.+)$", &m)
+    if RegExMatch(id, "^mass\.(?:\d+|active)\.(.+)$", &m)
         slot := m[1]
 
     best := "", bestLen := 0

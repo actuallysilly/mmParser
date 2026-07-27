@@ -237,16 +237,32 @@ KEBAB_BG_SAT_MAX = 8
 
 VK_ESCAPE = 0x1B
 
+# This file's own paths.ahk. MMA_ROOT is derived from THIS file's location, for
+# the same reason the AHK side stopped using A_ScriptDir: a path relative to the
+# working directory or to the wrong ancestor does not raise, it just resolves to
+# a file that is not there — and configparser on a missing file returns an empty
+# config, so the listener starts, binds nothing, and says "nothing bound".
+#
+# That is not hypothetical. `parent.parent` was right while this lived one level
+# down; after the restructure it points at src/services/, so this read
+# src/services/hotkeys.ini (absent) and wrote src/services/error_log.txt (a
+# second, orphaned log). Every [automation] key — hopKebabs, unsendLast,
+# countSales — was silently dead.
+#
+#   src/services/automation/automation.py  ->  parents[3] is the repo root
+MMA_ROOT = Path(__file__).resolve().parents[3]
+MMA_USERDATA = MMA_ROOT / "userdata"
+
 # Hotkeys live in MMA's one ini, same as every AHK key — never in this file.
 # See hotkeys.ahk: the [automation] ids are DECLARED there (so the Hotkeys GUI
 # lists, edits and conflict-checks them) but deliberately not HK_Bind'd, because
 # this listener owns them.
-HOTKEYS_INI = Path(__file__).resolve().parent.parent / "hotkeys.ini"
+HOTKEYS_INI = MMA_USERDATA / "hotkeys.ini"
 HOTKEY_SECTION = "automation"
 POLL_S = 0.03
 
 # Background listener plumbing. MMA's own log, format and single-instance rule.
-MMA_LOG = Path(__file__).resolve().parent.parent / "error_log.txt"
+MMA_LOG = MMA_USERDATA / "error_log.txt"
 LOG_TAG = "automation.py"
 MUTEX_NAME = "Global\\MMA.automation.listener"
 STOP_EVENT_NAME = "Global\\MMA.automation.listener.stop"

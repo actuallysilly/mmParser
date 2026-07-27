@@ -37,3 +37,10 @@ src/services/automation/debug/
 
 # The packaged installer — a build output, rebuilt by tools/installer/build.bat.
 tools/installer/dist/
+
+# A log that should never have existed. automation.py resolved MMA_LOG one folder
+# short of the repo root, so instead of appending to userdata/error_log.txt like
+# everything else it created a second log HERE — and that one was tracked, so
+# every run of the listener showed up as a commit-able change. The path is fixed;
+# this entry is in case an old copy of the script is still running somewhere.
+src/services/error_log.txt

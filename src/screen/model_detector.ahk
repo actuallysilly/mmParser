@@ -143,8 +143,26 @@ Poll() {
 ; Counting tabs this way rather than dividing X by a tab pitch is deliberate: the
 ; strip SHRINKS its pitch as tabs are added (~170px at 4 tabs, ~130px at 13), so
 ; any fixed-pitch arithmetic is right until the day you open one more chat.
+; The two colours are scanned into two SEPARATE column lists, and that separation
+; is the fix for the bug this whole file exists to avoid.
+;
+; They used to share one list: a column counted if it held EITHER colour, and the
+; runs — including the one handed to OCR — were grouped from that. It works only
+; while the inactive colour really is the inactive pill. On Infloww it is not:
+; a probe of the live strip (tools\detector_probe.ahk) found InactiveColor's
+; 0x0D0D0D present in 82 of 83 columns, because that is the PAGE BACKGROUND —
+; inactive tabs there are drawn with no fill at all. Every column therefore
+; qualified, no gap ever appeared, and the single resulting run spanned the whole
+; strip. OCR read that rectangle and returned both names as one string,
+; "AW Bellarama", which is the exact value sitting in detector_status.ini.
+;
+; Grouping the LIT pill from active-coloured columns alone cannot merge with a
+; neighbour, whatever the inactive colour turns out to be. The inactive colour is
+; now used for one thing only — counting tabs for positional mode — and when it
+; cannot do that it says so instead of guessing.
 ScanPills(x1, y1, x2, y2, activeRGB, inactiveRGB, tol, step, gap) {
-    cols := []                    ; [{x, act, any}] per column that holds a pill
+    actCols := []                 ; columns holding the ACTIVE pill colour
+    anyCols := []                 ; columns holding either pill colour
     x := x1
     while (x <= x2) {
         act := 0, any := 0
@@ -157,19 +175,69 @@ ScanPills(x1, y1, x2, y2, activeRGB, inactiveRGB, tol, step, gap) {
                 any++
             y += step
         }
+        if (act)
+            actCols.Push({x: x, act: act})
         if (any)
-            cols.Push({x: x, act: act, any: any})
+            anyCols.Push({x: x, act: act})
         x += step
     }
     none := {count: 0, avgX: -1, minX: 0, maxX: -1, index: 0, total: 0}
-    if !cols.Length
+    if !actCols.Length
         return none
 
+    ; ── the lit pill ──────────────────────────────────────────────────────────
+    actRuns := _GroupRuns(actCols, gap)
+    best := 0
+    for i, r in actRuns
+        if (!best || r.act > actRuns[best].act)
+            best := i
+    if (!best || !actRuns[best].act)
+        return none
+    b := actRuns[best]
+
+    ; A "pill" as wide as the region is not a pill. That is a tolerance loose
+    ; enough to match something drawn straight across the strip — the same probe
+    ; found 0x3D3D3D, a border line present in all 83 columns, sitting 17 apart
+    ; from the pill colour and therefore inside the default GreyTol of 22. OCR of
+    ; that rectangle is every tab at once, so refuse rather than name a model
+    ; from it.
+    if (b.maxX - b.minX >= (x2 - x1) * 0.8)
+        return none
+
+    ; ── how many tabs, and which one is lit ───────────────────────────────────
+    tabRuns := _GroupRuns(anyCols, gap)
+    total   := tabRuns.Length
+    ; Same degenerate test, for the count. One run covering the whole strip means
+    ; the inactive colour is matching the background, so the tabs are not
+    ; separable and the honest answer is "I cannot count them" — NOT "there is
+    ; one tab", which is what made positional mode resolve to model 1 forever
+    ; however many models were open.
+    if (total = 1 && tabRuns[1].maxX - tabRuns[1].minX >= (x2 - x1) * 0.8)
+        total := 0
+
+    avgX  := Round(b.sumX / b.act)
+    index := 0
+    if total {
+        for i, r in tabRuns {
+            if (avgX >= r.minX && avgX <= r.maxX) {
+                index := i
+                break
+            }
+        }
+    }
+    return {count: b.act, avgX: avgX, minX: b.minX, maxX: b.maxX,
+            index: index, total: total}
+}
+
+; Columns -> contiguous runs, breaking wherever the gap exceeds `gap` px.
+_GroupRuns(cols, gap) {
     runs := []
+    if !cols.Length
+        return runs
     run  := {act: 0, sumX: 0, minX: cols[1].x, maxX: cols[1].x}
     prev := cols[1].x
     for c in cols {
-        if (c.x - prev > gap) {                     ; gap -> that tab ended
+        if (c.x - prev > gap) {
             runs.Push(run)
             run := {act: 0, sumX: 0, minX: c.x, maxX: c.x}
         }
@@ -179,16 +247,7 @@ ScanPills(x1, y1, x2, y2, activeRGB, inactiveRGB, tol, step, gap) {
         prev := c.x
     }
     runs.Push(run)
-
-    best := 0
-    for i, r in runs
-        if (!best || r.act > runs[best].act)
-            best := i
-    if (!best || !runs[best].act)
-        return none                                  ; tabs, but none of them lit
-    b := runs[best]
-    return {count: b.act, avgX: Round(b.sumX / b.act), minX: b.minX, maxX: b.maxX,
-            index: best, total: runs.Length}
+    return runs
 }
 
 ; OCR a rectangle to a single cleaned line; "" on any failure.

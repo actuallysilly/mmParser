@@ -15,9 +15,10 @@
 ;  What this file does, in order:
 ;    1. loads the mass library,
 ;    2. binds each model's explicit keys      — [mass.1] [mass.2] [mass.3],
-;    3. binds the one shared, detector-following set — [mass.active],
-;    4. binds the navigation/chat keys that used to be stranded in 1_mass.ahk,
-;    5. reloads the library when the GUI says it changed.
+;    3. binds the one shared set that follows the active model — [mass.active],
+;    4. binds the keys that SAY which model that is — [mass.select],
+;    5. binds the navigation/chat keys that used to be stranded in 1_mass.ahk,
+;    6. reloads the library when the GUI says it changed.
 ;
 ;  It does NOT include sequences.ahk. 1_mass.ahk did, while sequences.ahk was ALSO
 ;  its own entry in StartupScripts — so seq.openFarmolijer, seq.copyDiscordMsg and
@@ -52,5 +53,6 @@ OnMessage(MMA_MSG_MASSES_CHANGED, ReloadMasses)
 Loop MASS_MODELS
     MassBindModel(A_Index)
 MassBindActive()
+MassBindSelect()
 
 NavBind()

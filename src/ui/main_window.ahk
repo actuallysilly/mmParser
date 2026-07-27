@@ -1170,8 +1170,11 @@ CheckUnmappedModel() {
     global _askedNames, _unmapGui
     if (IsObject(_unmapGui) && WinExist("ahk_id " _unmapGui.Hwnd))
         return                                   ; already asking
-    if (ModelMatchMode() = "position")
-        return                               ; positional mode has no names to ask about
+    ; Only name mode has names to ask about. Positional reads an index, manual
+    ; reads your keypress — in both, a prompt about an OCR'd string would be
+    ; asking you to map something nothing will ever look up.
+    if (ModelMatchMode() != "name")
+        return
     st := ActiveModelStatus()
     if (st.state != "unknown")
         return
@@ -1483,14 +1486,38 @@ OpenSettings(*) {
     ; OCR and nothing to map. The cost is that it trusts the ORDER: the list below
     ; has to match the strip left-to-right, and dragging a tab moves the keys with
     ; the position rather than the person.
+    ;
+    ; MANUALLY is the third option, and it reads no pixels at all: you press a
+    ; [mass.select] key, MMA remembers, done. It exists because the first two fail
+    ; the same way — not by going quiet, but by reporting the wrong tab with
+    ; total confidence, at which point every shared key sends the wrong model's
+    ; message to a real fan. When the detector cannot read your strip, this is
+    ; what keeps the shared keys usable.
     sg.Add("Text", "x" (PAD + 18) " y" y " w120", "Decide which model by:")
     rdName := sg.Add("Radio", "x" (PAD + 150) " y" y " Group", "name (OCR)")
     rdPos  := sg.Add("Radio", "x" (PAD + 250) " y" y, "tab position")
-    if (StrLower(Trim(IniRead(CFG_FILE, "Settings", "ModelMatch", "name"))) = "position")
+    rdMan  := sg.Add("Radio", "x" (PAD + 360) " y" y, "I pick")
+    _mm := StrLower(Trim(IniRead(CFG_FILE, "Settings", "ModelMatch", "name")))
+    if (_mm = "position")
         rdPos.Value := true
+    else if (_mm = "manual")
+        rdMan.Value := true
     else
         rdName.Value := true
     y += 26
+
+    ; Which model "I pick" currently means. Editable here as well as by key, so
+    ; the setting is never something you can only see by pressing something.
+    sg.Add("Text", "x" (PAD + 18) " y" y " w120", "I pick — active model:")
+    _manItems := []
+    Loop modelCount
+        _manItems.Push(ModelLabel(A_Index))
+    ddlManual := sg.Add("DropDownList", "x" (PAD + 150) " y" (y - 4) " w160", _manItems)
+    _manCur := ManualModelNo()
+    ddlManual.Value := (_manCur >= 1 && _manCur <= modelCount) ? _manCur : 1
+    sg.Add("Text", "x" (PAD + 320) " y" y " w200",
+           "switch with " HK_Key("mass.select.next"))
+    y += 30
 
     ; Tab order, left to right. One dropdown per position; identity by default.
     sg.Add("Text", "x" (PAD + 18) " y" y " w120", "Tab order (left→right):")
@@ -1662,9 +1689,12 @@ OpenSettings(*) {
         else
             StopDetector()
 
-        IniWrite(rdPos.Value ? "position" : "name", CFG_FILE, "Settings", "ModelMatch")
+        IniWrite(rdPos.Value ? "position" : rdMan.Value ? "manual" : "name",
+                 CFG_FILE, "Settings", "ModelMatch")
         for _i, _dd in ddlPos
             IniWrite(_dd.Value ? _dd.Value : _i, CFG_FILE, "Positional", "Pos" _i)
+        if ddlManual.Value
+            SetManualModel(ddlManual.Value)
 
         statsOverlay := chkStats.Value ? 1 : 0
         IniWrite(statsOverlay, CFG_FILE, "Settings", "StatsOverlay")

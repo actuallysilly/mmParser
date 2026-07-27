@@ -11,12 +11,22 @@
 ;  GUI has no business owning, which is the same reason crashlog.ahk was split
 ;  out — so calling these from there was a load-time 'nonexistent function'.
 ;
-;  Two ways to decide, chosen in Settings (ARCHITECTURE.md §5.1):
+;  Three ways to decide, chosen in Settings (ARCHITECTURE.md §5.1):
 ;    name      OCR the tab and match it against [ActiveMap]/[ModelAliases]/the
 ;              model's display name. Survives reordering your tabs; depends on
 ;              names that differ across MMA, Infloww and Discord.
 ;    position  Use only the tab's place in the strip, mapped through [Positional].
 ;              No OCR, nothing to map; depends on the ORDER staying put.
+;    manual    You say so, with a key, and MMA remembers until you say otherwise.
+;              Reads no pixels at all.
+;
+;  The first two both go through the screen detector, so they share its failure
+;  modes — and when it is wrong it is CONFIDENTLY wrong: a scan that groups two
+;  tabs into one run reports "tab 1 of 1" forever, and every shared key then sends
+;  model 1's messages no matter which model you are looking at. That is not
+;  hypothetical, it is what detector_status.ini said while this was written.
+;  Manual mode exists so the shared keys are usable while the detector is not
+;  trustworthy on your screen: one keypress per model switch, never a guess.
 ; ═══════════════════════════════════════════════════════════════════════════════
 
 ; ── which model is on screen ──────────────────────────────────────────────────
@@ -39,12 +49,61 @@ ReadActiveModel() {
 ; detector no OCR at all — it falls out of the same pixel scan that finds the lit
 ; pill — which is why positional mode still works when OCR reads nothing.
 ReadActiveIndex() {
-    return Integer(IniRead(MMA_DETECTOR, "detector", "active_index", "0"))
+    return _IniInt(MMA_DETECTOR, "detector", "active_index", 0)
 }
 
-; "name" (default) or "position". See ActiveModelStatus.
+; An ini value as a number, or the default when it is not one.
+;
+; NOT Integer(IniRead(...)). IniRead hands back whatever is in the file and
+; Integer() THROWS on anything that is not a number — and every caller of this is
+; reached from #HotIf, which AHK re-evaluates on each keystroke. So one hand-typed
+; `CurrentModel=one`, or a half-written file, is not a wrong answer: it is an
+; error dialog per key you press, which is how the MASS_MODELS bug behaved.
+; A setting MMA cannot read should degrade to the default, loudly in the log if
+; anywhere, never into the typing path.
+_IniInt(file, section, key, default) {
+    v := Trim(IniRead(file, section, key, default))
+    return IsInteger(v) ? Integer(v) : default
+}
+
+; "name" (default), "position" or "manual". See ActiveModelStatus.
 ModelMatchMode() {
     return StrLower(Trim(IniRead(MMA_CFG, "Settings", "ModelMatch", "name")))
+}
+
+; ── manual mode ───────────────────────────────────────────────────────────────
+; The model you last SAID you were on. Written by the mass.select* keys and by
+; Settings; read on every press, so a switch takes effect immediately with no
+; broadcast and no restart.
+;
+; Stored in the cfg rather than a global because the engine and the GUI are
+; separate processes and both need the answer — the same reason the detector
+; writes an ini instead of posting a message.
+ManualModelNo() {
+    global MASS_MODELS
+    n := _IniInt(MMA_CFG, "Settings", "CurrentModel", 1)
+    return (n >= 1 && n <= MASS_MODELS) ? n : 1
+}
+
+SetManualModel(n) {
+    global MASS_MODELS
+    if (n < 1 || n > MASS_MODELS)
+        return false
+    IniWrite(n, MMA_CFG, "Settings", "CurrentModel")
+    return true
+}
+
+; What Settings calls this model. "" when the slot is unnamed — callers show the
+; number in that case, so an unnamed slot is still selectable.
+ModelDisplayName(n) {
+    return Trim(IniRead(MMA_CFG, "Settings", "Model" n, ""))
+}
+
+; "2 — Rama", or just "2" for an unnamed slot. One label, so the toast the engine
+; shows and the dropdown the GUI shows never drift apart.
+ModelLabel(n) {
+    disp := ModelDisplayName(n)
+    return disp = "" ? String(n) : n " — " disp
 }
 
 ; Tab position -> model slot, as ordered in Settings. Identity by default, so
@@ -53,7 +112,7 @@ PositionalSlot(pos) {
     global MASS_MODELS
     if (pos < 1)
         return 0
-    n := Integer(IniRead(MMA_CFG, "Positional", "Pos" pos, pos))
+    n := _IniInt(MMA_CFG, "Positional", "Pos" pos, pos)
     return (n >= 1 && n <= MASS_MODELS) ? n : 0
 }
 
@@ -104,6 +163,23 @@ ActiveModelNo() {
 ActiveModelStatus() {
     global MASS_MODELS, MMA_CFG
 
+    mode := ModelMatchMode()
+
+    ; ── manual mode ───────────────────────────────────────────────────────────
+    ; No screen reading of any kind. You pressed a key that said "model 2", so the
+    ; answer is model 2 until you press another one. Always "ok": there is no such
+    ; thing as an unrecognised name or an ambiguous scan here, which is the whole
+    ; point — the shared keys work on a machine where the detector does not.
+    ;
+    ; The cost, stated plainly: MMA cannot notice you switched tabs. Change model
+    ; in Infloww without pressing the select key and the next shared key sends the
+    ; previous model's message. That is why the select keys show a toast — the
+    ; confirmation IS the safety mechanism.
+    if (mode = "manual") {
+        n := ManualModelNo()
+        return {no: n, name: ModelDisplayName(n), state: "ok"}
+    }
+
     ; ── positional mode ───────────────────────────────────────────────────────
     ; Names are the hard part of this: MMA, Infloww and Discord each have their
     ; own, they drift, and OCR has to read them off a 13px pill. Position needs
@@ -115,7 +191,7 @@ ActiveModelStatus() {
     ; your tabs. Drag one, or open them in a different order tomorrow, and the
     ; keys follow the position rather than the person. Name mode survives that;
     ; this does not. It is the fallback for when names cannot be made to work.
-    if (ModelMatchMode() = "position") {
+    if (mode = "position") {
         pos := ReadActiveIndex()
         if (pos < 1)
             return {no: 0, name: "", state: "none"}
@@ -205,10 +281,11 @@ IsAskableModelName(name) {
 ;  Two ways to say "send the whole mass", and which is live depends on whether
 ;  the detector is running. See ARCHITECTURE.md §5.2.
 ;
-;  DETECTOR ON  — "automatic mode". The screen says which model is in front, so
-;    bare __mm is unambiguous: it means "this one".
+;  MODEL KNOWN — the detector resolved a model, or you selected one by hand in
+;    manual mode. Either way something authoritative says which model is in
+;    front, so bare __mm is unambiguous: it means "this one".
 ;
-;  DETECTOR OFF — "manual mode". Nothing on screen says which model you mean, so
+;  MODEL UNKNOWN — no answer from anywhere. Nothing says which model you mean, so
 ;    bare __mm has no correct answer. v1 guessed and always fired model 1, which
 ;    meant a manual model-2 user typing __mm did not get nothing — they got MODEL
 ;    1's mass, sent to their fan. A wrong mass is worse than no expansion, so bare
