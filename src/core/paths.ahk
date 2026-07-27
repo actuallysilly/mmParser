@@ -33,7 +33,6 @@ global MMA_ROOT := MMA_ParentDir(MMA_ParentDir(MMA_ParentDir(A_LineFile)))
 ; ─── Folders ──────────────────────────────────────────────────────────────────
 global MMA_SRC       := MMA_ROOT "\src"
 global MMA_CONTENT   := MMA_ROOT "\content"        ; hand-written AHK message files
-global MMA_MODELS    := MMA_CONTENT "\models"      ; the mass data scripts
 global MMA_ACC_DIR   := MMA_CONTENT "\accounts"    ; per-account hotstring files
 global MMA_USERDATA  := MMA_ROOT "\userdata"       ; settings, messages, logs
 global MMA_ASSETS    := MMA_ROOT "\assets"
@@ -65,24 +64,12 @@ global MMA_SRC_GUI       := MMA_SRC "\ui\main_window.ahk"
 
 ; ─── Resolvers ────────────────────────────────────────────────────────────────
 
-; The model data script for model n.  Was  SCRIPT_DIR "\" n "_mass.ahk"  written
-; out by hand in five places in the GUI, plus four hard-coded three-element
-; arrays; every one of them silently pointed at the wrong folder after the move.
-MMA_ModelFile(n) {
-    return MMA_MODELS "\" n "_mass.ahk"
-}
-
-; Every model file, in order. Use this instead of writing the list again.
-MMA_ModelFiles() {
-    out := []
-    loop 3
-        out.Push(MMA_ModelFile(A_Index))
-    return out
-}
-
-; The BARE NAMES, for the GUI's fname-taking helpers (ApplyFile, LoadFile, …) and
-; for anything the cfg round-trips. Replaces four copies of the same three-element
-; array literal, which is three chances to update two of them.
+; The model IDENTIFIERS the GUI's tabs pass around — "2_mass.ahk" and friends.
+;
+; These are labels, not paths: no such file exists any more. ApplyFile/LoadFile
+; call ModelNoOf() on them to get a slot number and read the mass out of
+; userdata\masses.json. The old MMA_ModelFile/MMA_ModelFiles pointed into
+; content\models\, which is deleted, and are gone with it.
 MMA_ModelNames() {
     out := []
     loop 3
@@ -98,11 +85,18 @@ MMA_ModelNames() {
 ; means the cfg format does not change, so nobody's settings break.
 ;
 ; Order matters only if two folders hold the same filename, which nothing does.
+; The folder list must cover every folder a StartupScripts entry can name. It is
+; the one place that knows, and a folder missing from it fails the worst possible
+; way: ResolveScriptPath returns "", LaunchStartupScripts skips the entry, and the
+; script simply never starts — no error, no dialog, nothing in the log. That is
+; how "engine.ahk" silently did not run after it moved to src\mass\.
 MMA_ScriptPath(name) {
+    global MMA_ACC_DIR, MMA_CONTENT, MMA_SRC
     if InStr(name, "\") || InStr(name, "/")     ; already a path — leave it alone
         return name
-    for dir in [MMA_MODELS, MMA_ACC_DIR, MMA_CONTENT,
-                MMA_SRC "\sequences", MMA_SRC "\screen", MMA_SRC "\ui", MMA_SRC] {
+    for dir in [MMA_ACC_DIR, MMA_CONTENT,
+                MMA_SRC "\mass", MMA_SRC "\chat", MMA_SRC "\sequences",
+                MMA_SRC "\screen", MMA_SRC "\ui", MMA_SRC] {
         p := dir "\" name
         if FileExist(p)
             return p

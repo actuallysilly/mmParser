@@ -16,6 +16,14 @@
 
 Out(s) => FileAppend(s "`n", "*")
 
+; content\models\ is deleted, so paths.ahk no longer knows about it — this tool is
+; the only thing left that does, and it owns the path itself rather than keeping a
+; dead constant alive in paths.ahk for one caller. Point it at a checkout of the
+; LatestWorking branch if you ever need to re-run this.
+MMA_ModelFile(n) {
+    return MMA_CONTENT "\models\" n "_mass.ahk"
+}
+
 if FileExist(MMA_MASSES) {
     Out("masses.json already exists — refusing to overwrite.")
     Out("Delete it first if you really mean to re-migrate.")

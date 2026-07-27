@@ -1321,9 +1321,11 @@ OpenSettings(*) {
     ; running the file by hand — and the day that stopped, the import "broke".
     if FileExist(MMA_SRC_SEQUENCES)
         _eligible.Push("sequences.ahk")
-    for _mf in MMA_ModelNames()
-        if FileExist(MMA_ScriptPath(_mf))
-            _eligible.Push(_mf)
+    ; The mass engine — one entry where there used to be 1/2/3_mass.ahk. Missing
+    ; from this list it cannot be ticked at all, and since it is the script that
+    ; carries every mass hotkey, that reads as "MMA does nothing".
+    if FileExist(MMA_SRC "\mass\engine.ahk")
+        _eligible.Push("engine.ahk")
     Loop Files, ACC_DIR "\*.ahk"
         _eligible.Push(A_LoopFileName)
     _sx := PAD

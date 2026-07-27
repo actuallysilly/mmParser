@@ -95,8 +95,10 @@ SndFuEditable(parts*) {
 ; One process now serves all three models (ARCHITECTURE.md §5), so "the current
 ; model" is no longer a per-process constant — it is whichever model owns the key
 ; you just pressed. Every mass handler is bound through _ModelFire below, which
-; sets this immediately before running the handler.
-global MASS_CUR_MODEL := 1
+; sets it immediately before running the handler.
+;
+; MASS_CUR_MODEL itself is declared in core/utils.ahk, because sndFu there reads
+; it too and utils is included by scripts that never load this file.
 
 ; Wrap a handler so it announces which model it belongs to. This is what lets
 ; mass.1.fu1 (F1) and mass.2.fu1 (F9) be two live keys in ONE process, with no

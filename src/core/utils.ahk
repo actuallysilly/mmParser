@@ -2,13 +2,26 @@
 #Include "paths.ahk"
 #Include "hotkeys.ahk"
 #Include "../hotstrings/overloads.ahk"
+; ActiveModelNo below needs MASS_MODELS. utils.ahk is included by scripts that
+; never load the mass engine (content\general.ahk, the account files), so the
+; dependency has to be stated here rather than assumed from whoever included us.
+#Include "../mass/store.ahk"
 
 SetKeyDelay(-1, -1)
 
 ; config
 WaitTime     := 400
 WaitTimeLong := 1500
-modelFileNo  := 0
+
+; Which model the key that is currently firing belongs to. Declared HERE, not in
+; mass/runtime.ahk, because sndFu below reads it and utils.ahk is also included by
+; scripts that never load the mass engine (content\general.ahk, the account
+; files) — an unset global would throw the moment one of them touched it.
+;
+; runtime.ahk's _SetCurModel is the only writer. This replaced `modelFileNo`,
+; which MassInit(n) used to set once per process back when each model WAS a
+; process; with one engine there is no per-process answer, only a per-keypress one.
+global MASS_CUR_MODEL := 1
 
 
 Afk := false
@@ -42,7 +55,13 @@ ReadActiveModel() {
 ; An UNNAMED slot auto-claims the current name, lowest-numbered first, so a fresh
 ; install wires itself up the first time you use it instead of needing the map
 ; filled in by hand.
+; The `global` line is not decoration. AHK v2 makes every name inside a function
+; LOCAL unless declared, so `Loop MASS_MODELS` without it reads an unset local and
+; THROWS. And this function is reached from #HotIf, which AHK re-evaluates as you
+; type — so one missing declaration is not one error dialog, it is one per
+; keystroke. That is exactly what it did.
 ActiveModelNo() {
+    global MASS_MODELS, MMA_CFG
     active := ReadActiveModel()
     if (active = "")
         return 0
@@ -534,14 +553,18 @@ AltIntercept(m, group, viaCtrl := false, editable := false) {
 }
 
 sndFu(group, parts*) {
-    global waitTime, modelFileNo
+    global waitTime, MASS_CUR_MODEL
     nonEmpty := []
     for p in parts
         if Trim(p) != ""
             nonEmpty.Push(p)
     if !nonEmpty.Length
         return
-    fuSingle := IniRead(MMA_CFG, "Settings", "FuSingle_" modelFileNo "_" group, "0") = "1"
+    ; FuSingle_<model>_<group>. The model number must be the one whose key was
+    ; pressed — read from the wrong one and IniRead just returns its default, so
+    ; the setting appears to do nothing and nothing says why.
+    fuSingle := IniRead(MMA_CFG, "Settings",
+                        "FuSingle_" MASS_CUR_MODEL "_" group, "0") = "1"
     if !fuSingle {
         for p in nonEmpty
             snd(p)

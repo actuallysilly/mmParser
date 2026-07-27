@@ -101,14 +101,16 @@ OpenModesWindow(*) {
 ApplyModeToRunning() {
     global SCRIPT_DIR, modelCount
 
-    ; The model scripts first, because they carry the hotkeys and the whole point
-    ; of a mode change is which keys exist. Close whatever is up, then start from
+    ; The mass engine first, because it carries the hotkeys and the whole point of
+    ; a mode change is which keys exist. Close it if it is up, then start it from
     ; scratch: a script that was NOT running (as after Easy) still has to be
     ; started, which is exactly what the old path missed.
-    Loop modelCount {
-        p := MMA_ModelFile(A_Index)
-        if !FileExist(p)
-            continue
+    ;
+    ; One engine now, not a loop over three model scripts — and those files no
+    ; longer exist, so the loop had quietly become a no-op that left the old keys
+    ; bound after switching modes.
+    p := MMA_SRC "\mass\engine.ahk"
+    if FileExist(p) {
         if WinExist(p " ahk_class AutoHotkey") {
             try ProcessClose(WinGetPID(p " ahk_class AutoHotkey"))
             Sleep 150
