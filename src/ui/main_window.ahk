@@ -1600,10 +1600,18 @@ OpenSettings(*) {
             for i, c in t.counts
                 px .= (px = "" ? "" : "  ") "tab" i ":" c
 
+            ; The focus note is about the KEYS, not about this reading, and it has
+            ; to say so. Written as a bare "(Infloww not in front)" it sat next to
+            ; a perfectly correct "tab 2 → Rama" and read as a contradiction —
+            ; which it is, unless you already know this line deliberately ignores
+            ; focus so that it can be read at all. You are looking at Settings, so
+            ; Infloww is never focused while you look at it.
             lblDetLive.Value := px
                               . "   |   " (t.index < 1 ? "no tab lit" : "tab " t.index)
                               . "   |   " (slot ? "→ " ModelLabel(slot) : "→ no answer")
-                              . (DetectorWindowUp(cfg) ? "" : "   (Infloww not in front)")
+                              . (DetectorWindowUp(cfg)
+                                 ? "   ✓ keys live"
+                                 : "   · reading is live; keys wait for Infloww focus")
         } catch {
             SetTimer(PaintDetectorLive, 0)
         }
