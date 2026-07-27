@@ -345,20 +345,16 @@ for migration" comment to maintain. Three constants in `hotkeys.ahk` — `HK_INI
 
 ### Suggested order
 
-1. Delete §1.7. Fix `.gitignore`: `userdata/*` + `!userdata/hotkeys.default.ini`, and
-   `git rm --cached mass_gui.cfg` to close the leak in §1.3.
-2. Fix 4.1 (anchors → `MMA_ROOT`) and 4.4 (enumerate) — **no files move yet.** Everything
-   still works; verify that first.
-3. Add `MMA_ScriptPath` (4.2). 4.3 (`MMA_ModelFile`) is superseded by §5 — the model files
-   stop existing, so don't build a resolver for them.
-4. Do §5: collapse the three model processes into one engine and one data file. This is
-   the largest change and the one that deletes the most code; do it while the tree is
-   still flat, so the diff is about the merge and not about paths.
-5. Move `content/` and `userdata/`. Test.
-6. Move `src/`. Test.
-7. Move `tools/` and `docs/` — these are inert, so they go last and can't break anything.
-8. Update README's "File structure" block, which is already wrong today, and point
-   `installer/MMA.iss` at the new layout.
+1. ~~Delete junk; fix `.gitignore` (`userdata/*` + `!userdata/hotkeys.default.ini`);
+   untrack `mass_gui.cfg`.~~ **done**
+2. ~~Fix 4.1 (anchors → `MMA_ROOT`), 4.3 (`MMA_ModelFile`), 4.4 (enumerate).~~ **done**
+3. ~~Add `MMA_ScriptPath` (4.2). No migration shim needed (4.7).~~ **done**
+4. ~~Move `content/`, `userdata/`, `src/`, `tools/`, `docs/`; update README and
+   `installer/MMA.iss`.~~ **done** — all 19 entry points validate clean.
+5. **Next: §5 proper.** Collapse the three model processes into one engine and move the
+   mass data out of `.ahk` source into `userdata/masses.json`. §5.1's hotkey scheme and
+   §5.2's `__mm` decision are already in place, so this step is now only about the
+   process merge and the data format — not about paths, and not about key semantics.
 
 ---
 
@@ -466,21 +462,28 @@ The win was never fewer lines. It is: **one process instead of three, no polling
 cross-process arbitration, honest conflict reporting, and manual mode that keeps working
 whether the detector is on or off.**
 
-### 5.2 One genuinely open question: what does `__mm` do in manual mode?
+### 5.2 `__mm` in manual mode — DECIDED, and shipped
 
 `__mm` is a single hotstring, not a per-model key, so it has no model to read off the
-keypress. Today `UniversalSendActive` answers this with "detector off → only model 1",
-which means **a manual model-2 user cannot use `__mm` at all.**
+keypress. v1's `UniversalSendActive` answered "detector off → model 1", unconditionally.
+That did not mean a manual model-2 user got *nothing* when they typed `__mm` — it meant
+they got **model 1's mass, sent to their fan.** A wrong mass is worse than no expansion.
 
-One process makes this fixable but does not decide it. Three options:
+**Resolution: manual mode disables bare `__mm` and answers with `__mm1` / `__mm2` /
+`__mm3` instead.** The number selects the model because you said so, which is the same
+contract the manual F-keys already use (§5.1): the thing you type IS the model selector.
 
-- a `DefaultModel` cfg key (simplest; matches how `DefaultFu3` already works);
-- last-used model, set by whichever `mass.N.*` key you pressed most recently (no config,
-  and reads correctly in a manual workflow);
-- three triggers — `__mm1` / `__mm2` / `__mm3` — which is the most explicit and the most
-  consistent with the manual scheme, at the cost of one more thing to type.
+The two schemes are mutually exclusive **by construction, not by policy**, and the reason
+is the hotstring options. `__mm` is declared `:*X:`, and `*` means *fire as soon as the
+trigger is typed, no ending character* — so while `__mm` is live it expands the instant
+you type the second `m`, and the `1` in `__mm1` is never reached. `NumberedSendActive`
+therefore gates on the same condition that silences `__mm`. Registering the numbered
+triggers in automatic mode anyway would leave three hotstrings that look bound, appear in
+the manager, and can never fire; gating them keeps *what is registered* equal to *what can
+happen*.
 
-Worth deciding before `src/mass/engine.ahk` is written, not after.
+Both gates live in [utils.ahk](src/core/utils.ahk); the triggers are at the bottom of
+[runtime.ahk](src/mass/runtime.ahk).
 
 ### What else collapses
 
