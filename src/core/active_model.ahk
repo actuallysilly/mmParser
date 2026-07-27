@@ -52,6 +52,13 @@ ReadActiveIndex() {
     return _IniInt(MMA_DETECTOR, "detector", "active_index", 0)
 }
 
+; Where the lit pill is, in screen px, or -1 for "no pill on screen". This is the
+; measurement positional mode actually runs on — see PositionalSlotByX for why
+; the tab INDEX above turned out to be unobtainable on this UI.
+ReadActiveX() {
+    return _IniInt(MMA_DETECTOR, "detector", "active_x", -1)
+}
+
 ; An ini value as a number, or the default when it is not one.
 ;
 ; NOT Integer(IniRead(...)). IniRead hands back whatever is in the file and
@@ -107,13 +114,119 @@ ModelLabel(n) {
 }
 
 ; Tab position -> model slot, as ordered in Settings. Identity by default, so
-; leftmost tab = model 1 until you say otherwise.
+; leftmost tab = model 1 until you say otherwise. Only used when the detector
+; managed to COUNT the tabs; see PositionalSlotByX for the usual path.
 PositionalSlot(pos) {
     global MASS_MODELS
     if (pos < 1)
         return 0
     n := _IniInt(MMA_CFG, "Positional", "Pos" pos, pos)
     return (n >= 1 && n <= MASS_MODELS) ? n : 0
+}
+
+; ── positions you taught it ───────────────────────────────────────────────────
+;  Where the lit pill sits, in screen px, for each model — learned, not computed.
+;
+;  Counting tabs by colour cannot work on this UI and no amount of tuning fixes
+;  it: inactive tabs are drawn in the page background (`#0d0d0d` measured in 82 of
+;  83 columns), so the tabs you are NOT on are literally not there to count. Every
+;  scheme that starts "find all the tabs, then take the Nth" is dead on arrival.
+;
+;  A POSITION needs only the tab you ARE on, which is the one thing the scan finds
+;  reliably. So MMA remembers where each model's tab sits and matches the nearest.
+;  Nothing is assumed about tab pitch, tab count, or where the strip starts — all
+;  three were guesses, and the pitch in particular changes as tabs are added.
+;
+;  Taught by pressing a mass.select key while Infloww is in front: saying "this is
+;  model 2" is exactly the observation needed, so calibration is a side effect of
+;  the thing you would do anyway.
+
+; Where model n's tab was when you last taught it, or -1 for "never taught".
+LearnedSlotX(n) {
+    return _IniInt(MMA_CFG, "Positional", "X" n, -1)
+}
+
+LearnSlotX(n, x) {
+    global MASS_MODELS
+    if (n < 1 || n > MASS_MODELS || x < 0)
+        return false
+    IniWrite(x, MMA_CFG, "Positional", "X" n)
+    return true
+}
+
+; How far off a learned position may be and still count as that tab.
+;
+; Half the closest spacing between two taught positions: any more and a pill
+; could be nearer the wrong neighbour. Derived rather than configured, because the
+; right value depends entirely on how wide YOUR tabs are, which is the thing being
+; measured. Falls back to 60 with fewer than two taught — enough to absorb the few
+; px the centroid shifts as a badge appears, nowhere near a whole tab.
+PositionTol() {
+    global MASS_MODELS
+    xs := []
+    Loop MASS_MODELS {
+        x := LearnedSlotX(A_Index)
+        if (x >= 0)
+            xs.Push(x)
+    }
+    if (xs.Length < 2)
+        return 60
+    minGap := 0
+    for i, a in xs
+        for j, b in xs
+            if (i != j) {
+                d := Abs(a - b)
+                if (!minGap || d < minGap)
+                    minGap := d
+            }
+    return Max(20, minGap // 2)
+}
+
+; The model whose taught position is nearest `x`, or 0 if none is near enough.
+;
+; 0 is a real answer here, not a failure to try: a pill that is not near anything
+; you taught means the strip moved, a tab opened to the left, or you are looking
+; at something else entirely. Guessing the closest regardless is how one model's
+; message lands in another model's chat.
+PositionalSlotByX(x) {
+    global MASS_MODELS
+    if (x < 0)
+        return 0
+    tol   := PositionTol()
+    best  := 0, bestD := 0
+    secD  := 0
+    Loop MASS_MODELS {
+        lx := LearnedSlotX(A_Index)
+        if (lx < 0)
+            continue
+        d := Abs(lx - x)
+        if (!best || d < bestD) {
+            secD := best ? bestD : 0
+            best := A_Index, bestD := d
+        } else if (!secD || d < secD)
+            secD := d
+    }
+    if (!best || bestD > tol)
+        return 0
+    ; A winner that is barely closer than the runner-up is a coin flip, and this
+    ; is not a coin worth flipping — the two outcomes are two different people's
+    ; fans. 15px is far below any real tab width and far above the few px the
+    ; centroid shifts when an unread badge appears, so this only fires when the
+    ; pill genuinely sits between two taught tabs: a tab was added, removed or
+    ; dragged, and the taught positions no longer describe the strip. Re-teach.
+    if (secD && secD - bestD < 15)
+        return 0
+    return best
+}
+
+; Has this been taught anything at all? Drives the "you have not calibrated yet"
+; message rather than a silent dead key.
+AnyLearnedPositions() {
+    global MASS_MODELS
+    Loop MASS_MODELS
+        if (LearnedSlotX(A_Index) >= 0)
+            return true
+    return false
 }
 
 ; Which model slot the detector is pointing at, or 0 for "no answer" — detector
@@ -156,6 +269,8 @@ ActiveModelNo() {
 ;   "ambiguous"  the text matches more than one slot, so it is almost certainly
 ;                two tabs read as one. Never ask about this: the answer would put
 ;                a string containing both models' names into one model's map.
+;   "unlearned"  positional mode, a pill on screen, and nothing taught yet — the
+;                one state a message can fix. Press a mass.select key on each tab.
 ;
 ; Deliberately read-only. This runs from #HotIf, i.e. as you type, so it must not
 ; write the ini and must never open a dialog. The GUI owns the asking; see
@@ -192,9 +307,25 @@ ActiveModelStatus() {
     ; keys follow the position rather than the person. Name mode survives that;
     ; this does not. It is the fallback for when names cannot be made to work.
     if (mode = "position") {
+        x := ReadActiveX()
+        if (x < 0)
+            return {no: 0, name: "", state: "none"}   ; no pill: Infloww not in front
+
+        ; Taught positions first — the only scheme that works when inactive tabs
+        ; are invisible to a colour scan, which on Infloww they are.
+        if AnyLearnedPositions() {
+            slot := PositionalSlotByX(x)
+            if (slot)
+                return {no: slot, name: "x " x, state: "ok"}
+            return {no: 0, name: "x " x, state: "unknown"}
+        }
+
+        ; Nothing taught yet. Fall back to the tab INDEX, which needs the detector
+        ; to have separated the tabs — it usually cannot, and says so with a count
+        ; of 0 rather than pretending there is one tab.
         pos := ReadActiveIndex()
         if (pos < 1)
-            return {no: 0, name: "", state: "none"}
+            return {no: 0, name: "x " x, state: "unlearned"}
         slot := PositionalSlot(pos)
         if (!slot)
             return {no: 0, name: "tab " pos, state: "unknown"}

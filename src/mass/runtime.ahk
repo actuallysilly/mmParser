@@ -427,11 +427,36 @@ SelectModel(n) {
         _MassToast("No model " n)
         return
     }
-    ; Only written when it is not already manual, so the common case is one ini
-    ; write per press rather than two.
-    if (ModelMatchMode() != "manual")
+
+    ; ── the press also TEACHES positional mode ────────────────────────────────
+    ; You are looking at a tab and telling MMA which model it is. That is exactly
+    ; the observation positional mode needs and cannot make on its own, so record
+    ; where the lit pill is while you are saying it. Two models = two presses, on
+    ; the tabs you were going to click anyway, and auto-detection is calibrated.
+    ;
+    ; Only when the detector actually sees a pill (x >= 0), which it only does
+    ; while Infloww is in front — so pressing the key at your IDE cannot overwrite
+    ; a good position with a meaningless one.
+    learned := false
+    x := ReadActiveX()
+    if (x >= 0)
+        learned := LearnSlotX(n, x)
+
+    mode := ModelMatchMode()
+    if (mode = "position") {
+        ; Already in positional mode: do not drop out of it just because you
+        ; nudged the model by hand. Teaching is the point of the press here.
+        _MassToast(learned ? "Learned: " ModelLabel(n) " is at x " x
+                           : "Active model: " ModelLabel(n)
+                             "`n(Infloww not in front — position not learned)")
+        return
+    }
+    ; Any other mode becomes manual, because a key labelled "active model = 2"
+    ; that left the detector in charge would be lying about what it does.
+    if (mode != "manual")
         IniWrite("manual", MMA_CFG, "Settings", "ModelMatch")
-    _MassToast("Active model: " ModelLabel(n))
+    _MassToast("Active model: " ModelLabel(n)
+             . (learned ? "`n(position x " x " learned)" : ""))
 }
 
 ; Cycles over the models you actually have, not all MASS_MODELS: with ModelCount

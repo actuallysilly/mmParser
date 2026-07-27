@@ -1482,10 +1482,12 @@ OpenSettings(*) {
     ; you reordering your tabs, but only once the names are mapped, and the names
     ; are the fragile part — MMA, Infloww and Discord each have their own.
     ;
-    ; By POSITION it uses nothing but the tab's place in the strip, so there is no
-    ; OCR and nothing to map. The cost is that it trusts the ORDER: the list below
-    ; has to match the strip left-to-right, and dragging a tab moves the keys with
-    ; the position rather than the person.
+    ; By POSITION it uses where the lit tab SITS, matched against positions you
+    ; taught it — click a tab, press that model's key, done. No OCR, no names, and
+    ; nothing assumed about tab width or how many tabs there are. Counting tabs was
+    ; tried and cannot work here: inactive tabs are drawn in the page background,
+    ; so the tabs you are not on are not visible to a colour scan at all. The cost
+    ; is that it trusts positions staying put — reorder your tabs and you re-teach.
     ;
     ; MANUALLY is the third option, and it reads no pixels at all: you press a
     ; [mass.select] key, MMA remembers, done. It exists because the first two fail
@@ -1495,8 +1497,8 @@ OpenSettings(*) {
     ; what keeps the shared keys usable.
     sg.Add("Text", "x" (PAD + 18) " y" y " w120", "Decide which model by:")
     rdName := sg.Add("Radio", "x" (PAD + 150) " y" y " Group", "name (OCR)")
-    rdPos  := sg.Add("Radio", "x" (PAD + 250) " y" y, "tab position")
-    rdMan  := sg.Add("Radio", "x" (PAD + 360) " y" y, "I pick")
+    rdPos  := sg.Add("Radio", "x" (PAD + 250) " y" y, "tab position (taught)")
+    rdMan  := sg.Add("Radio", "x" (PAD + 400) " y" y, "I pick")
     _mm := StrLower(Trim(IniRead(CFG_FILE, "Settings", "ModelMatch", "name")))
     if (_mm = "position")
         rdPos.Value := true
@@ -1519,7 +1521,10 @@ OpenSettings(*) {
            "switch with " HK_Key("mass.select.next"))
     y += 30
 
-    ; Tab order, left to right. One dropdown per position; identity by default.
+    ; Tab order, left to right. Only consulted when nothing has been TAUGHT (see
+    ; below) and the detector managed to separate the tabs, which on this UI it
+    ; usually cannot. Kept because it costs nothing and is right on a theme where
+    ; inactive tabs are visible.
     sg.Add("Text", "x" (PAD + 18) " y" y " w120", "Tab order (left→right):")
     ddlPos := []
     _posItems := []
@@ -1533,6 +1538,56 @@ OpenSettings(*) {
         ddlPos.Push(_dd)
     }
     y += 30
+
+    ; ── the live readout ──────────────────────────────────────────────────────
+    ; Everything above is a setting you cannot check by looking at it, which is
+    ; why the detector went wrong for so long without saying so — it reported a
+    ; confident "model 1" and nothing on screen disagreed. This line shows what it
+    ; sees RIGHT NOW: where the lit pill is, which positions have been taught, and
+    ; which model that resolves to. If it says "no pill", the colours or the region
+    ; are wrong and no amount of tab-order fiddling will help.
+    sg.Add("Text", "x" (PAD + 18) " y" y " w120", "Detector sees:")
+    lblDetLive := sg.Add("Text", "x" (PAD + 150) " y" y " w" (CW - PAD - 160), "")
+    y += 22
+    sg.Add("Text", "x" (PAD + 18) " y" y " w" (CW - PAD - 30) " cGray",
+           "Teach it: click a model's tab in Infloww, then press that model's key "
+         . "(" HK_Key("mass.select.m1") " / " HK_Key("mass.select.m2") "). "
+         . "Positions are learned in any mode.")
+    y += 20
+    btnForget := sg.Add("Button", "x" (PAD + 150) " y" y " w150 h24", "Forget taught positions")
+    btnForget.OnEvent("Click", ForgetPositions)
+    y += 32
+
+    PaintDetectorLive()
+    SetTimer(PaintDetectorLive, 400)
+    sg.OnEvent("Close", (*) => SetTimer(PaintDetectorLive, 0))
+
+    PaintDetectorLive() {
+        if !WinExist("ahk_id " sg.Hwnd) {
+            SetTimer(PaintDetectorLive, 0)
+            return
+        }
+        x    := ReadActiveX()
+        st   := ActiveModelStatus()
+        seen := (x < 0) ? "no pill on screen" : "pill at x " x
+        taught := ""
+        Loop modelCount {
+            lx := LearnedSlotX(A_Index)
+            if (lx >= 0)
+                taught .= (taught = "" ? "" : "  ") A_Index "→" lx
+        }
+        lblDetLive.Value := seen
+                          . "   |   taught: " (taught = "" ? "none yet" : taught)
+                          . "   |   " (st.no ? "model " ModelLabel(st.no) : st.state)
+    }
+
+    ForgetPositions(*) {
+        if MsgBox("Forget every taught tab position?", "Model detection", 0x24) != "Yes"
+            return
+        Loop modelCount
+            try IniDelete(CFG_FILE, "Positional", "X" A_Index)
+        PaintDetectorLive()
+    }
     ; The key, not the hotkey id: "gui.toggleStats" told you nothing about which
     ; keys to press, and it was the longer of the two labels that wrapped.
     chkStats := sg.Add("Checkbox", "x" PAD " y" y " w" LBL_W,

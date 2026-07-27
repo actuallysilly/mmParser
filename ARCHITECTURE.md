@@ -495,6 +495,35 @@ in `[Settings] CurrentModel`, and the shared keys follow it until you press anot
 Pressing one also switches `ModelMatch` to `manual`, because a key labelled "active model
 = 2" that left the detector in charge would be lying about what it does.
 
+### 5.1.3 Positional mode is TAUGHT, not counted
+
+Counting tabs cannot work here and no tuning fixes it. Inactive tabs are drawn in the page
+background (`#0d0d0d`, measured in 82 of 83 columns), so **the tabs you are not on are not
+there to count.** Every scheme shaped "find all the tabs, take the Nth" — including the
+fixed 150px pitch from the UI element map — is either dead on arrival or right until the
+day the strip shifts.
+
+A *position* needs only the tab you ARE on, which is the one thing the scan finds reliably.
+So MMA remembers where each model's pill sits (`[Positional] X<n>`, screen px) and matches
+the nearest. Nothing is assumed about pitch, tab count, or where the strip starts.
+
+**It is taught by the `[mass.select]` keys.** Pressing "active model = 2" while looking at a
+tab *is* the observation positional mode cannot make for itself, so it records the lit
+pill's x at the same time. Two models, two presses, on the tabs you were going to click
+anyway. Learning happens in every mode, so you can work in manual and switch to positional
+once the positions are in.
+
+Two refusals keep it honest, both returning "no answer" rather than a guess:
+
+- Further than half the closest taught spacing from every taught position — the strip moved
+  or a tab was inserted.
+- Nearer to one taught position than another by less than 15px — the pill is *between* two
+  tabs, so answering either is a coin flip between two people's fans.
+
+The trade, stated: it trusts positions staying put. Insert a tab to the left of your models
+and every pill shifts by one tab width, which is indistinguishable from having switched
+tabs. Re-teach after reordering.
+
 The trade is real and belongs in the open: **MMA cannot notice you changed tabs.** Switch
 model in Infloww without pressing the key and the next shared key sends the previous
 model's message. That is why the select keys show a tooltip — the confirmation is the
