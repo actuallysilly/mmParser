@@ -6,29 +6,34 @@ webgui(abandoned)
 __pycache__/
 *.pyc
 
-# Runtime artefacts — machine state and logs, not source.
-error_log.txt
-detector_status.ini
-
-# THIS REMOTE IS PUBLIC. Everything below contains other people's data:
-# fan display names, their messages, and purchase amounts. Screenshots of the
-# live Infloww UI in particular show real handles in the tab strip and chat.
-# The code needs none of it at runtime — only slice_elements.py and
-# `automation.py --image` read these, and both are pointed at a file by hand.
+# ─── userdata\ — settings, messages and logs ──────────────────────────────────
+# Everything the user or this machine owns now lives in one folder, so this is
+# one rule instead of the six scattered ones v1 had. It also closes a real leak:
+# mass_gui.cfg used to be TRACKED, which put the maintainer's model names,
+# calibrated OCR rects and DefaultFu3 message body into every clone.
 #
-# The listener itself is NOT in here: it is runtime, so it lives in automation/
-# and is tracked. Only the screenshots and the one-off detector prototypes stay.
-infloww ui elements/
+# NOTE THE  /*  — without it the negation below is dead. Git never descends into
+# an excluded DIRECTORY, so "userdata/" + "!userdata/hotkeys.default.ini" would
+# silently stop tracking the default, and nobody would notice until a fresh clone
+# had no keys to seed from. Excluding the CONTENTS is what makes !… reachable.
+userdata/*
+!userdata/hotkeys.default.ini
 
-# Screenshots automation.py drops while debugging a miss. Live UI, so same rule
-# as above — the code recreates the folder on demand.
-automation/debug/
+# ─── other people's data ──────────────────────────────────────────────────────
+# THIS REMOTE IS PUBLIC. Everything below contains other people's data: fan
+# display names, their messages, and purchase amounts. Screenshots of the live
+# Infloww UI in particular show real handles in the tab strip and chat. The code
+# needs none of it at runtime — only slice_elements.py and `automation.py --image`
+# read these, and both are pointed at a file by hand.
+#
+# The listener itself is NOT in here: it is runtime, so it lives in
+# src/services/automation/ and is tracked. Only the screenshots and the one-off
+# detector prototypes stay out.
+tools/ui-research/
 
-# The USER's hotkeys. hotkeys.default.ini is what ships; HK_Init creates this from
-# it on first run and merges in anything a later release adds, without touching a
-# key that already has a value. Tracking it would put the maintainer's personal
-# bindings into every fresh clone, and the updater used to overwrite everyone's.
-hotkeys.ini
+# Screenshots automation.py drops while debugging a miss. Live UI, so same rule.
+# The code recreates the folder on demand.
+src/services/automation/debug/
 
-# Message content. Kept local; MMA regenerates it as you archive.
-mass_archive.txt
+# The packaged installer — a build output, rebuilt by tools/installer/build.bat.
+tools/installer/dist/

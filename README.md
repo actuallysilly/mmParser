@@ -6,13 +6,13 @@ AHK v2 GUI for managing message templates and sending them instantly via hotkeys
 
 - **[AutoHotkey v2](https://www.autohotkey.com/)** — required, and the only hard requirement.
 - **Python 3.9+** — *optional*, and only for two things:
-  - `automation/automation.py`, which serves the `[automation]` hotkeys (hop kebabs,
+  - `src/services/automation/automation.py`, which serves the `[automation]` hotkeys (hop kebabs,
     unsend last, count sales). Needs `numpy`; count-sales also needs `pillow`.
-  - `pinger/pinger.pyw`, which beeps when a fan tab goes unread. Needs `numpy` and
+  - `src/services/pinger/pinger.pyw`, which beeps when a fan tab goes unread. Needs `numpy` and
     `opencv-python`.
 
 Everything else is pure AutoHotkey — masses, follow-ups, alts, branches, PPV, the GUI,
-the archive, the parser, the hotkey registry, and even the OCR: `lib/OCR.ahk` drives the
+the archive, the parser, the hotkey registry, and even the OCR: `src/vendor/OCR.ahk` drives the
 OCR engine already built into Windows, so model detection and the stats overlay need
 nothing installed. **Without Python, MMA runs fine; you just lose those two features.**
 
@@ -24,7 +24,7 @@ Run **`install.bat`**. It:
    alone, never silently upgraded;
 2. asks whether you want the optional Python features, and installs Python plus
    `numpy`, `pillow` and `opencv-python` if you say yes;
-3. **if you say no, switches those features off in `mass_gui.cfg`** so MMA does not try
+3. **if you say no, switches those features off in `userdata/mass_gui.cfg`** so MMA does not try
    to start a Python it hasn't got;
 4. creates a desktop shortcut.
 
@@ -34,8 +34,8 @@ install.bat -WithPython     assume yes to the optional Python features
 install.bat -NoPython       assume no
 ```
 
-Prefer to do it by hand? Install AutoHotkey v2, run `createShortcut.bat`, and launch
-`mass_gui.ahk`. If you have no Python, turn **Automation listener** off in Settings.
+Prefer to do it by hand? Install AutoHotkey v2, run `tools/install/createShortcut.bat`, and launch
+`MMA.ahk`. If you have no Python, turn **Automation listener** off in Settings.
 
 ## Features
 
@@ -65,20 +65,35 @@ Open via the **Settings** button:
 |---|---|
 | Model 1 / 2 | Display names for each account |
 | Hotkeys | Remap F-key bindings per model |
-| Wipe Temp | Clear `acc/TEMP.ahk` and reload it |
+| Wipe Temp | Clear `content/accounts/TEMP.ahk` and reload it |
 | Check Update | Manually trigger the updater |
 
 ## File structure
 
 ```
-mass_gui.ahk      — main GUI
-1_mass.ahk        — model 1 messages + hotkeys
-2_mass.ahk        — model 2 messages + hotkeys
-general.ahk       — always-on shared hotstrings
-utils.ahk         — shared helpers (snd, afk, etc.)
-updater.ahk       — handles downloading updates
-acc/              — per-account script files
-mass_gui.cfg      — saved settings (not synced)
+MMA.ahk        — the one thing you double-click
+src/           — code. not yours to edit.
+  core/          paths, the hotkey registry, modes, utils, subprocess supervisor
+  ui/            every window: main, hotkeys, hotstrings, actions, modes
+  mass/          the mass feature: runtime, paste-format parser, archive
+  hotstrings/    the message index and the overload registry
+  screen/        anything that reads pixels: OCR grab, model detector, stats
+  sequences/     recorded click/type macros, and the recorder
+  services/      the two optional Python background processes
+  vendor/        third party (OCR.ahk)
+content/       — YOUR MESSAGES. hand-written AHK, nothing generated.
+  models/        1/2/3_mass.ahk — the mass data
+  general.ahk    always-on shared hotstrings
+  accounts/      per-account hotstring files
+userdata/      — every setting, message and log. gitignored.
+tools/         — dev rigs, the installer, UI research
+docs/          — the paste format and design notes
 ```
 
-> Do not change the folder structure. Add new per-account scripts inside `/acc`.
+Add new per-account scripts inside `content/accounts/` — they are picked up
+automatically; there is no list to update.
+
+**Every path resolves from one anchor**, `src/core/paths.ahk`. Nothing else in the
+repo hard-codes a folder, so moving a file means editing that one file. See
+[ARCHITECTURE.md](ARCHITECTURE.md) for what each file does and why the tree is
+shaped this way.
