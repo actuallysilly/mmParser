@@ -1559,9 +1559,18 @@ OpenSettings(*) {
          . "). High beep = set, low beep = refused, tooltip says why.")
     y += 32
 
+    ; The HWND as a plain INTEGER, captured while the window is alive.
+    ;
+    ; The guard below cannot ask `sg` whether `sg` still exists: Save, Wipe Temp
+    ; and Mode… all call sg.Destroy() WITHOUT firing Close, and touching a
+    ; destroyed Gui object throws. So the timer would fire 400ms after you saved
+    ; Settings and keep throwing, once per tick. PaintPingerStatus beside this one
+    ; already carries a comment about exactly that trap; this is it again.
+    ;
+    ; A number survives the window it came from, so WinExist can answer honestly.
+    _detHwnd := sg.Hwnd
     PaintDetectorLive()
     SetTimer(PaintDetectorLive, 400)
-    sg.OnEvent("Close", (*) => SetTimer(PaintDetectorLive, 0))
 
     ; Scans the strip ITSELF, and deliberately does NOT require Infloww to be the
     ; active window — because reading this line means MMA is the active window, so
@@ -1571,26 +1580,33 @@ OpenSettings(*) {
     ; Safe to skip the gate here precisely because it only DISPLAYS. The resolver
     ; keeps the gate, since it acts on the answer.
     PaintDetectorLive() {
-        if !WinExist("ahk_id " sg.Hwnd) {
+        if !WinExist("ahk_id " _detHwnd) {
             SetTimer(PaintDetectorLive, 0)
             return
         }
-        ; The same cheap slot sampling the hotkeys use, NOT a full band sweep —
-        ; a sweep is ~1000 GDI GetPixel calls and would make this 400ms timer
-        ; stutter the whole Settings window. It also means what you read here is
-        ; literally what the keys will decide, rather than a second opinion.
-        cfg  := DetectorCfg()
-        t    := TabLitIndex(cfg)
-        slot := (t.index >= 1) ? TabModel(t.index) : 0
+        ; Belt as well as braces: the window can be destroyed BETWEEN the check
+        ; above and the control write below, and a throw on a timer thread is a
+        ; dialog every 400ms rather than one. Same shape as PaintPingerStatus.
+        try {
+            ; The same cheap slot sampling the hotkeys use, NOT a full band sweep —
+            ; a sweep is ~1000 GDI GetPixel calls and would make this 400ms timer
+            ; stutter the whole Settings window. It also means what you read here
+            ; is literally what the keys will decide, not a second opinion.
+            cfg  := DetectorCfg()
+            t    := TabLitIndex(cfg)
+            slot := (t.index >= 1) ? TabModel(t.index) : 0
 
-        px := ""
-        for i, c in t.counts
-            px .= (px = "" ? "" : "  ") "tab" i ":" c
+            px := ""
+            for i, c in t.counts
+                px .= (px = "" ? "" : "  ") "tab" i ":" c
 
-        lblDetLive.Value := px
-                          . "   |   " (t.index < 1 ? "no tab lit" : "tab " t.index)
-                          . "   |   " (slot ? "→ " ModelLabel(slot) : "→ no answer")
-                          . (DetectorWindowUp(cfg) ? "" : "   (Infloww not in front)")
+            lblDetLive.Value := px
+                              . "   |   " (t.index < 1 ? "no tab lit" : "tab " t.index)
+                              . "   |   " (slot ? "→ " ModelLabel(slot) : "→ no answer")
+                              . (DetectorWindowUp(cfg) ? "" : "   (Infloww not in front)")
+        } catch {
+            SetTimer(PaintDetectorLive, 0)
+        }
     }
     ; The key, not the hotkey id: "gui.toggleStats" told you nothing about which
     ; keys to press, and it was the longer of the two labels that wrapped.
@@ -1601,7 +1617,7 @@ OpenSettings(*) {
     y += 36
 
     PaintPingerStatus()
-    sg.OnEvent("Close", StopPingerStatusTimer)
+    sg.OnEvent("Close", StopSettingsTimers)
     SetTimer(PaintPingerStatus, 1500)
 
     ; ── Buttons ────────────────────────────────────────────────────────────────
@@ -1653,8 +1669,14 @@ OpenSettings(*) {
         }
     }
 
-    StopPingerStatusTimer(*) {
+    ; Both of Settings' repeating timers. Every path that closes this window has
+    ; to stop every timer it started, and "every" is why this is one function
+    ; rather than a line per timer at each call site — the detector readout was
+    ; added with its own stop wired only to Close, which Save and Wipe Temp do not
+    ; fire.
+    StopSettingsTimers(*) {
         SetTimer(PaintPingerStatus, 0)
+        SetTimer(PaintDetectorLive, 0)
     }
 
     SaveCfg(*) {
@@ -1762,7 +1784,7 @@ OpenSettings(*) {
         else
             StopStatsOverlay()
 
-        StopPingerStatusTimer()
+        StopSettingsTimers()
         sg.Destroy()
 
         if newCount != modelCount {
