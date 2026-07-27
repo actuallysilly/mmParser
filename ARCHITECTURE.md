@@ -551,6 +551,42 @@ is more than half the winner (one pill straddling two slots, i.e. `TabPitch` is 
 Verified live: pill at x116 spanning 28–184 — 156px, matching the 150 pitch — resolving
 to tab 1, model 1, with OCR reading `AW` alone rather than `AW Bellarama`.
 
+### 5.1.4 Mixed platforms — some models are somewhere MMA cannot see
+
+Infloww has a tab strip the detector reads. Fansly is a different interface with nothing
+calibrated for it, and there is no reason to assume every site a model works will ever
+have a detector. So the platform is **per model**, in `[Settings] Platform<n>`:
+
+| value | meaning |
+|---|---|
+| `infloww` (default) | the detector answers for this model |
+| `manual` | nothing on screen identifies it — you say which model it is |
+
+The numbered keys never needed this: `F1`-`F3` mean model 1 wherever you are. What needed
+it is the **shared** set — the side mouse buttons — which follow "the active model" and
+therefore had no answer off Infloww.
+
+Resolution becomes:
+
+| situation | answer |
+|---|---|
+| Infloww focused, a tab lit | that tab's model |
+| Infloww focused, no tab lit | **nothing** — a real detection failure, do not guess |
+| Infloww not focused, picked model is `manual` | that model |
+| Infloww not focused, picked model is `infloww` | **nothing** |
+
+That last row is the whole reason the flag exists rather than a blanket "fall back to the
+last manual pick". Applied to an Infloww model, the fallback would turn a detection
+failure into the wrong model's message, silently — the exact failure mode this area keeps
+producing. Applied only to models marked invisible to the detector, it is not a guess at
+all: it is the only thing they could mean.
+
+Switching back to Infloww needs no keypress; the window being focused is the signal.
+
+`SelectModel` also branches on it: for a `manual` model the press means "this is the model
+now" and nothing else. Letting it reach `TeachPosition` would map whatever Infloww tab
+happened to be lit to a Fansly model and quietly reroute that tab's sends.
+
 ### 5.2 `__mm` in manual mode — DECIDED, and shipped
 
 `__mm` is a single hotstring, not a per-model key, so it has no model to read off the

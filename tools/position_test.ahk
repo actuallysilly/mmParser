@@ -38,11 +38,14 @@ Ck(name, got, want) {
 
 _savedMode  := IniRead(MMA_CFG, "Settings", "ModelMatch", "name")
 _savedOrder := []
-Loop MASS_MODELS
+_savedPlat  := []
+Loop MASS_MODELS {
     _savedOrder.Push(IniRead(MMA_CFG, "Positional", "Pos" A_Index, ""))
+    _savedPlat.Push(IniRead(MMA_CFG, "Settings", "Platform" A_Index, ""))
+}
 
 Restore() {
-    global _savedMode, _savedOrder
+    global _savedMode, _savedOrder, _savedPlat
     try IniWrite(_savedMode, MMA_CFG, "Settings", "ModelMatch")
     ; Braces are load-bearing: `if X` / `try …` / `else` does not parse in AHK v2 —
     ; the try swallows the statement and the else has nothing to attach to.
@@ -51,6 +54,11 @@ Restore() {
             try IniDelete(MMA_CFG, "Positional", "Pos" A_Index)
         } else {
             try IniWrite(_savedOrder[A_Index], MMA_CFG, "Positional", "Pos" A_Index)
+        }
+        if (_savedPlat[A_Index] = "") {
+            try IniDelete(MMA_CFG, "Settings", "Platform" A_Index)
+        } else {
+            try IniWrite(_savedPlat[A_Index], MMA_CFG, "Settings", "Platform" A_Index)
         }
     }
 }
@@ -144,6 +152,89 @@ IniWrite(99, MMA_CFG, "Positional", "Pos1")
 Ck("stored 99 -> no model", TabModel(1), 0)
 IniWrite("banana", MMA_CFG, "Positional", "Pos1")
 Ck("stored garbage -> falls back", TabModel(1), 1)   ; default for Pos1 is 1
+
+
+; ── mixed platforms: OF detected, Fansly manual ──────────────────────────────
+; The fallback exists so the SHARED keys (side mouse buttons) work on a site the
+; detector cannot read. It must never fire for a model the detector was supposed
+; to see — there, "no answer" is a real failure and guessing sends the wrong
+; model's message to a real fan.
+Loop MASS_MODELS
+    try IniDelete(MMA_CFG, "Settings", "Platform" A_Index)
+Ck("default platform is infloww", ModelPlatform(1), "infloww")
+Ck("default is not manual",       IsManualPlatform(1), 0)
+
+Ck("set manual",  SetModelPlatform(3, "manual"), 1)
+Ck("reads manual", ModelPlatform(3), "manual")
+Ck("IsManual 3",   IsManualPlatform(3), 1)
+Ck("2 still infloww", IsManualPlatform(2), 0)
+Ck("garbage value -> infloww", (SetModelPlatform(2, "wat"), ModelPlatform(2)), "infloww")
+Ck("set slot 0 refused",  SetModelPlatform(0, "manual"), 0)
+Ck("set slot 99 refused", SetModelPlatform(99, "manual"), 0)
+
+; The fallback is gated on the SELECTED model's platform, not on any model being
+; manual. Selecting an Infloww model must give 0 even while a manual one exists.
+SetManualModel(3)
+Ck("manual model falls back",  ManualFallbackModel(), 3)
+SetManualModel(1)
+Ck("infloww model does NOT",   ManualFallbackModel(), 0)
+SetManualModel(2)
+Ck("other infloww model does not", ManualFallbackModel(), 0)
+
+; Case insensitivity, because this is hand-editable in the cfg.
+SetModelPlatform(3, "MANUAL")
+Ck("case insensitive", IsManualPlatform(3), 1)
+SetManualModel(3)
+Ck("fallback still 3", ManualFallbackModel(), 3)
+
+
+; ── mixed mode end to end, through the resolver ──────────────────────────────
+; Calls the UNCACHED resolver: _PositionalStatus caches for 250ms so #HotIf does
+; not rescan per keystroke, which would make these assertions depend on timing.
+;
+; WinMatch is pointed at a window that cannot exist, so "Infloww is not in front"
+; is deterministic rather than a fact about whatever is focused while the test
+; runs. Restored below.
+_savedWin := IniRead(MMA_CFG, "Detector", "WinMatch", "")
+IniWrite("«no such window»", MMA_CFG, "Detector", "WinMatch")
+IniWrite("position", MMA_CFG, "Settings", "ModelMatch")
+
+SetModelPlatform(3, "manual")
+SetModelPlatform(1, "infloww")
+SetModelPlatform(2, "infloww")
+
+; On Fansly (Infloww not focused) with the Fansly model picked: the shared keys
+; must resolve to it. This is the whole feature.
+SetManualModel(3)
+st := _PositionalStatusUncached(DetectorCfg())
+Ck("mixed: manual model resolves", st.no, 3)
+Ck("mixed: state ok",              st.state, "ok")
+
+; Same situation, but an INFLOWW model is selected. The detector was supposed to
+; answer for that one and did not, so the answer is nothing — not a guess.
+SetManualModel(1)
+st := _PositionalStatusUncached(DetectorCfg())
+Ck("mixed: infloww model does not fall back", st.no, 0)
+Ck("mixed: state none",                       st.state, "none")
+
+; With no manual platforms at all, behaviour is exactly what it was before.
+SetModelPlatform(3, "infloww")
+SetManualModel(3)
+st := _PositionalStatusUncached(DetectorCfg())
+Ck("no manual platforms -> no answer", st.no, 0)
+
+; And the __mm gating follows: a resolvable model means bare __mm is live.
+SetModelPlatform(3, "manual")
+SetManualModel(3)
+_AM_CACHE_T := 0                       ; bust the cache so this reads fresh
+Ck("mixed: __mm live",      UniversalSendActive(), 1)
+Ck("mixed: __mm3 not live", NumberedSendActive(3), 0)
+
+if (_savedWin = "") {
+    try IniDelete(MMA_CFG, "Detector", "WinMatch")
+} else {
+    IniWrite(_savedWin, MMA_CFG, "Detector", "WinMatch")
+}
 
 ; ── manual mode is untouched by any of this ──────────────────────────────────
 IniWrite("manual", MMA_CFG, "Settings", "ModelMatch")

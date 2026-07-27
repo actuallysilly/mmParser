@@ -429,6 +429,22 @@ SelectModel(n) {
     }
 
     mode := ModelMatchMode()
+
+    ; A model on a platform the detector cannot see has no tab index to record,
+    ; and trying would be actively destructive: TeachPosition maps whatever
+    ; Infloww tab happens to be lit to this model, so pressing the Fansly model's
+    ; key with Infloww behind would file a Fansly model under an Infloww tab and
+    ; quietly reroute that tab's sends.
+    ;
+    ; For these, the press means exactly what it says and nothing more: this is
+    ; the model now. ActiveModelStatus picks it up whenever Infloww is not in
+    ; front — see ManualFallbackModel.
+    if IsManualPlatform(n) {
+        SoundBeep(880, 90)
+        _MassToast("Active model: " ModelLabel(n) "   (manual — not on Infloww)")
+        return
+    }
+
     if (mode = "position") {
         TeachPosition(n)
         return

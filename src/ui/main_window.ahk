@@ -1329,6 +1329,29 @@ OpenSettings(*) {
     ed2 := sg.Add("Edit", "x" (PAD+264) " y" y " w118", model2Name)
     sg.Add("Text", "x" (PAD+392) " y" (y+3) " w62 Right", "Model 3:")
     ed3 := sg.Add("Edit", "x" (PAD+460) " y" y " w118", model3Name)
+    y += 28
+
+    ; ── which platform each model lives on ────────────────────────────────────
+    ; Infloww has a tab strip the detector can read. Fansly is a different
+    ; interface with nothing calibrated for it, and no reason to expect there
+    ; ever will be for every site you work.
+    ;
+    ; Marking a model "manual" does two things: the shared keys fall back to it
+    ; whenever Infloww is not in front (so your side buttons work on the other
+    ; site), and its select key stops trying to record a tab position it does not
+    ; have. Both are why this is per model rather than one global switch — a mixed
+    ; setup is the normal case, not an edge case.
+    sg.Add("Text", "x" PAD " y" (y+3) " w62 Right", "Platform:")
+    _platItems := ["Infloww (detect)", "Manual (Fansly, …)"]
+    ddlPlat := []
+    Loop 3 {
+        _pi := A_Index
+        _dp := sg.Add("DropDownList",
+                      "x" (PAD + 68 + (_pi - 1) * 196) " y" y " w118", _platItems)
+        _dp.Value := IsManualPlatform(_pi) ? 2 : 1
+        _dp.Enabled := (_pi <= modelCount)
+        ddlPlat.Push(_dp)
+    }
     y += 30
 
     sg.Add("Text", "x" PAD " y" (y+3) " w62 Right", "Wait time:")
@@ -1600,18 +1623,27 @@ OpenSettings(*) {
             for i, c in t.counts
                 px .= (px = "" ? "" : "  ") "tab" i ":" c
 
-            ; The focus note is about the KEYS, not about this reading, and it has
-            ; to say so. Written as a bare "(Infloww not in front)" it sat next to
-            ; a perfectly correct "tab 2 → Rama" and read as a contradiction —
-            ; which it is, unless you already know this line deliberately ignores
-            ; focus so that it can be read at all. You are looking at Settings, so
-            ; Infloww is never focused while you look at it.
+            ; Two different facts, and conflating them is what made this line read
+            ; as a contradiction ("tab 2 → Rama (Infloww not in front)"):
+            ;
+            ;   what the STRIP shows  — this readout ignores focus deliberately,
+            ;                           or you could never read it: looking at
+            ;                           Settings means Infloww is not focused.
+            ;   what the KEYS will do — asked of the resolver itself, so it
+            ;                           accounts for the focus gate AND the
+            ;                           mixed-platform fallback. Nothing here
+            ;                           re-derives that; a second opinion is how
+            ;                           a readout starts disagreeing with reality.
+            st := ActiveModelStatus()
             lblDetLive.Value := px
                               . "   |   " (t.index < 1 ? "no tab lit" : "tab " t.index)
                               . "   |   " (slot ? "→ " ModelLabel(slot) : "→ no answer")
-                              . (DetectorWindowUp(cfg)
-                                 ? "   ✓ keys live"
-                                 : "   · reading is live; keys wait for Infloww focus")
+                              . "   |   keys → "
+                              . (st.no
+                                 ? ModelLabel(st.no)
+                                     (DetectorWindowUp(cfg) ? "" : "  (manual)")
+                                 : "nothing"
+                                     (DetectorWindowUp(cfg) ? "" : "  — Infloww not focused"))
         } catch {
             SetTimer(PaintDetectorLive, 0)
         }
@@ -1702,6 +1734,8 @@ OpenSettings(*) {
         IniWrite(model1Name,        CFG_FILE, "Settings", "Model1")
         IniWrite(model2Name,        CFG_FILE, "Settings", "Model2")
         IniWrite(model3Name,        CFG_FILE, "Settings", "Model3")
+        for _i, _dp in ddlPlat
+            SetModelPlatform(_i, _dp.Value = 2 ? "manual" : "infloww")
         IniWrite(defaultHotkeyFile, CFG_FILE, "Settings", "DefaultHotkeyFile")
         _uPath := MMA_SRC_UTILS
         _uContent := FileRead(_uPath, "UTF-8")

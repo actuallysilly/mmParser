@@ -116,6 +116,50 @@ ModelLabel(n) {
     return disp = "" ? String(n) : n " — " disp
 }
 
+; ── mixed platforms ───────────────────────────────────────────────────────────
+;  Not every model lives somewhere MMA can see. Infloww has a tab strip the
+;  detector reads; Fansly is a different interface entirely, with no calibration
+;  and no reason to expect one.
+;
+;  So the platform is PER MODEL, not per install:
+;    "infloww"  the detector answers for this one   (default)
+;    "manual"   nothing on screen identifies it — you say which model it is
+;
+;  This exists so the fallback below can be safe. "Detector said nothing, so use
+;  whatever was picked by hand" is a guess when applied to an Infloww model: it
+;  turns a detection failure into the wrong model's message, silently, which is
+;  the failure this whole area keeps producing. Applied only to models MARKED as
+;  invisible to the detector, it is not a guess at all — it is the only thing
+;  those models could possibly mean.
+ModelPlatform(n) {
+    v := StrLower(Trim(IniRead(MMA_CFG, "Settings", "Platform" n, "infloww")))
+    return (v = "manual") ? "manual" : "infloww"
+}
+
+SetModelPlatform(n, v) {
+    global MASS_MODELS
+    if (n < 1 || n > MASS_MODELS)
+        return false
+    IniWrite((StrLower(Trim(v)) = "manual") ? "manual" : "infloww",
+             MMA_CFG, "Settings", "Platform" n)
+    return true
+}
+
+IsManualPlatform(n) {
+    return ModelPlatform(n) = "manual"
+}
+
+; The model to fall back to when the detector cannot see anything — but ONLY if
+; that model is one the detector was never going to see.
+;
+; Returns 0 for an Infloww model, which keeps the old behaviour exactly: a
+; detection failure while working in Infloww still means "no answer", not "send
+; model 1 and hope".
+ManualFallbackModel() {
+    n := ManualModelNo()
+    return IsManualPlatform(n) ? n : 0
+}
+
 ; Tab position -> model slot, as ordered in Settings. Identity by default, so
 ; leftmost tab = model 1 until you say otherwise. Vestigial: it needs the detector
 ; to have COUNTED the tabs, which on a theme that draws inactive tabs as bare
@@ -374,8 +418,15 @@ ActiveModelStatus() {
         return _PositionalStatus()
 
     active := Trim(ReadActiveModel())
-    if (active = "")
+    if (active = "") {
+        ; Same mixed-platform fallback as positional mode: no name on screen means
+        ; either the detector is off/Infloww is hidden, or you are on the other
+        ; platform. A model marked "manual" can only mean the latter.
+        fb := ManualFallbackModel()
+        if fb
+            return {no: fb, name: ModelDisplayName(fb), state: "ok"}
         return {no: 0, name: "", state: "none"}
+    }
     cfg  := MMA_CFG
     hits := []
     Loop MASS_MODELS
@@ -413,8 +464,17 @@ _PositionalStatusUncached(cfg) {
     global MASS_MODELS
     ; Fixed screen coordinates, so this MUST be gated on the window. Otherwise
     ; the scan measures whatever is at those pixels and names a model from it.
-    if !DetectorWindowUp(cfg)
+    ;
+    ; Infloww not being in front is also the signal for MIXED setups: you are on
+    ; the other platform, so the model is whichever one you picked by hand — but
+    ; only if that model is marked as living somewhere the detector cannot see.
+    ; See ManualFallbackModel for why that condition is what keeps this honest.
+    if !DetectorWindowUp(cfg) {
+        fb := ManualFallbackModel()
+        if fb
+            return {no: fb, name: ModelDisplayName(fb), state: "ok"}
         return {no: 0, name: "", state: "none"}
+    }
 
     idx := TabLitIndex(cfg).index
     if (idx < 1)
