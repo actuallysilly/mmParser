@@ -692,6 +692,11 @@ gAlt.Add("Text", "x240 y840 w520 c8E8AA6",
          "An alt may span lines — each line is sent as its own message, like the base.")
 ArchiveDarkTheme(gAlt, [])
 
+; The mass engine first, and unconditionally: it carries every mass hotkey, so
+; without it MMA looks like it does nothing. Not part of StartupScripts — that
+; list is rebuilt from checkboxes, and it lost the engine exactly once, silently.
+LaunchEngine()
+
 ; auto-start configured startup scripts (defaults to general.ahk) if not already running
 LaunchStartupScripts()
 LaunchAutomationListener()
@@ -708,6 +713,14 @@ if autoRestart
 ; Ask about model names the detector cannot place. Here, in the GUI, because this
 ; opens a window — ActiveModelStatus is also read from #HotIf as you type, and a
 ; dialog there would be one popup per keystroke.
+;
+; Both globals are initialised HERE, before the timer that reads them, not down
+; beside CheckUnmappedModel where they would read better. Top-level statements
+; run in order and function bodies are skipped, so an initialiser further down
+; the file has not run yet — the detector hit exactly that and threw
+; "_wPos has not been assigned a value" on its first poll.
+_askedNames := Map()      ; names asked about this session, so we ask once
+_unmapGui   := 0          ; the prompt window, while it is open
 if autoDetect
     SetTimer(CheckUnmappedModel, 4000)
 
@@ -1139,13 +1152,6 @@ NotifyMassesChanged() {
     return EngineRunning()
 }
 
-EngineRunning() {
-    prev := A_DetectHiddenWindows
-    DetectHiddenWindows true
-    up := WinExist(MMA_SRC "\mass\engine.ahk ahk_class AutoHotkey") ? true : false
-    DetectHiddenWindows prev
-    return up
-}
 
 ; ─── Learning what a model is called on screen ────────────────────────────────
 ; MMA's model names, Infloww's tab labels and Discord's channel names are three
@@ -1159,8 +1165,6 @@ EngineRunning() {
 ; Only ever asks about an "unknown" — one plausible name owned by no slot.
 ; "ambiguous" (two tabs read as one) is never asked about: the answer would file a
 ; string containing both models' names under one of them.
-
-_askedNames := Map()          ; names asked about this session, so we ask once
 
 CheckUnmappedModel() {
     global _askedNames, _unmapGui
@@ -1179,8 +1183,6 @@ CheckUnmappedModel() {
     _askedNames[key] := true
     PromptUnmappedModel(st.name)
 }
-
-_unmapGui := 0
 
 PromptUnmappedModel(detected) {
     global g, modelCount, _unmapGui
@@ -1437,11 +1439,9 @@ OpenSettings(*) {
     ; running the file by hand — and the day that stopped, the import "broke".
     if FileExist(MMA_SRC_SEQUENCES)
         _eligible.Push("sequences.ahk")
-    ; The mass engine — one entry where there used to be 1/2/3_mass.ahk. Missing
-    ; from this list it cannot be ticked at all, and since it is the script that
-    ; carries every mass hotkey, that reads as "MMA does nothing".
-    if FileExist(MMA_SRC "\mass\engine.ahk")
-        _eligible.Push("engine.ahk")
+    ; The mass engine is deliberately NOT offered here. It is core, launched by
+    ; LaunchEngine(); listing it would let one unticked box silently disable every
+    ; mass hotkey, which is precisely how it went missing before.
     Loop Files, ACC_DIR "\*.ahk"
         _eligible.Push(A_LoopFileName)
     _sx := PAD

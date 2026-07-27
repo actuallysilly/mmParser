@@ -68,9 +68,17 @@ if (IniRead(CFG, "Detector", "RegionW", "") = "") {
 
 CoordMode "Pixel", "Screen"
 
+; ALL of these must be assigned before the first Poll() below, not merely
+; somewhere in the file. Top-level statements run in order and function bodies are
+; skipped, so an initialiser sitting further down — next to the function that uses
+; it, which reads better — has simply not run yet when Poll() fires on line one of
+; the auto-execute section. That is what "_wPos has not been assigned a value"
+; was: the very first poll, reading a variable initialised 130 lines later.
 _lastCentre := -99999   ; centre X of the pill we last OCR'd
 _lastName   := ""       ; cached OCR'd name for the current active pill
 _written    := "«?»"    ; last value written to the ini (dedupes writes)
+_wPos       := -1       ; last active_index written  (dedupes writes)
+_wTot       := -1       ; last tab_count written
 
 Poll()
 SetTimer(Poll, PollMs)
@@ -203,8 +211,8 @@ WriteActive(name) {
     try IniWrite(name, STATUS, "detector", "active_model")
 }
 
-_wPos := -1
-_wTot := -1
+; _wPos / _wTot are initialised at the top of the script, beside _written — see
+; the note there for why they cannot live next to this function.
 WritePos(index, total) {
     global STATUS, _wPos, _wTot
     if (index = _wPos && total = _wTot)

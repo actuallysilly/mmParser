@@ -240,6 +240,44 @@ _DetectorTitle() {
     global SCRIPT_DIR
     return MMA_SRC "\screen\model_detector.ahk ahk_class AutoHotkey"
 }
+
+; ─── the mass engine ──────────────────────────────────────────────────────────
+; NOT a startup script, deliberately.
+;
+; It was one, and it did not survive: SaveCfg rebuilds StartupScripts from the
+; checkbox list, so one visit to Settings while engine.ahk was missing from that
+; list wrote it straight out of the config, and every mass hotkey went dead with
+; no error. Anything the app cannot function without must not be reachable by an
+; unticked box.
+;
+; So it is launched like the GUI's other infrastructure — unconditionally, and
+; kept alive by the watchdog.
+_EngineFile() {
+    return MMA_SRC "\mass\engine.ahk"
+}
+_EngineTitle() {
+    return _EngineFile() " ahk_class AutoHotkey"
+}
+EngineRunning() {
+    prev := A_DetectHiddenWindows
+    DetectHiddenWindows true
+    up := WinExist(_EngineTitle()) ? true : false
+    DetectHiddenWindows prev
+    return up
+}
+LaunchEngine() {
+    if (!FileExist(_EngineFile()) || EngineRunning())
+        return
+    try Run(_EngineFile())
+}
+StopEngine() {
+    prev := A_DetectHiddenWindows
+    DetectHiddenWindows true
+    if WinExist(_EngineTitle())
+        try ProcessClose(WinGetPID(_EngineTitle()))
+    DetectHiddenWindows prev
+}
+
 DetectorRunning() {
     return WinExist(_DetectorTitle()) != 0
 }
@@ -313,6 +351,7 @@ WatchdogTick() {
     if !FEAT("startupScripts")
         return
     global pinger, autoDetect, statsOverlay
+    LaunchEngine()                  ; core, not optional — see _EngineFile
     LaunchStartupScripts()
     LaunchAutomationListener()
     if pinger
