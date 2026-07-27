@@ -446,9 +446,13 @@ SelectModel(n) {
     if (mode = "position") {
         ; Already in positional mode: do not drop out of it just because you
         ; nudged the model by hand. Teaching is the point of the press here.
+        ; Two reasons x can be < 0, and the message must not pick one: Infloww is
+        ; not the active window, or it is and the scan found no pill (colours or
+        ; region wrong). Settings' live readout distinguishes them; a toast that
+        ; guessed would send you to fix the wrong thing.
         _MassToast(learned ? "Learned: " ModelLabel(n) " is at x " x
                            : "Active model: " ModelLabel(n)
-                             "`n(Infloww not in front — position not learned)")
+                             "`n(no tab detected — position NOT learned)")
         return
     }
     ; Any other mode becomes manual, because a key labelled "active model = 2"
