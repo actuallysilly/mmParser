@@ -41,7 +41,8 @@ Prefer to do it by hand? Install AutoHotkey v2, run `tools/install/createShortcu
 
 - **Parse** — paste a mass message block and auto-fill all slots (opener, follow-ups, PPV)
 - **Hotkeys** — F1–F5 / F9–F12 send follow-up sequences instantly via clipboard paste
-- **Two model slots** — manage two separate accounts with independent hotkey sets
+- **Three model slots** — independent hotkey sets per account (F1-F3 model 1, F9-F11 model 2),
+  plus one shared set that follows whichever model is on screen
 - **Script toggles** — enable/disable per-account scripts from the main window
 - **Add Hotkey** — append new hotstrings to any script without opening the file
 - **Auto-updater** — checks for updates silently on startup, installs via a separate updater process
@@ -75,17 +76,18 @@ MMA.ahk        — the one thing you double-click
 src/           — code. not yours to edit.
   core/          paths, the hotkey registry, modes, utils, subprocess supervisor
   ui/            every window: main, hotkeys, hotstrings, actions, modes
-  mass/          the mass feature: runtime, paste-format parser, archive
+  mass/          the mass engine, its runtime, the parser, the archive
+  chat/          Infloww navigation keys
   hotstrings/    the message index and the overload registry
   screen/        anything that reads pixels: OCR grab, model detector, stats
   sequences/     recorded click/type macros, and the recorder
   services/      the two optional Python background processes
   vendor/        third party (OCR.ahk)
-content/       — YOUR MESSAGES. hand-written AHK, nothing generated.
-  models/        1/2/3_mass.ahk — the mass data
+content/       — YOUR HOTSTRINGS. hand-written AHK, nothing generated.
   general.ahk    always-on shared hotstrings
   accounts/      per-account hotstring files
 userdata/      — every setting, message and log. gitignored.
+  masses.json    your masses — written by the GUI, read by the engine
 tools/         — dev rigs, the installer, UI research
 docs/          — the paste format and design notes
 ```

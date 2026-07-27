@@ -189,7 +189,8 @@ MMA/
 │   │
 │   ├── mass/                   ─ the mass-message feature
 │   │   ├── engine.ahk             ← entry point. ONE process for all models (§5)
-│   │   ├── parser.ahk             the !mm / f1 / --Branch format → data
+│   │   ├── runtime.ahk            what a mass does: follow-ups, alts, branches
+│   │   ├── parser.ahk             the !mm / f1 / --Branch paste format → data
 │   │   ├── store.ahk              read/write userdata/masses.json
 │   │   └── archive.ahk            mass_archive.txt + its viewer
 │   │
@@ -346,16 +347,18 @@ for migration" comment to maintain. Three constants in `hotkeys.ahk` — `HK_INI
 
 ### Suggested order
 
-1. ~~Delete junk; fix `.gitignore` (`userdata/*` + `!userdata/hotkeys.default.ini`);
-   untrack `mass_gui.cfg`.~~ **done**
-2. ~~Fix 4.1 (anchors → `MMA_ROOT`), 4.3 (`MMA_ModelFile`), 4.4 (enumerate).~~ **done**
-3. ~~Add `MMA_ScriptPath` (4.2). No migration shim needed (4.7).~~ **done**
-4. ~~Move `content/`, `userdata/`, `src/`, `tools/`, `docs/`; update README and
-   `installer/MMA.iss`.~~ **done** — all 19 entry points validate clean.
-5. **Next: §5 proper.** Collapse the three model processes into one engine and move the
-   mass data out of `.ahk` source into `userdata/masses.json`. §5.1's hotkey scheme and
-   §5.2's `__mm` decision are already in place, so this step is now only about the
-   process merge and the data format — not about paths, and not about key semantics.
+All of it is done.
+
+1. ~~Delete junk; fix `.gitignore`; untrack `mass_gui.cfg`.~~
+2. ~~Anchors → `MMA_ROOT`; enumerate the hotstring sources.~~
+3. ~~`MMA_ScriptPath`. No migration shim needed (4.7).~~
+4. ~~Move `content/`, `userdata/`, `src/`, `tools/`, `docs/`; update README and the
+   installer.~~
+5. ~~§5: one engine, and the mass library as data.~~
+
+What is NOT done is runtime testing against the live Infloww UI — everything
+above is verified by parsing, by unit tests, and by running the engine, which is
+not the same as watching a follow-up land in a chat box.
 
 ---
 
