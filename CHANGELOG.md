@@ -1,5 +1,76 @@
 ﻿# Changelog
 
+## 2.0.0-alpha — 2026-07-27
+
+First 2.0.0 pre-release. A clean break: no migration shims, no compatibility aliases.
+
+### The tree
+
+Seven roles that were all peers in the repo root are now `src/ content/ userdata/
+assets/ tools/ docs/`. Every path resolves from **one anchor** (`src/core/paths.ahk`,
+via `A_LineFile`), replacing 37 uses of `A_ScriptDir` that only worked while every entry
+point sat in the root — and that fail *silently* from a subfolder, because `IniRead` with
+a default just returns the default.
+
+### One mass engine, and the data left the code
+
+`1_mass.ahk` / `2_mass.ahk` / `3_mass.ahk` were three processes holding three copies of
+the same behaviour around three blocks of data. The data is now `userdata/masses.json`
+(`src/mass/store.ahk`); the behaviour was already shared. What was left was three
+processes fighting over the same hotkeys, which took **five** separate arbitration
+mechanisms — a 350ms timer per process, an in-handler re-check, a shared-id list, and a
+conflict-report exemption to stop the GUI flagging three copies of one key. One process
+needs none of them. All five are gone.
+
+Migration was verified field by field before the old files were deleted.
+
+### Sending
+
+- **The mouse buttons stopped belonging to model 1.** `mFu1`-`mFu3` were declared under
+  `[mass.1]`, so pressing XButton1 in front of model 2 sent *model 1's* follow-up to
+  model 2's fan. There is one XButton1 and it is under your thumb whichever tab is open;
+  shared keys live in `[mass.active]`, resolved at fire time.
+- `[mass.active]` now covers the whole action set — PPV, branches, alts, the mass body —
+  not just follow-ups, on the free Scimitar buttons.
+- Per-model keys (`F1`-`F3`, `F9`-`F11`, …) are untouched and never gated. The key you
+  press *is* the model selector, whether or not any detector is running.
+
+### Knowing which model is on screen
+
+Three ways, chosen per install, plus a platform flag chosen **per model** so an Infloww
+model and a Fansly model can coexist. See ARCHITECTURE.md §5.1.
+
+The detector itself was rebuilt around one measurement: **`PixelGetColor` costs ~30ms a
+call on a composited desktop.** Sampling three tab slots took 4632ms; a full band sweep
+took 10828ms against a 500ms poll interval. The service was ~20x slower than its own
+poll — permanently behind, never once returning a current reading. Every earlier
+explanation (wrong colours, wrong tolerance, tab counting) fitted the symptoms and fixed
+nothing, because each was tested against data that was seconds stale. One BitBlt into a
+memory DIB: 4632ms → 10ms.
+
+With fresh input the rest is arithmetic. Tab positions are fixed, so the lit pill's x
+*is* the tab index; which model that tab is comes from Settings, because no pixel carries
+that fact.
+
+Throughout, a detector that cannot see now **says so**. "No answer" costs a keypress; a
+confident wrong answer costs one model's message in another model's chat.
+
+### Also
+
+- Hotstrings replace seven `acc/ALIW.ahk` functions that were canned messages wearing
+  hotkeys (see Unreleased, below).
+- `automation.py` resolved its root one folder short, so it read a `hotkeys.ini` that
+  was not there — every `[automation]` key was silently dead — and wrote a second,
+  tracked `error_log.txt`.
+- The updater compared versions by **equality**, so any difference read as "update
+  available", including an older remote. It compares order now; a pre-release no longer
+  offers to downgrade itself to the last release.
+
+### Known unverified
+
+Detector geometry (`TabOrigin`/`TabPitch`) is measured Infloww at one zoom level.
+`tools/detector_probe.ahk` prints what your strip actually contains.
+
 ## Unreleased
 
 ### Breaking

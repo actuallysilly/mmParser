@@ -1911,9 +1911,34 @@ CheckUpdate(silent := false, *) {
     localVerFile := MMA_VERSION
     localVer := FileExist(localVerFile) ? Trim(FileRead(localVerFile, "UTF-8")) : "0"
 
-    if remoteVer = localVer {
+    ; ORDER, not equality.
+    ;
+    ; This used to be `remoteVer = localVer`, so any difference at all counted as
+    ; "an update is available" — including the remote being OLDER. UPDATE_URL
+    ; points at main, and a pre-release lives on a branch, so the moment
+    ; version.txt here read 2.0.0-alpha every start would offer to "update" to
+    ; main's 1.9.2 and the updater would overwrite the v2 tree with v1 files.
+    ;
+    ; Worse, that prompt is not suppressed by `silent`: the startup check runs
+    ; three seconds after launch, so it would appear unbidden, in front of
+    ; whatever you were doing, offering a downgrade that reads like an upgrade.
+    ;
+    ; VerCompare is AHK v2's built-in and understands pre-release suffixes the
+    ; semver way — 2.0.0-alpha < 2.0.0 — so an alpha correctly updates to the
+    ; release and never to what came before it.
+    cmp := VerCompare(remoteVer, localVer)
+    if (cmp = 0) {
         if !silent
             MsgBox "Already up to date (v" localVer ").",, 0x40
+        return
+    }
+    if (cmp < 0) {
+        ; Running something newer than what is published — a pre-release. Say so
+        ; rather than silently doing nothing, so it is not mistaken for a broken
+        ; update check.
+        if !silent
+            MsgBox "You are on v" localVer ", which is newer than the published "
+                 . "v" remoteVer ".`nNothing to update.",, 0x40
         return
     }
 
