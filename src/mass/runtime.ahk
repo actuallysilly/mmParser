@@ -27,6 +27,22 @@
 #Include "store.ahk"
 #Include "../core/coords.ahk"
 #Include "../core/utils.ahk"
+#Include "next_fu.ahk"
+
+; ── the mass library ──────────────────────────────────────────────────────────
+;  Declared HERE, by the file that reads it, rather than by engine.ahk.
+;
+;  CurMass() and friends read MASS_DOC, but only engine.ahk ever assigned it. So
+;  anything else that included this file — a test, a tool, a second entry point —
+;  loaded with MASS_DOC undeclared and got a modal #Warn dialog ("This global
+;  variable appears to never be assigned a value") before a line of its own code
+;  ran. From the outside that looks exactly like a hang: no output, no exit, no
+;  error on stdout, because a warning dialog is not an error.
+;
+;  A file that reads a global should be the file that declares it. engine.ahk
+;  keeps the RELOAD handler, which is genuinely its business — it owns the
+;  cross-process message contract with the GUI.
+global MASS_DOC := MASS_Load()
 
 ; ── Settings mirrored from mass_gui.cfg ───────────────────────────────────────
 ; Read once at load, then kept live by the OnMessage handlers below — the GUI
@@ -315,6 +331,8 @@ MassSlotHandlers() {
         "ppvFus",   DoPpvFus,   "mPpvFus", DoPpvFus,
         "b1Ppv",    DoPpvFus,
         "mass",     DoMass,
+        ; One key for the whole f1->f2->f3 walk; see mass/next_fu.ahk.
+        "nextFu",   DoNextFu,
         "altFu1",   DoAltFu1,
         "altFu2",   DoAltFu2,
         "altFu3",   DoAltFu3,

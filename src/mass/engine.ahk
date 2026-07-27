@@ -1,4 +1,4 @@
-#Requires AutoHotkey v2.0
+﻿#Requires AutoHotkey v2.0
 #SingleInstance Force
 ; ═══════════════════════════════════════════════════════════════════════════════
 ;  mass/engine.ahk — the mass process. ONE of them, for all models.
@@ -31,9 +31,9 @@
 #Include "../sequences/composer.ahk"
 
 ; ── the library ───────────────────────────────────────────────────────────────
-; One process, one copy, read once at startup. MASS_DOC is what CurMass() reads
-; through; nothing else in the codebase touches masses.json directly.
-global MASS_DOC := MASS_Load()
+; MASS_DOC itself is declared and first loaded in runtime.ahk — the file that
+; READS it, so that including runtime.ahk is enough on its own. What belongs here
+; is the reload, because that is a contract with the GUI process.
 
 ; The GUI posts this after writing masses.json, so a save takes effect on the very
 ; next keypress with no reload and no restart. This is the whole reason the GUI
