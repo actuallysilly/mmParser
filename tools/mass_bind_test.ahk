@@ -1,4 +1,4 @@
-#Requires AutoHotkey v2.0
+﻿#Requires AutoHotkey v2.0
 ; What the engine ACTUALLY registers, and which model each key resolves to.
 ; Parsing clean has never been the failing step here; this is the step that was.
 ; ═══════════════════════════════════════════════════════════════════════════════
@@ -53,22 +53,38 @@ Ck("active mFu1", BoundKey("mass.active.mFu1"), "XButton2")
 Ck("active mFu2", BoundKey("mass.active.mFu2"), "XButton1")
 Ck("active mFu3", BoundKey("mass.active.mFu3"), "^MButton")
 
-; the rest of the shared set is really there, not just declared
-for id, want in Map("mass.active.fu1","F13", "mass.active.fu2","F14", "mass.active.fu3","F15",
-                    "mass.active.ppv","F16", "mass.active.ppvFus","F17", "mass.active.mass","F18",
-                    "mass.active.brPick","F19", "mass.active.brFu2","F20",
-                    "mass.active.brFu3","F21", "mass.active.brPpv","F22",
-                    "mass.active.altFu1","^F13", "mass.active.altFu2","^F14",
-                    "mass.active.altFu3","^F15",
-                    "mass.select.next","^!w", "mass.select.m1","^!1",
-                    "mass.select.m2","^!2", "mass.select.m3","^!3")
-    Ck(id, BoundKey(id), want)
+; Every declared mass key must be registered with EXACTLY what the ini says.
+;
+; Asserted as an invariant rather than against literal keys like "F13". Those are
+; the user's to change — this test used to hardcode mass.3.fu1 = F6 and started
+; failing the day it was rebound to ^z, which says nothing about the code. What
+; must hold is that binding is faithful to the file.
+;
+; A blank ini value means "deliberately disabled" and must bind nothing, which is
+; the same check.
+for id in HK_ORDER {
+    if (SubStr(id, 1, 5) != "mass." || SubStr(id, 1, 12) = "mass.select.")
+        continue
+    if !FEAT_HotkeyAllowed(id)
+        continue                      ; feature off: correctly not bound at all
+    want := HK_Key(id)
+    got  := BoundKey(id)
+    if (got = "«not bound»")
+        got := ""
+    Ck("faithful: " id, got, want)
+}
 
-; the manual per-model keys must be untouched — they are the reliable path
-for id, want in Map("mass.1.fu1","F1", "mass.1.fu2","F2", "mass.1.fu3","F3",
-                    "mass.2.fu1","F9", "mass.2.fu2","F10", "mass.2.fu3","F11",
-                    "mass.3.fu1","F6")
-    Ck(id, BoundKey(id), want)
+; And the shared set must actually carry keys — an empty [mass.active] would pass
+; the invariant above while leaving every mouse button dead.
+liveShared := 0
+for id in HK_ORDER
+    if (SubStr(id, 1, 12) = "mass.active." && BoundKey(id) != "" && BoundKey(id) != "«not bound»")
+        liveShared++
+Ck("shared set has live keys", liveShared >= 6, 1)
+
+; The select keys are bound too, or nothing can set the tab order.
+for id in ["mass.select.next", "mass.select.m1", "mass.select.m2"]
+    Ck("bound " id, BoundKey(id) != "«not bound»", 1)
 
 ; ── resolution: a shared key must follow the SELECTED model, not model 1 ─────
 IniWrite("manual", MMA_CFG, "Settings", "ModelMatch")

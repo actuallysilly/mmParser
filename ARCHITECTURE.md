@@ -374,6 +374,31 @@ wrong answer is one model's message in another model's chat.
 Calibration is still per-screen, and `detector_probe.ahk` is how you do it: it prints the
 colours actually present, what the current settings find, and what it would OCR.
 
+**4.9 — `PixelGetColor` costs ~30ms a call on this machine, and that was the whole
+detector bug.** Measured, not estimated:
+
+| | before (per-pixel) | after (one BitBlt) |
+|---|---|---|
+| sample 3 tab slots (~150 px) | **4632 ms** | 10 ms |
+| sweep the 330×50 band (~1000 px) | **10828 ms** | 15 ms |
+
+`model_detector.ahk` polls every 500ms and did a full sweep each time, so it ran
+roughly **20× slower than its own poll interval** — permanently behind, never once
+writing a current reading. That is the real reason auto-detection never worked, and it
+is why every earlier explanation (wrong `InactiveColor`, wrong `GreyTol`, tab counting,
+centroid matching) fitted the symptoms and fixed nothing: each was tested against data
+that was seconds stale. Two consecutive runs of the probe disagreed about the strip's
+whole palette, which should have been the tell.
+
+`PixelGetColor` goes through GDI `GetPixel` on the screen DC; on a composited desktop
+that can round-trip the GPU per call. `PILL_Grab` BitBlts the band into a memory DIB
+once — about the cost of a single `GetPixel` — and every pixel after that is a memory
+read. Everything that reads the strip now takes a captured buffer.
+
+**The lesson worth keeping: measure the cost of a loop before theorising about its
+output.** Four rounds of colour and geometry theories went by while the input was
+stale, and none of them could have been right.
+
 ### Suggested order
 
 All of it is done.
@@ -495,67 +520,36 @@ in `[Settings] CurrentModel`, and the shared keys follow it until you press anot
 Pressing one also switches `ModelMatch` to `manual`, because a key labelled "active model
 = 2" that left the detector in charge would be lying about what it does.
 
-### 5.1.3 Positional mode is TAUGHT, not counted
+### 5.1.3 Positional mode: which TAB, then which MODEL
 
-Counting tabs cannot work here and no tuning fixes it. Inactive tabs are drawn in the page
-background (`#0d0d0d`, measured in 82 of 83 columns), so **the tabs you are not on are not
-there to count.** Every scheme shaped "find all the tabs, take the Nth" — including the
-fixed 150px pitch from the UI element map — is either dead on arrival or right until the
-day the strip shifts.
+Two steps, and only one of them is a measurement:
 
-A *position* needs only the tab you ARE on, which is the one thing the scan finds reliably.
-So MMA remembers where each model's pill sits (`[Positional] X<n>`, screen px) and matches
-the nearest. Nothing is assumed about pitch, tab count, or where the strip starts.
+| step | answered by | how |
+|---|---|---|
+| which **tab** is in front | the screen | colour, no OCR |
+| which **model** that tab is | Settings | you said so |
 
-**It is taught by the `[mass.select]` keys.** Pressing "active model = 2" while looking at a
-tab *is* the observation positional mode cannot make for itself, so it records the lit
-pill's x at the same time. Two models, two presses, on the tabs you were going to click
-anyway. Learning happens in every mode, so you can work in manual and switch to positional
-once the positions are in.
+Step 2 is not something a detector should ever try to work out. Tab 1 is Aliw because
+you put it there, and no pixel carries that fact. Every round of this that went wrong
+went wrong by trying to infer it — from OCR'd names, from tab counts, from taught
+coordinates.
 
-Two refusals keep it honest, both returning "no answer" rather than a guess:
+Step 1 is arithmetic, not a search, because model tab positions are **fixed**: the strip
+starts at `TabOrigin` and each tab is `TabPitch` wide (measured: 30 and 150), so the lit
+pill's x *is* the tab index. Only the tab you are ON has to be visible — which matters,
+because inactive tabs are drawn in the page background and are invisible to a colour
+scan. Counting them was never possible.
 
-- Further than half the closest taught spacing from every taught position — the strip moved
-  or a tab was inserted.
-- Nearer to one taught position than another by less than 15px — the pill is *between* two
-  tabs, so answering either is a coin flip between two people's fans.
+Set the order in Settings' dropdowns, or **by pointing at it**: pressing "active model =
+2" while that tab is in front records "whatever tab index this is, is model 2". Nobody
+knows their tab is index 2; everybody knows the tab they are looking at is Rama.
 
-The trade, stated: it trusts positions staying put. Insert a tab to the left of your models
-and every pill shifts by one tab width, which is indistinguishable from having switched
-tabs. Re-teach after reordering.
+`PILL_PickLit` refuses rather than guesses in two cases, both returning "no answer":
+nothing reaches `MinGrey` (no tab lit, or the colour/region is wrong), and the runner-up
+is more than half the winner (one pill straddling two slots, i.e. `TabPitch` is wrong).
 
-The trade is real and belongs in the open: **MMA cannot notice you changed tabs.** Switch
-model in Infloww without pressing the key and the next shared key sends the previous
-model's message. That is why the select keys show a tooltip — the confirmation is the
-safety mechanism. Name mode, when the detector can be calibrated, is still the better
-answer; manual is what makes the shared keys usable when it cannot.
-
-`[mass.active]` is precisely what `StartFuGating` is *simulating* today by flipping three
-copies on and off every 350 ms. Naming it directly buys three things:
-
-1. The timer, `HK_ModelSendIds`, and the whole gating layer are deleted.
-2. **The conflict report becomes honest.** `CanCollide`/`IsGatedSend` exist only to stop
-   the GUI crying wolf about three copies of a shared key. One real binding needs no
-   exemption.
-3. **A real conflict stops being hidden.** `[mass.1] brPick=F6` and `[mass.3] fu1=F6` are
-   the same key, and [hotkeys.ahk:352](src/core/hotkeys.ahk#L352) already knows it. Because
-   `HK_ModelSendIds` lists `brPick`, `IsGatedSend` returns true for both, so `CanCollide`
-   exempts the pair and the GUI **never reports it** — even though the comment at
-   [hotkeys_gui.ahk:181](src/ui/hotkeys_window.ahk#L181) claims the branch keys are "never gated"
-   and this case *is* flagged. The code and its own comment disagree; with an explicit
-   `[mass.active]`, the ambiguity that produced that disagreement is gone.
-
-### Correction to the file-count argument
-
-Merging does **not** reduce declaration count. 52 per-model `HK_Def`s minus the 9 shared
-(`smFu1-3` × 3) leaves 43, plus a small `mass.active.*` set — call it even. Likewise
-`MassInit`'s "models 2 and 3 have no mouse or short-key variants" asymmetry does not
-vanish for free; giving them those slots still costs per-model declarations, it is just no
-longer *blocked* by process arithmetic.
-
-The win was never fewer lines. It is: **one process instead of three, no polling timer, no
-cross-process arbitration, honest conflict reporting, and manual mode that keeps working
-whether the detector is on or off.**
+Verified live: pill at x116 spanning 28–184 — 156px, matching the 150 pitch — resolving
+to tab 1, model 1, with OCR reading `AW` alone rather than `AW Bellarama`.
 
 ### 5.2 `__mm` in manual mode — DECIDED, and shipped
 

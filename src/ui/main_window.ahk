@@ -1541,52 +1541,56 @@ OpenSettings(*) {
 
     ; ── the live readout ──────────────────────────────────────────────────────
     ; Everything above is a setting you cannot check by looking at it, which is
-    ; why the detector went wrong for so long without saying so — it reported a
-    ; confident "model 1" and nothing on screen disagreed. This line shows what it
-    ; sees RIGHT NOW: where the lit pill is, which positions have been taught, and
-    ; which model that resolves to. If it says "no pill", the colours or the region
-    ; are wrong and no amount of tab-order fiddling will help.
+    ; why the detector stayed wrong for so long without saying so: it answered
+    ; "model 1" with total confidence and nothing on screen disagreed. This line
+    ; is the disagreement. It shows the lit tab's x, which TAB INDEX that works
+    ; out to, and which model the order above maps that index to.
+    ;
+    ; Read it in that order when something is off. "no lit tab" is a colour or
+    ; region problem and no amount of reordering helps. A wrong tab NUMBER is
+    ; TabOrigin/TabPitch. A right tab number pointing at the wrong model is the
+    ; order — fix it in the dropdowns above, or by pointing at it with the keys.
     sg.Add("Text", "x" (PAD + 18) " y" y " w120", "Detector sees:")
     lblDetLive := sg.Add("Text", "x" (PAD + 150) " y" y " w" (CW - PAD - 160), "")
     y += 22
     sg.Add("Text", "x" (PAD + 18) " y" y " w" (CW - PAD - 30) " cGray",
-           "Teach it: click a model's tab in Infloww, then press that model's key "
-         . "(" HK_Key("mass.select.m1") " / " HK_Key("mass.select.m2") "). "
-         . "Positions are learned in any mode.")
-    y += 20
-    btnForget := sg.Add("Button", "x" (PAD + 150) " y" y " w150 h24", "Forget taught positions")
-    btnForget.OnEvent("Click", ForgetPositions)
+           "Set the order by pointing: click a model's tab in Infloww, press that "
+         . "model's key (" HK_Key("mass.select.m1") " / " HK_Key("mass.select.m2")
+         . "). High beep = set, low beep = refused, tooltip says why.")
     y += 32
 
     PaintDetectorLive()
     SetTimer(PaintDetectorLive, 400)
     sg.OnEvent("Close", (*) => SetTimer(PaintDetectorLive, 0))
 
+    ; Scans the strip ITSELF, and deliberately does NOT require Infloww to be the
+    ; active window — because reading this line means MMA is the active window, so
+    ; a focus-gated readout can only ever say "nothing on screen". That is exactly
+    ; what the first version did, which made the one diagnostic useless.
+    ;
+    ; Safe to skip the gate here precisely because it only DISPLAYS. The resolver
+    ; keeps the gate, since it acts on the answer.
     PaintDetectorLive() {
         if !WinExist("ahk_id " sg.Hwnd) {
             SetTimer(PaintDetectorLive, 0)
             return
         }
-        x    := ReadActiveX()
-        st   := ActiveModelStatus()
-        seen := (x < 0) ? "no pill on screen" : "pill at x " x
-        taught := ""
-        Loop modelCount {
-            lx := LearnedSlotX(A_Index)
-            if (lx >= 0)
-                taught .= (taught = "" ? "" : "  ") A_Index "→" lx
-        }
-        lblDetLive.Value := seen
-                          . "   |   taught: " (taught = "" ? "none yet" : taught)
-                          . "   |   " (st.no ? "model " ModelLabel(st.no) : st.state)
-    }
+        ; The same cheap slot sampling the hotkeys use, NOT a full band sweep —
+        ; a sweep is ~1000 GDI GetPixel calls and would make this 400ms timer
+        ; stutter the whole Settings window. It also means what you read here is
+        ; literally what the keys will decide, rather than a second opinion.
+        cfg  := DetectorCfg()
+        t    := TabLitIndex(cfg)
+        slot := (t.index >= 1) ? TabModel(t.index) : 0
 
-    ForgetPositions(*) {
-        if MsgBox("Forget every taught tab position?", "Model detection", 0x24) != "Yes"
-            return
-        Loop modelCount
-            try IniDelete(CFG_FILE, "Positional", "X" A_Index)
-        PaintDetectorLive()
+        px := ""
+        for i, c in t.counts
+            px .= (px = "" ? "" : "  ") "tab" i ":" c
+
+        lblDetLive.Value := px
+                          . "   |   " (t.index < 1 ? "no tab lit" : "tab " t.index)
+                          . "   |   " (slot ? "→ " ModelLabel(slot) : "→ no answer")
+                          . (DetectorWindowUp(cfg) ? "" : "   (Infloww not in front)")
     }
     ; The key, not the hotkey id: "gui.toggleStats" told you nothing about which
     ; keys to press, and it was the longer of the two labels that wrapped.

@@ -1,6 +1,7 @@
-#Requires AutoHotkey v2.0
+﻿#Requires AutoHotkey v2.0
 #Include "paths.ahk"
 #Include "../mass/store.ahk"
+#Include "../screen/pill_scan.ahk"
 ; ═══════════════════════════════════════════════════════════════════════════════
 ;  active_model.ahk — which of your models is on screen right now.
 ; ───────────────────────────────────────────────────────────────────────────────
@@ -52,9 +53,11 @@ ReadActiveIndex() {
     return _IniInt(MMA_DETECTOR, "detector", "active_index", 0)
 }
 
-; Where the lit pill is, in screen px, or -1 for "no pill on screen". This is the
-; measurement positional mode actually runs on — see PositionalSlotByX for why
-; the tab INDEX above turned out to be unobtainable on this UI.
+; Where the lit pill is, in screen px, or -1. Written by the background service.
+; Positional mode no longer reads it — it scans directly, because a value that
+; refreshes every 500ms is stale exactly when you need it, which is the instant
+; after you clicked a tab. Kept because the readout and external tools can watch
+; it for free.
 ReadActiveX() {
     return _IniInt(MMA_DETECTOR, "detector", "active_x", -1)
 }
@@ -114,8 +117,9 @@ ModelLabel(n) {
 }
 
 ; Tab position -> model slot, as ordered in Settings. Identity by default, so
-; leftmost tab = model 1 until you say otherwise. Only used when the detector
-; managed to COUNT the tabs; see PositionalSlotByX for the usual path.
+; leftmost tab = model 1 until you say otherwise. Vestigial: it needs the detector
+; to have COUNTED the tabs, which on a theme that draws inactive tabs as bare
+; background it cannot. ResolveByTaughtX is the path that actually runs.
 PositionalSlot(pos) {
     global MASS_MODELS
     if (pos < 1)
@@ -124,109 +128,169 @@ PositionalSlot(pos) {
     return (n >= 1 && n <= MASS_MODELS) ? n : 0
 }
 
-; ── positions you taught it ───────────────────────────────────────────────────
-;  Where the lit pill sits, in screen px, for each model — learned, not computed.
+; ── which tab is lit, and which model that is ────────────────────────────────
+;  Two steps, deliberately separate, because only ONE of them is a measurement.
 ;
-;  Counting tabs by colour cannot work on this UI and no amount of tuning fixes
-;  it: inactive tabs are drawn in the page background (`#0d0d0d` measured in 82 of
-;  83 columns), so the tabs you are NOT on are literally not there to count. Every
-;  scheme that starts "find all the tabs, then take the Nth" is dead on arrival.
+;    1. WHICH TAB is in front    — from the screen. Pure colour, no OCR.
+;    2. which MODEL that tab is  — from Settings. You said so; nothing is read.
 ;
-;  A POSITION needs only the tab you ARE on, which is the one thing the scan finds
-;  reliably. So MMA remembers where each model's tab sits and matches the nearest.
-;  Nothing is assumed about tab pitch, tab count, or where the strip starts — all
-;  three were guesses, and the pitch in particular changes as tabs are added.
+;  Step 2 is not something a detector should ever try to work out. Tab 1 is Aliw
+;  because you put it there, and no pixel on screen carries that fact. Every round
+;  of this that went wrong went wrong by trying to infer it.
 ;
-;  Taught by pressing a mass.select key while Infloww is in front: saying "this is
-;  model 2" is exactly the observation needed, so calibration is a side effect of
-;  the thing you would do anyway.
+;  Step 1 is arithmetic, not a search, because model tab positions are FIXED: the
+;  strip starts at TabOrigin and each tab is TabPitch wide, so the lit pill's x IS
+;  the tab index. Nothing is counted — and counting was the part that could not
+;  work here, since inactive tabs are drawn in the page background and are
+;  invisible to a colour scan. Only the tab you are ON has to be visible, and it
+;  is.
+;
+;  Both numbers are measured Infloww geometry (UI element map: strip starts x30,
+;  pitch 150) and both live in mass_gui.cfg [Detector], so a zoom or theme change
+;  is a config edit rather than a code change.
 
-; Where model n's tab was when you last taught it, or -1 for "never taught".
-LearnedSlotX(n) {
-    return _IniInt(MMA_CFG, "Positional", "X" n, -1)
+; ── reading the strip HERE, not via the detector service ─────────────────────
+;  Positional mode used to read active_x out of detector_status.ini. That is one
+;  indirection too many and it produced exactly the failure you would predict:
+;  the service polls every 500ms and only while Infloww is the ACTIVE window, so
+;  "click a tab, press the key" read a value from before the click — and both
+;  models got taught the same x.
+;
+;  The pixels are right there. Read them. It costs ~80 PixelGetColor calls, which
+;  is under a millisecond, and it is never stale by construction.
+;
+;  The service still runs: it owns the OCR that name mode needs. Positional mode
+;  no longer depends on it at all.
+
+; The [Detector] block, as numbers. Cached with the scan below — an IniRead per
+; keystroke is the kind of cost that only shows up as "MMA feels laggy".
+DetectorCfg() {
+    hex := Trim(IniRead(MMA_CFG, "Detector", "GreyColor", "0x2B2C30"))
+    return {
+        x:    _IniInt(MMA_CFG, "Detector", "RegionX",  0),
+        y:    _IniInt(MMA_CFG, "Detector", "RegionY",  0),
+        w:    _IniInt(MMA_CFG, "Detector", "RegionW",  330),
+        h:    _IniInt(MMA_CFG, "Detector", "RegionH",  50),
+        tol:  _IniInt(MMA_CFG, "Detector", "GreyTol",  22),
+        step: _IniInt(MMA_CFG, "Detector", "ScanStep", 4),
+        gap:  _IniInt(MMA_CFG, "Detector", "GapTol",   12),
+        min:  _IniInt(MMA_CFG, "Detector", "MinGrey",  6),
+        origin: _IniInt(MMA_CFG, "Detector", "TabOrigin", 30),
+        pitch:  _IniInt(MMA_CFG, "Detector", "TabPitch",  150),
+        rgb:  Integer(RegExMatch(hex, "i)^0x") ? hex : "0x" hex),
+        win:  Trim(IniRead(MMA_CFG, "Detector", "WinMatch", "Infloww Messages"))}
 }
 
-LearnSlotX(n, x) {
-    global MASS_MODELS
-    if (n < 1 || n > MASS_MODELS || x < 0)
-        return false
-    IniWrite(x, MMA_CFG, "Positional", "X" n)
-    return true
+; Is Infloww actually in front? Every scan below is at FIXED SCREEN COORDINATES,
+; so without this they happily measure whatever window is sitting there — which
+; is how an earlier version of the detector read VS Code's menu bar and filed it
+; as a model name.
+DetectorWindowUp(cfg := 0) {
+    if !cfg
+        cfg := DetectorCfg()
+    return cfg.win = "" || WinActive(cfg.win)
 }
 
-; How far off a learned position may be and still count as that tab.
+; Grab the tab strip once. Everything below reads from the returned buffer.
 ;
-; Half the closest spacing between two taught positions: any more and a pill
-; could be nearer the wrong neighbour. Derived rather than configured, because the
-; right value depends entirely on how wide YOUR tabs are, which is the thing being
-; measured. Falls back to 60 with fewer than two taught — enough to absorb the few
-; px the centroid shifts as a badge appears, nowhere near a whole tab.
-PositionTol() {
-    global MASS_MODELS
-    xs := []
-    Loop MASS_MODELS {
-        x := LearnedSlotX(A_Index)
-        if (x >= 0)
-            xs.Push(x)
-    }
-    if (xs.Length < 2)
-        return 60
-    minGap := 0
-    for i, a in xs
-        for j, b in xs
-            if (i != j) {
-                d := Abs(a - b)
-                if (!minGap || d < minGap)
-                    minGap := d
-            }
-    return Max(20, minGap // 2)
+; One BitBlt costs about what a SINGLE PixelGetColor costs on this machine, and
+; every pixel after it is free — see the header of screen/pill_scan.ahk for the
+; measurements that forced this. Callers grab once and pass it down; a function
+; that grabs its own copy per call is back to the slow path.
+GrabStrip(cfg := 0) {
+    if !cfg
+        cfg := DetectorCfg()
+    return PILL_Grab(cfg.x, cfg.y, cfg.w + 1, cfg.h + 1)
 }
 
-; The model whose taught position is nearest `x`, or 0 if none is near enough.
+; Find the lit pill by sweeping the band. Returns the PILL_Scan record; .count = 0
+; means nothing found. Used by the OCR path and the probe — NOT by the hotkey
+; path, which knows where the tabs are and samples them directly.
 ;
-; 0 is a real answer here, not a failure to try: a pill that is not near anything
-; you taught means the strip moved, a tab opened to the left, or you are looking
-; at something else entirely. Guessing the closest regardless is how one model's
-; message lands in another model's chat.
-PositionalSlotByX(x) {
-    global MASS_MODELS
+; Does not check the window: callers that need that gate say so, and the probe
+; deliberately does not, so it can show what the strip looks like while you are
+; looking at Settings.
+ScanLitPill(cfg := 0, img := 0) {
+    if !cfg
+        cfg := DetectorCfg()
+    if !img
+        img := GrabStrip(cfg)
+    if !img
+        return {count: 0, avgX: -1, minX: 0, maxX: -1, index: 0, total: 0}
+    return PILL_Scan(img, cfg.x, cfg.y, cfg.x + cfg.w, cfg.y + cfg.h,
+                     cfg.rgb, cfg.rgb, cfg.tol, cfg.step, cfg.gap)
+}
+
+; Screen x -> tab index, 1-based, left to right. 0 = outside the strip.
+;
+; The entire positional detection, in one line of arithmetic. Everything that came
+; before it — grouping runs, counting tabs, matching centroids against taught
+; coordinates within a derived tolerance — was an elaborate attempt to discover
+; something that was never unknown: where tab 2 is.
+TabIndexFromX(x, cfg := 0) {
     if (x < 0)
         return 0
-    tol   := PositionTol()
-    best  := 0, bestD := 0
-    secD  := 0
-    Loop MASS_MODELS {
-        lx := LearnedSlotX(A_Index)
-        if (lx < 0)
-            continue
-        d := Abs(lx - x)
-        if (!best || d < bestD) {
-            secD := best ? bestD : 0
-            best := A_Index, bestD := d
-        } else if (!secD || d < secD)
-            secD := d
-    }
-    if (!best || bestD > tol)
+    if !cfg
+        cfg := DetectorCfg()
+    if (cfg.pitch < 1 || x < cfg.origin)
         return 0
-    ; A winner that is barely closer than the runner-up is a coin flip, and this
-    ; is not a coin worth flipping — the two outcomes are two different people's
-    ; fans. 15px is far below any real tab width and far above the few px the
-    ; centroid shifts when an unread badge appears, so this only fires when the
-    ; pill genuinely sits between two taught tabs: a tab was added, removed or
-    ; dragged, and the taught positions no longer describe the strip. Re-teach.
-    if (secD && secD - bestD < 15)
-        return 0
-    return best
+    return ((x - cfg.origin) // cfg.pitch) + 1
 }
 
-; Has this been taught anything at all? Drives the "you have not calibrated yet"
-; message rather than a silent dead key.
-AnyLearnedPositions() {
+; Tab index -> model slot, straight from the Settings "Tab order" dropdowns.
+; Identity by default, so the leftmost tab is model 1 until you reorder them.
+TabModel(index) {
+    return PositionalSlot(index)
+}
+
+; The x range tab `i` occupies, inset a little so a neighbour's edge or the
+; rounded corner of this one cannot contribute.
+TabRange(i, cfg) {
+    x1 := cfg.origin + (i - 1) * cfg.pitch
+    return {x1: x1 + 8, x2: x1 + cfg.pitch - 8}
+}
+
+; WHICH TAB is lit, sampled at the fixed slots. 0 = no clear answer.
+;
+; This is the hot path — reached from #HotIf, so on every keystroke — which is why
+; it samples a handful of columns per slot instead of sweeping the band. A sweep
+; is ~1000 GDI GetPixel calls and stalls typing; this is ~50 and does not.
+;
+; Also returns the counts, because they are the only useful diagnostic: two slots
+; both showing a big number means one pill is straddling two slots, i.e. TabPitch
+; is wrong. Without them "no answer" is unactionable.
+TabLitIndex(cfg := 0, img := 0) {
     global MASS_MODELS
-    Loop MASS_MODELS
-        if (LearnedSlotX(A_Index) >= 0)
-            return true
-    return false
+    if !cfg
+        cfg := DetectorCfg()
+    if !img
+        img := GrabStrip(cfg)
+    counts := []
+    if !img {
+        Loop MASS_MODELS
+            counts.Push(-1)
+        return {index: 0, counts: counts}
+    }
+    xstep := Max(4, cfg.pitch // 8)
+    Loop MASS_MODELS {
+        r := TabRange(A_Index, cfg)
+        counts.Push(PILL_CountIn(img, r.x1, r.x2, cfg.y, cfg.y + cfg.h,
+                                 cfg.rgb, cfg.tol, xstep, cfg.step))
+    }
+    return {index: PILL_PickLit(counts, cfg.min), counts: counts}
+}
+
+; Set the order by POINTING at it: pressing "active model = 2" while model 2's tab
+; is in front records "whatever tab index that is, is model 2".
+;
+; The same fact the dropdowns hold, entered the way you actually know it. Nobody
+; knows their tab is index 2; everybody knows the tab they are looking at is Rama.
+SetTabOrderFor(index, n) {
+    global MASS_MODELS
+    if (index < 1 || index > MASS_MODELS || n < 1 || n > MASS_MODELS)
+        return false
+    IniWrite(n, MMA_CFG, "Positional", "Pos" index)
+    return true
 }
 
 ; Which model slot the detector is pointing at, or 0 for "no answer" — detector
@@ -306,31 +370,8 @@ ActiveModelStatus() {
     ; your tabs. Drag one, or open them in a different order tomorrow, and the
     ; keys follow the position rather than the person. Name mode survives that;
     ; this does not. It is the fallback for when names cannot be made to work.
-    if (mode = "position") {
-        x := ReadActiveX()
-        if (x < 0)
-            return {no: 0, name: "", state: "none"}   ; no pill: Infloww not in front
-
-        ; Taught positions first — the only scheme that works when inactive tabs
-        ; are invisible to a colour scan, which on Infloww they are.
-        if AnyLearnedPositions() {
-            slot := PositionalSlotByX(x)
-            if (slot)
-                return {no: slot, name: "x " x, state: "ok"}
-            return {no: 0, name: "x " x, state: "unknown"}
-        }
-
-        ; Nothing taught yet. Fall back to the tab INDEX, which needs the detector
-        ; to have separated the tabs — it usually cannot, and says so with a count
-        ; of 0 rather than pretending there is one tab.
-        pos := ReadActiveIndex()
-        if (pos < 1)
-            return {no: 0, name: "x " x, state: "unlearned"}
-        slot := PositionalSlot(pos)
-        if (!slot)
-            return {no: 0, name: "tab " pos, state: "unknown"}
-        return {no: slot, name: "tab " pos, state: "ok"}
-    }
+    if (mode = "position")
+        return _PositionalStatus()
 
     active := Trim(ReadActiveModel())
     if (active = "")
@@ -345,6 +386,44 @@ ActiveModelStatus() {
     if (hits.Length > 1)
         return {no: 0, name: active, state: "ambiguous"}
     return {no: 0, name: active, state: "unknown"}
+}
+
+; ── positional mode, resolved from the screen ────────────────────────────────
+;  Cached for 250ms, and that is not an optimisation detail — this is reached
+;  from #HotIf, which AHK re-evaluates on EVERY keystroke while you type. Without
+;  a cache, a paragraph typed into a fan's chat is a few hundred pixel scans.
+;  250ms is far below the time it takes a human to click a tab and press a key,
+;  so nothing observable is ever stale.
+global _AM_CACHE_T := 0
+global _AM_CACHE_R := 0
+
+_PositionalStatus() {
+    global _AM_CACHE_T, _AM_CACHE_R
+    now := A_TickCount
+    if (_AM_CACHE_R && now - _AM_CACHE_T < 250)
+        return _AM_CACHE_R
+
+    cfg := DetectorCfg()
+    res := _PositionalStatusUncached(cfg)
+    _AM_CACHE_T := now, _AM_CACHE_R := res
+    return res
+}
+
+_PositionalStatusUncached(cfg) {
+    global MASS_MODELS
+    ; Fixed screen coordinates, so this MUST be gated on the window. Otherwise
+    ; the scan measures whatever is at those pixels and names a model from it.
+    if !DetectorWindowUp(cfg)
+        return {no: 0, name: "", state: "none"}
+
+    idx := TabLitIndex(cfg).index
+    if (idx < 1)
+        return {no: 0, name: "", state: "none"}      ; no tab clearly lit
+
+    slot := TabModel(idx)
+    if (!slot)
+        return {no: 0, name: "tab " idx, state: "unknown"}
+    return {no: slot, name: "tab " idx, state: "ok"}
 }
 
 ; Teach a slot one more on-screen name. [ActiveMap] File<n> is a COMMA-SEPARATED

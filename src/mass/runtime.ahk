@@ -1,4 +1,4 @@
-#Requires AutoHotkey v2.0
+﻿#Requires AutoHotkey v2.0
 #Include "../core/paths.ahk"
 ; ═══════════════════════════════════════════════════════════════════════════════
 ;  mass/runtime.ahk — what a mass DOES. Bound by engine.ahk, once, for all models.
@@ -428,39 +428,92 @@ SelectModel(n) {
         return
     }
 
-    ; ── the press also TEACHES positional mode ────────────────────────────────
-    ; You are looking at a tab and telling MMA which model it is. That is exactly
-    ; the observation positional mode needs and cannot make on its own, so record
-    ; where the lit pill is while you are saying it. Two models = two presses, on
-    ; the tabs you were going to click anyway, and auto-detection is calibrated.
-    ;
-    ; Only when the detector actually sees a pill (x >= 0), which it only does
-    ; while Infloww is in front — so pressing the key at your IDE cannot overwrite
-    ; a good position with a meaningless one.
-    learned := false
-    x := ReadActiveX()
-    if (x >= 0)
-        learned := LearnSlotX(n, x)
-
     mode := ModelMatchMode()
     if (mode = "position") {
-        ; Already in positional mode: do not drop out of it just because you
-        ; nudged the model by hand. Teaching is the point of the press here.
-        ; Two reasons x can be < 0, and the message must not pick one: Infloww is
-        ; not the active window, or it is and the scan found no pill (colours or
-        ; region wrong). Settings' live readout distinguishes them; a toast that
-        ; guessed would send you to fix the wrong thing.
-        _MassToast(learned ? "Learned: " ModelLabel(n) " is at x " x
-                           : "Active model: " ModelLabel(n)
-                             "`n(no tab detected — position NOT learned)")
+        TeachPosition(n)
         return
     }
     ; Any other mode becomes manual, because a key labelled "active model = 2"
     ; that left the detector in charge would be lying about what it does.
     if (mode != "manual")
         IniWrite("manual", MMA_CFG, "Settings", "ModelMatch")
-    _MassToast("Active model: " ModelLabel(n)
-             . (learned ? "`n(position x " x " learned)" : ""))
+    _MassToast("Active model: " ModelLabel(n))
+}
+
+; ── saying which model the tab in front is ────────────────────────────────────
+;  In positional mode the screen answers "which TAB is lit" and Settings answers
+;  "which model is that tab". This press is how you give the second answer without
+;  opening Settings: it reads the lit tab's INDEX off the screen and files the
+;  model you named under it.
+;
+;  Reads the pixels HERE, at the moment of the press. It used to go through
+;  detector_status.ini, which the background service refreshes every 500ms and
+;  only while Infloww is focused — so "click the tab, press the key" acted on a
+;  reading from before the click. There is no reason to route a measurement you
+;  can take directly through a file.
+;
+;  Every outcome is audible. A tooltip you have to notice is not feedback when
+;  your eyes are on the chat you are about to send into.
+TeachPosition(n) {
+    global MASS_MODELS
+    cfg := DetectorCfg()
+
+    if !DetectorWindowUp(cfg) {
+        _TeachFail("Click " (cfg.win = "" ? "Infloww" : cfg.win) " first."
+                 . "`nNothing changed — MMA only reads the tab strip while that"
+                 . " window is in front.")
+        return
+    }
+
+    t := TabLitIndex(cfg)
+    if (t.index < 1) {
+        ; The counts ARE the diagnosis, so show them. All zeros = nothing lit
+        ; (wrong colour or region). Two big ones = one pill straddling two slots
+        ; (wrong TabPitch). Without them "it did not work" is unactionable.
+        _TeachFail("No single tab is lit at the expected positions."
+                 . "`nper-tab pixels: " _CountsLine(t.counts)
+                 . "`nNothing changed. All zeros means the colour or region is"
+                 . " wrong — run tools\detector_probe.ahk. Two large numbers"
+                 . " means TabPitch is wrong.")
+        return
+    }
+    idx := t.index
+
+    if !SetTabOrderFor(idx, n) {
+        _TeachFail("Could not set tab " idx " to model " n ".")
+        return
+    }
+    SoundBeep(880, 90)
+    _MassToast("Tab " idx " = " ModelLabel(n) "`n" _OrderSummary())
+}
+
+; Per-tab pixel counts, for the messages that need to show their working.
+_CountsLine(counts) {
+    out := ""
+    for i, c in counts
+        out .= (out = "" ? "" : "  ") "tab" i ":" c
+    return out
+}
+
+_TeachFail(msg) {
+    SoundBeep(300, 250)
+    _MassToast(msg)
+}
+
+; The whole order after every press. Two tabs mapped to the same model is a real
+; mistake and one you would otherwise only find by sending to the wrong fan.
+_OrderSummary() {
+    global MASS_MODELS
+    out := "", seen := Map()
+    dup := false
+    Loop MASS_MODELS {
+        m := TabModel(A_Index)
+        out .= (out = "" ? "order: " : "   ") "tab" A_Index "→" ModelLabel(m)
+        if seen.Has(m)
+            dup := true
+        seen[m] := true
+    }
+    return out (dup ? "   ⚠ two tabs share a model" : "")
 }
 
 ; Cycles over the models you actually have, not all MASS_MODELS: with ModelCount

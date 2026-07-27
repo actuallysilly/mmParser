@@ -1,7 +1,8 @@
-#Requires AutoHotkey v2.0
+﻿#Requires AutoHotkey v2.0
 #SingleInstance Force
 #Include "../src/core/paths.ahk"
 #Include "../src/vendor/OCR.ahk"
+#Include "../src/screen/pill_scan.ahk"
 ; ═══════════════════════════════════════════════════════════════════════════════
 ;  detector_probe.ahk — what the model detector is actually looking at.
 ; ───────────────────────────────────────────────────────────────────────────────
@@ -68,12 +69,10 @@ OcrRect(x1, x2) {
     }
 }
 
-ColorDist(c1, c2) {
-    r := Abs(((c1 >> 16) & 0xFF) - ((c2 >> 16) & 0xFF))
-    g := Abs(((c1 >>  8) & 0xFF) - ((c2 >>  8) & 0xFF))
-    b := Abs(( c1        & 0xFF) - ( c2        & 0xFF))
-    return Max(r, g, b)
-}
+; This file's own ColorDist was deleted: pill_scan.ahk provides PILL_ColorDist,
+; and two definitions of one name do not load in AHK. Sharing it is also the
+; point — a probe that compares colours differently from the detector tells you
+; about the probe.
 
 ; --now probes whatever is on screen immediately and exits, for scripted checks.
 ; The interactive path waits for F10 because you have to put Infloww in front
@@ -110,6 +109,15 @@ Probe() {
     ; The colours are the whole answer. A pill is a solid block, so the two most
     ; common non-background colours in a tab strip ARE the active and inactive
     ; pills — you do not have to guess them, you can read them off this list.
+    ; One capture, then read from memory. Per-pixel PixelGetColor measured ~30ms
+    ; a call here, so this loop alone used to take upwards of ten seconds — and a
+    ; probe that slow reads a DIFFERENT screen at the start and the end of its own
+    ; scan, which is why two consecutive runs disagreed about the palette.
+    img := PILL_Grab(RegionX, RegionY, RegionW + 1, RegionH + 1)
+    if !img {
+        Say("SCREEN CAPTURE FAILED — cannot probe.")
+        return
+    }
     counts := Map()
     cols   := []
     x := RegionX
@@ -117,9 +125,11 @@ Probe() {
         seen := Map()
         y := RegionY
         while (y <= y2) {
-            c := PixelGetColor(x, y)
-            counts[c] := counts.Has(c) ? counts[c] + 1 : 1
-            seen[c]   := seen.Has(c) ? seen[c] + 1 : 1
+            c := PILL_Px(img, x, y)
+            if (c >= 0) {
+                counts[c] := counts.Has(c) ? counts[c] + 1 : 1
+                seen[c]   := seen.Has(c) ? seen[c] + 1 : 1
+            }
             y += ScanStep
         }
         cols.Push({x: x, seen: seen})
@@ -211,9 +221,9 @@ Report(label, activeRGB, inactiveRGB, tol, gap, cols) {
     for col in cols {
         act := 0, any := 0
         for c, n in col.seen {
-            if (ColorDist(c, activeRGB) <= tol)
+            if (PILL_ColorDist(c, activeRGB) <= tol)
                 act += n, any += n
-            else if (ColorDist(c, inactiveRGB) <= tol)
+            else if (PILL_ColorDist(c, inactiveRGB) <= tol)
                 any += n
         }
         if (any)

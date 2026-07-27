@@ -97,7 +97,13 @@ Poll() {
         return
     }
 
-    r := PILL_Scan(RegionX, RegionY, RegionX + RegionW, RegionY + RegionH,
+    ; ONE BitBlt, then read from memory. This poll used to call PixelGetColor
+    ; ~1000 times, which measured 10.8 SECONDS on this machine — twenty times the
+    ; 500ms poll interval, so the service was permanently behind and never once
+    ; wrote a current reading. Every theory about why auto-detection failed was
+    ; tested against data that was seconds stale.
+    img := PILL_Grab(RegionX, RegionY, RegionW + 1, RegionH + 1)
+    r := PILL_Scan(img, RegionX, RegionY, RegionX + RegionW, RegionY + RegionH,
                    GreyRGB, DarkRGB, GreyTol, ScanStep, GapTol)
     if (r.count < MinGrey) {
         WriteActive("")                      ; no active pill -> gating off
