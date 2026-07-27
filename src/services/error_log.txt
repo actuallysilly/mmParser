@@ -5,3 +5,10 @@
 2026-07-27 18:07:16  [automation.py]  nothing bound - add a key under [automation] in hotkeys.ini
 2026-07-27 18:07:16  [automation.py]  listening (only while 'Infloww Messages' is active) - --stop to end
 2026-07-27 18:18:58  [automation.py]  stop requested - exiting
+2026-07-27 18:24:41  [automation.py]  reading D:\Software\Dev\Chatting\MMA\src\services\hotkeys.ini
+2026-07-27 18:24:41  [automation.py]    ! ACTIONS has 'hopkebabs' but hotkeys.ini [automation] does not
+2026-07-27 18:24:41  [automation.py]    ! ACTIONS has 'unsendlast' but hotkeys.ini [automation] does not
+2026-07-27 18:24:41  [automation.py]    ! ACTIONS has 'countsales' but hotkeys.ini [automation] does not
+2026-07-27 18:24:41  [automation.py]  nothing bound - add a key under [automation] in hotkeys.ini
+2026-07-27 18:24:41  [automation.py]  listening (only while 'Infloww Messages' is active) - --stop to end
+2026-07-27 18:26:47  [automation.py]  stop requested - exiting

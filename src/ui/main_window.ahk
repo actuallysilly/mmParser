@@ -1052,10 +1052,17 @@ LoadFile(fname) {
     global
     modelNo := ModelNoOf(fname)
     doc     := MASS_Load()
+    ; `slot := A_Index` before the inner loop, NOT A_Index inside it. A_Index
+    ; always refers to the INNERMOST loop, so inside the for-each it counts
+    ; fields (1..44), not slots — which silently built control keys like
+    ; "m17_fu1" that match nothing, and for the few that did exist wrote one
+    ; slot's value into another's box. Saving was always fine; this is why it
+    ; would not come back. ApplyFile below captures it the same way.
     Loop MASS_SLOTS {
-        rec := MASS_Get(doc, modelNo, A_Index)
+        slot := A_Index
+        rec  := MASS_Get(doc, modelNo, slot)
         for field, val in rec {
-            ck := "m" A_Index "_" field
+            ck := "m" slot "_" field
             if edCtrls.Has(ck)
                 edCtrls[ck].Value := val
         }
@@ -1097,17 +1104,37 @@ ApplyFile(fname, silent := false) {
     }
     if !MASS_Save(doc)
         return
-    NotifyMassesChanged()
+    engineUp := NotifyMassesChanged()
     if silent
         return
-    MsgBox("Saved model " modelNo ".", "Done", 0x40)
+    if engineUp {
+        MsgBox("Saved model " modelNo ".", "Done", 0x40)
+        return
+    }
+    MsgBox("Saved model " modelNo " — but the mass engine is NOT running, so no "
+         . "hotkey will send it.`n`nTick engine.ahk under Settings → startup "
+         . "scripts, or run src\mass\engine.ahk.", "Saved, but nothing can send it",
+           0x30)
 }
 
 ; Tell the engine the library changed, so the next keypress sends the new text.
 ; No reload and no restart: the two processes share a FILE, and this is only the
 ; nudge to re-read it. Same broadcast the settings toggles use.
+;
+; Returns whether the engine was actually there to hear it. "Saved model 2" while
+; nothing on the machine can send model 2 is a lie by omission — the save worked,
+; but the thing the user is about to go and press does not exist.
 NotifyMassesChanged() {
     try HK_Broadcast(0x8006)
+    return EngineRunning()
+}
+
+EngineRunning() {
+    prev := A_DetectHiddenWindows
+    DetectHiddenWindows true
+    up := WinExist(MMA_SRC "\mass\engine.ahk ahk_class AutoHotkey") ? true : false
+    DetectHiddenWindows prev
+    return up
 }
 
 ; ─── Which mass a model sends ─────────────────────────────────────────────────
