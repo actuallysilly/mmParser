@@ -105,75 +105,85 @@ HK_Context("discord", (*) => WinActive("ahk_exe Discord.exe"))
 ;  Keep in step with hotkeys.ini. HK_Init() reports drift in either direction.
 
 HK_Section("nav", "Navigation")
-HK_Def("nav.unread",      "Mark unread / drag back",   , "1_mass.ahk")
-HK_Def("nav.focusAuto",   "Focus textbox or top chat", , "1_mass.ahk")
-HK_Def("nav.nextChat",    "Next chat down",            , "1_mass.ahk")
-HK_Def("nav.unreadLeft",  "Mark unread (left)",        , "1_mass.ahk")
-HK_Def("nav.focusTop",    "Focus top chat",            , "1_mass.ahk")
-HK_Def("nav.clickUnread", "Click unread button",       , "1_mass.ahk")
-HK_Def("nav.clickHome",   "Click home",                , "1_mass.ahk")
-HK_Def("nav.clickPpv",    "Click PPV notification",    , "1_mass.ahk")
+HK_Def("nav.unread",      "Mark unread / drag back",   , "engine.ahk")
+HK_Def("nav.focusAuto",   "Focus textbox or top chat", , "engine.ahk")
+HK_Def("nav.nextChat",    "Next chat down",            , "engine.ahk")
+HK_Def("nav.unreadLeft",  "Mark unread (left)",        , "engine.ahk")
+HK_Def("nav.focusTop",    "Focus top chat",            , "engine.ahk")
+HK_Def("nav.clickUnread", "Click unread button",       , "engine.ahk")
+HK_Def("nav.clickHome",   "Click home",                , "engine.ahk")
+HK_Def("nav.clickPpv",    "Click PPV notification",    , "engine.ahk")
 
 HK_Section("mass.1", "Mass — model 1")
-HK_Def("mass.1.fu1",      "Follow-up 1",                  , "1_mass.ahk")
-HK_Def("mass.1.fu2",      "Follow-up 2",                  , "1_mass.ahk")
-HK_Def("mass.1.fu3",      "Follow-up 3",                  , "1_mass.ahk")
-HK_Def("mass.1.altFu1",   "Follow-up 1 — pick alt",       , "1_mass.ahk")
-HK_Def("mass.1.altFu2",   "Follow-up 2 — pick alt",       , "1_mass.ahk")
-HK_Def("mass.1.altFu3",   "Follow-up 3 — pick alt",       , "1_mass.ahk")
-HK_Def("mass.1.fu1short", "Follow-up 1 (alt key)",        , "1_mass.ahk")
-HK_Def("mass.1.fu2short", "Follow-up 2 (alt key)",        , "1_mass.ahk")
-HK_Def("mass.1.fu3short", "Follow-up 3 (alt key)",        , "1_mass.ahk")
-HK_Def("mass.1.mFu1",     "Follow-up 1 (mouse)",          , "1_mass.ahk")
-HK_Def("mass.1.mFu2",     "Follow-up 2 (mouse)",          , "1_mass.ahk")
-HK_Def("mass.1.mFu3",     "Follow-up 3 (mouse)",          , "1_mass.ahk")
-HK_Def("mass.1.smFu1",    "Follow-up 1 (Scimitar)",       , "1_mass.ahk")
-HK_Def("mass.1.smFu2",    "Follow-up 2 (Scimitar)",       , "1_mass.ahk")
-HK_Def("mass.1.smFu3",    "Follow-up 3 (Scimitar)",       , "1_mass.ahk")
-HK_Def("mass.1.ppv",      "PPV base",                     , "1_mass.ahk")
-HK_Def("mass.1.ppvFus",   "PPV follow-ups",               , "1_mass.ahk")
-HK_Def("mass.1.b1Ppv",    "PPV follow-ups (alt key)",     , "1_mass.ahk")
-HK_Def("mass.1.brPick",   "Branch — pick + send fu1",     , "1_mass.ahk")
-HK_Def("mass.1.brFu2",    "Branch — follow-up 2",         , "1_mass.ahk")
-HK_Def("mass.1.brFu3",    "Branch — follow-up 3",         , "1_mass.ahk")
-HK_Def("mass.1.brPpv",    "Branch — PPV",                 , "1_mass.ahk")
+HK_Def("mass.1.fu1",      "Follow-up 1",                  , "engine.ahk")
+HK_Def("mass.1.fu2",      "Follow-up 2",                  , "engine.ahk")
+HK_Def("mass.1.fu3",      "Follow-up 3",                  , "engine.ahk")
+HK_Def("mass.1.altFu1",   "Follow-up 1 — pick alt",       , "engine.ahk")
+HK_Def("mass.1.altFu2",   "Follow-up 2 — pick alt",       , "engine.ahk")
+HK_Def("mass.1.altFu3",   "Follow-up 3 — pick alt",       , "engine.ahk")
+HK_Def("mass.1.fu1short", "Follow-up 1 (alt key)",        , "engine.ahk")
+HK_Def("mass.1.fu2short", "Follow-up 2 (alt key)",        , "engine.ahk")
+HK_Def("mass.1.fu3short", "Follow-up 3 (alt key)",        , "engine.ahk")
+HK_Def("mass.1.mFu1",     "Follow-up 1 (mouse)",          , "engine.ahk")
+HK_Def("mass.1.mFu2",     "Follow-up 2 (mouse)",          , "engine.ahk")
+HK_Def("mass.1.mFu3",     "Follow-up 3 (mouse)",          , "engine.ahk")
+HK_Def("mass.1.ppv",      "PPV base",                     , "engine.ahk")
+HK_Def("mass.1.ppvFus",   "PPV follow-ups",               , "engine.ahk")
+HK_Def("mass.1.b1Ppv",    "PPV follow-ups (alt key)",     , "engine.ahk")
+HK_Def("mass.1.brPick",   "Branch — pick + send fu1",     , "engine.ahk")
+HK_Def("mass.1.brFu2",    "Branch — follow-up 2",         , "engine.ahk")
+HK_Def("mass.1.brFu3",    "Branch — follow-up 3",         , "engine.ahk")
+HK_Def("mass.1.brPpv",    "Branch — PPV",                 , "engine.ahk")
 
 HK_Section("mass.2", "Mass — model 2")
-HK_Def("mass.2.fu1",   "Follow-up 1",       , "2_mass.ahk")
-HK_Def("mass.2.fu2",   "Follow-up 2",       , "2_mass.ahk")
-HK_Def("mass.2.fu3",   "Follow-up 3",       , "2_mass.ahk")
-HK_Def("mass.2.altFu1",   "Follow-up 1 — pick alt",       , "2_mass.ahk")
-HK_Def("mass.2.altFu2",   "Follow-up 2 — pick alt",       , "2_mass.ahk")
-HK_Def("mass.2.altFu3",   "Follow-up 3 — pick alt",       , "2_mass.ahk")
-HK_Def("mass.2.smFu1", "Follow-up 1 (Scimitar)", , "2_mass.ahk")
-HK_Def("mass.2.smFu2", "Follow-up 2 (Scimitar)", , "2_mass.ahk")
-HK_Def("mass.2.smFu3", "Follow-up 3 (Scimitar)", , "2_mass.ahk")
-HK_Def("mass.2.ppv",    "PPV base",         , "2_mass.ahk")
-HK_Def("mass.2.ppvFus", "PPV follow-ups",   , "2_mass.ahk")
-HK_Def("mass.2.brPick", "Branch — pick + send fu1", , "2_mass.ahk")
-HK_Def("mass.2.brFu2",  "Branch — follow-up 2",     , "2_mass.ahk")
-HK_Def("mass.2.brFu3",  "Branch — follow-up 3",     , "2_mass.ahk")
-HK_Def("mass.2.brPpv",  "Branch — PPV",             , "2_mass.ahk")
+HK_Def("mass.2.fu1",   "Follow-up 1",       , "engine.ahk")
+HK_Def("mass.2.fu2",   "Follow-up 2",       , "engine.ahk")
+HK_Def("mass.2.fu3",   "Follow-up 3",       , "engine.ahk")
+HK_Def("mass.2.altFu1",   "Follow-up 1 — pick alt",       , "engine.ahk")
+HK_Def("mass.2.altFu2",   "Follow-up 2 — pick alt",       , "engine.ahk")
+HK_Def("mass.2.altFu3",   "Follow-up 3 — pick alt",       , "engine.ahk")
+HK_Def("mass.2.ppv",    "PPV base",         , "engine.ahk")
+HK_Def("mass.2.ppvFus", "PPV follow-ups",   , "engine.ahk")
+HK_Def("mass.2.brPick", "Branch — pick + send fu1", , "engine.ahk")
+HK_Def("mass.2.brFu2",  "Branch — follow-up 2",     , "engine.ahk")
+HK_Def("mass.2.brFu3",  "Branch — follow-up 3",     , "engine.ahk")
+HK_Def("mass.2.brPpv",  "Branch — PPV",             , "engine.ahk")
 
 HK_Section("mass.3", "Mass — model 3")
-HK_Def("mass.3.fu1",   "Follow-up 1",       , "3_mass.ahk")
-HK_Def("mass.3.fu2",   "Follow-up 2",       , "3_mass.ahk")
-HK_Def("mass.3.fu3",   "Follow-up 3",       , "3_mass.ahk")
-HK_Def("mass.3.altFu1",   "Follow-up 1 — pick alt",       , "3_mass.ahk")
-HK_Def("mass.3.altFu2",   "Follow-up 2 — pick alt",       , "3_mass.ahk")
-HK_Def("mass.3.altFu3",   "Follow-up 3 — pick alt",       , "3_mass.ahk")
-HK_Def("mass.3.smFu1", "Follow-up 1 (Scimitar)", , "3_mass.ahk")
-HK_Def("mass.3.smFu2", "Follow-up 2 (Scimitar)", , "3_mass.ahk")
-HK_Def("mass.3.smFu3", "Follow-up 3 (Scimitar)", , "3_mass.ahk")
-HK_Def("mass.3.ppv",    "PPV base",         , "3_mass.ahk")
-HK_Def("mass.3.ppvFus", "PPV follow-ups",   , "3_mass.ahk")
-HK_Def("mass.3.brPick", "Branch — pick + send fu1", , "3_mass.ahk")
-HK_Def("mass.3.brFu2",  "Branch — follow-up 2",     , "3_mass.ahk")
-HK_Def("mass.3.brFu3",  "Branch — follow-up 3",     , "3_mass.ahk")
-HK_Def("mass.3.brPpv",  "Branch — PPV",             , "3_mass.ahk")
+HK_Def("mass.3.fu1",   "Follow-up 1",       , "engine.ahk")
+HK_Def("mass.3.fu2",   "Follow-up 2",       , "engine.ahk")
+HK_Def("mass.3.fu3",   "Follow-up 3",       , "engine.ahk")
+HK_Def("mass.3.altFu1",   "Follow-up 1 — pick alt",       , "engine.ahk")
+HK_Def("mass.3.altFu2",   "Follow-up 2 — pick alt",       , "engine.ahk")
+HK_Def("mass.3.altFu3",   "Follow-up 3 — pick alt",       , "engine.ahk")
+HK_Def("mass.3.ppv",    "PPV base",         , "engine.ahk")
+HK_Def("mass.3.ppvFus", "PPV follow-ups",   , "engine.ahk")
+HK_Def("mass.3.brPick", "Branch — pick + send fu1", , "engine.ahk")
+HK_Def("mass.3.brFu2",  "Branch — follow-up 2",     , "engine.ahk")
+HK_Def("mass.3.brFu3",  "Branch — follow-up 3",     , "engine.ahk")
+HK_Def("mass.3.brPpv",  "Branch — PPV",             , "engine.ahk")
+
+; --- Mass: the ACTIVE model (shared keys that follow the screen detector) -----
+;  ONE key set, resolved at fire time to whichever model the detector says is on
+;  screen. This is what F13-F15 always meant.
+;
+;  They used to be declared three times over — smFu1-3 in [mass.1], [mass.2] AND
+;  [mass.3], all bound to the same physical keys — and then un-declared again
+;  350ms at a time by StartFuGating, because three PROCESSES could not otherwise
+;  share a key. That also forced hotkeys_window.ahk to exempt them from its own
+;  conflict report, since three copies of one key look exactly like a clash.
+;
+;  One process, one declaration, no exemption, and the conflict report can now be
+;  believed. With no detector answer these simply do nothing; the per-model keys
+;  above are the manual answer. See ARCHITECTURE.md §5.1.
+HK_Def("mass.active.fu1",    "Follow-up 1 — active model",  , "engine.ahk")
+HK_Def("mass.active.fu2",    "Follow-up 2 — active model",  , "engine.ahk")
+HK_Def("mass.active.fu3",    "Follow-up 3 — active model",  , "engine.ahk")
+HK_Def("mass.active.ppv",    "PPV base — active model",     , "engine.ahk")
+HK_Def("mass.active.ppvFus", "PPV follow-ups — active model", , "engine.ahk")
 
 HK_Section("chat", "Chat")
-HK_Def("chat.captureEnter", "Send + remember last message", "chrome", "1_mass.ahk")
+HK_Def("chat.captureEnter", "Send + remember last message", "chrome", "engine.ahk")
 
 HK_Section("seq", "Sequences")
 HK_Def("seq.openFarmolijer", "Open Farmolijer DM",            , "sequences.ahk")
@@ -184,10 +194,10 @@ HK_Def("seq.selectTopPpv",   "Select top PPV",                , "sequences.ahk")
 ;                          ready to assign in the Hotkeys GUI.
 
 HK_Section("util", "Utilities")
-HK_Def("util.afkClick",        "AFK click cycle",            , "1_mass.ahk")
-HK_Def("util.recoverMsg",      "Recover last typed message", , "1_mass.ahk")
-HK_Def("util.clickSecondGrey", "Click 2nd grey icon",        , "1_mass.ahk")
-HK_Def("util.debugGrey",       "Debug grey search",          , "1_mass.ahk")
+HK_Def("util.afkClick",        "AFK click cycle",            , "engine.ahk")
+HK_Def("util.recoverMsg",      "Recover last typed message", , "engine.ahk")
+HK_Def("util.clickSecondGrey", "Click 2nd grey icon",        , "engine.ahk")
+HK_Def("util.debugGrey",       "Debug grey search",          , "engine.ahk")
 
 HK_Section("gui", "GUI")
 HK_Def("gui.addHotkeyGrab",  "Grab selection → Add Hotkey",  ,              "main_window.ahk")
@@ -352,30 +362,19 @@ HK_SetState(id, state) {
     HotIf()
 }
 
-; The send keys a model slot shares with the other slots, so only the active
-; model's copy stays registered. The old code gated F1-F3 only, which is why the
-; Scimitar keys — F13-F15 in all three slots — stayed live in every model script
-; and fired at once. PPV and the --Name branch keys are gated too: they are
-; model-specific sends, so they must follow the active model exactly like the
-; follow-ups. That is also what makes it safe for different models to reuse the
-; same physical key (e.g. model 1's branch keys and model 3's follow-ups both on
-; F6-F8) — only the active model's copy is ever live.
-;
-; Mouse keys are deliberately NOT gated: they're bound by 1_mass.ahk alone (so
-; nothing to share), the Mouse-control setting switches them off wholesale, and
-; re-enabling them here every 350ms would defeat it. Pressing one while another
-; model is active is still correct — FuGate() re-checks inside the handler.
-HK_ModelSendIds(n) {
-    ids := []
-    for k in ["fu1", "fu2", "fu3", "fu1short", "fu2short", "fu3short",
-              "smFu1", "smFu2", "smFu3", "ppv", "ppvFus",
-              "brPick", "brFu2", "brFu3", "brPpv"] {
-        id := "mass." n "." k
-        if HK_META.Has(id)
-            ids.Push(id)
-    }
-    return ids
-}
+; HK_ModelSendIds used to live here: the list of ids that three model PROCESSES
+; shared a physical key for, so StartFuGating could keep only the active model's
+; copy registered and switch the rest Off every 350ms.
+;
+; One process shares nothing, so the list has no meaning and is gone — along with
+; StartFuGating/UpdateFuGating in utils.ahk and the conflict-report exemption in
+; hotkeys_window.ahk, which existed only to stop the GUI flagging three copies of
+; one key as a clash. Shared keys are declared once now, as [mass.active] above.
+;
+; Worth knowing, because removing it uncovers this: [mass.1] brPick and [mass.3]
+; fu1 are both on F6. That was a REAL conflict the whole time, hidden because
+; both ids were in this list and therefore exempt. The report can be believed
+; now, so it will start saying so.
 
 ; Re-read the ini and re-register anything whose key changed. Every script that
 ; includes this file answers HK_MSG_RELOAD, so the GUI's Save applies live.

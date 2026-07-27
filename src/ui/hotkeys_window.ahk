@@ -142,9 +142,17 @@ Pretty(k) {
 ; ── conflicts ─────────────────────────────────────────────────────────────────
 
 ; Two ids clash when they resolve to the same key AND can be live at the same
-; time. Model send keys are exempt from each other: StartFuGating keeps only the
-; active model's copy registered, which is precisely why three models can share
-; F1-F3 — flagging those would be crying wolf.
+; time.
+;
+; There used to be an exemption here: model send keys did not count as clashing
+; with each other, because three model PROCESSES each bound the same key and
+; StartFuGating kept only the active one registered — so three copies of F13 were
+; normal, and flagging them was crying wolf. One process shares keys through a
+; single [mass.active] declaration instead, so there is nothing to exempt.
+;
+; Removing it makes the report honest, and it has something to report: [mass.1]
+; brPick and [mass.3] fu1 are both bound to F6. That was always a real conflict —
+; both ids were exempt, so the GUI never mentioned it.
 Conflicts() {
     byKey := Map(), out := Map()
     for id in HK_ORDER {
@@ -177,22 +185,7 @@ CanCollide(a, b) {
     ; different window contexts can never both be active
     if (ma.when != "" && mb.when != "" && ma.when != mb.when)
         return false
-    ; Only *gated* send keys take turns. Being in a mass.* section isn't enough:
-    ; the branch/ppv keys are never gated, so model 1's "Branch 2 follow-up 2" on
-    ; F6 really does fire alongside model 3's gated "Follow-up 1" on F6.
-    if (IsGatedSend(a) && IsGatedSend(b) && HK_Split(a).section != HK_Split(b).section)
-        return false
     return true
-}
-
-IsGatedSend(id) {
-    s := HK_Split(id)
-    if (InStr(s.section, "mass.") != 1)
-        return false
-    for gid in HK_ModelSendIds(SubStr(s.section, 6))
-        if (gid = id)
-            return true
-    return false
 }
 
 ; ── capture ───────────────────────────────────────────────────────────────────

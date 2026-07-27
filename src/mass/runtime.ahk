@@ -1,28 +1,30 @@
 #Requires AutoHotkey v2.0
 #Include "../core/paths.ahk"
 ; ═══════════════════════════════════════════════════════════════════════════════
-;  mass/runtime.ahk — everything a model script DOES, shared by all of them.
+;  mass/runtime.ahk — what a mass DOES. Bound by engine.ahk, once, for all models.
 ; ───────────────────────────────────────────────────────────────────────────────
-;  A model script (1_mass.ahk, 2_mass.ahk, …) is DATA: three `mN := {...}` blocks
-;  holding the message text, and nothing else. All the behaviour — follow-ups,
-;  alts, branches, PPV, the settings toggles — lives here, once.
+;  Follow-ups, alts, branches, PPV, the __mm triggers and the Settings toggles all
+;  live here. The message text itself is DATA and lives in userdata\masses.json,
+;  read through mass/store.ahk — see ARCHITECTURE.md §5.
 ;
-;  It used to live in each model file, copied. The copies drifted: 1_mass.ahk
-;  honoured EditableFu / WalletCheckFu3 / OpenTabFu2-3 and models 2-3 silently
-;  passed `false` instead, so those Settings checkboxes did nothing for them even
-;  though the GUI broadcast to all three. BuildMassTemplate never emitted the alt
-;  and branch functions at all, so regenerating a model file deleted its branch
-;  support. One copy here is what stops both.
+;  This behaviour used to be copied into each of 1_mass.ahk / 2_mass.ahk /
+;  3_mass.ahk, and the copies drifted: 1_mass honoured EditableFu / WalletCheckFu3
+;  / OpenTabFu2-3 while models 2 and 3 silently passed `false`, so those Settings
+;  checkboxes did nothing for them even though the GUI broadcast to all three.
+;  Regenerating a model file also deleted its branch support, because the template
+;  never emitted the alt and branch functions at all. One copy is what stops both.
 ;
-;  A model script only needs:
-;      #Include "../../src/mass/runtime.ahk"
-;      … the mN data blocks …
-;      MassInit(<this file's number>)
+;  Those three files were also three PROCESSES, which is the more expensive part:
+;  they all bound the same physical keys, so five separate mechanisms existed just
+;  to arbitrate between them (see utils.ahk's ActiveModelNo comment). One process
+;  needs none of it.
 ;
-;  MassInit binds only the slots hotkeys.ahk actually declares for that model, so
-;  a model with fewer keys (2 and 3 have no mouse/short variants) is not an error.
+;  Two ways in, and they never overlap (§5.1):
+;      MassBindModel(n)  — [mass.<n>]      explicit per-model keys. Manual mode.
+;      MassBindActive()  — [mass.active]   one key set, follows the detector.
 ; ═══════════════════════════════════════════════════════════════════════════════
 
+#Include "store.ahk"
 #Include "../core/coords.ahk"
 #Include "../core/utils.ahk"
 
@@ -89,20 +91,53 @@ SndFuEditable(parts*) {
     Send "^v"
 }
 
-; The mass currently selected by massNo. Alt handling needs the whole object, not
-; one field, so the chooser can read every variant of a group.
+; ── which model is firing ─────────────────────────────────────────────────────
+; One process now serves all three models (ARCHITECTURE.md §5), so "the current
+; model" is no longer a per-process constant — it is whichever model owns the key
+; you just pressed. Every mass handler is bound through _ModelFire below, which
+; sets this immediately before running the handler.
+global MASS_CUR_MODEL := 1
+
+; Wrap a handler so it announces which model it belongs to. This is what lets
+; mass.1.fu1 (F1) and mass.2.fu1 (F9) be two live keys in ONE process, with no
+; gating and no 350ms timer — the key you press IS the model selector (§5.1).
+_ModelFire(modelNo, fn) {
+    return (*) => (_SetCurModel(modelNo), fn())
+}
+_SetCurModel(n) {
+    global MASS_CUR_MODEL := n
+}
+
+; The mass currently selected, for the model currently firing. Alt handling needs
+; the whole object, not one field, so the chooser can read every variant.
 CurMass() {
-    global massNo, m1, m2, m3
-    return massNo = 1 ? m1 : massNo = 2 ? m2 : m3
+    global MASS_DOC, MASS_CUR_MODEL
+    return MASS_AsObject(MASS_Active(MASS_DOC, MASS_CUR_MODEL))
+}
+
+; One of the current model's three slots, as an object.
+CurMassSlot(slot) {
+    global MASS_DOC, MASS_CUR_MODEL
+    return MASS_AsObject(MASS_Get(MASS_DOC, MASS_CUR_MODEL, slot))
+}
+
+; The key _activeBranch is remembered under. Includes the MODEL, not just the
+; slot: with three models in one process, "mass 1" alone would let model 2's
+; chosen branch overwrite model 1's.
+_BranchKey() {
+    global MASS_DOC, MASS_CUR_MODEL
+    return MASS_CUR_MODEL "." MASS_MassNo(MASS_DOC, MASS_CUR_MODEL)
 }
 
 ; One follow-up group. `group` is 1/2/3; `editable` is that group's toggle.
-; Order matters: gate first, then let an alt chooser intercept, then the editable
-; paste, then the plain send. doubleMM sends slots 1 and 2 back to back.
+; Order matters: let an alt chooser intercept first, then the editable paste, then
+; the plain send. doubleMM sends slots 1 and 2 back to back.
+;
+; No gate any more. The key that got here was bound to a specific model (or was
+; resolved against the detector by _RunOnActiveModel), so by this point there is
+; nothing left to second-guess.
 _DoFuGroup(group, editable, openTab) {
-    global massNo, m1, m2, m3, doubleMM, openInNewTabButton
-    if !FuGate()
-        return
+    global doubleMM, openInNewTabButton
     ; Each extra is both a user setting and a feature; Easy mode drops all three
     ; back to "paste the follow-up and press Enter", which is all v1.4.0 did.
     editable := editable && FEAT("editableFu")
@@ -116,8 +151,8 @@ _DoFuGroup(group, editable, openTab) {
         return
     }
     if sendBoth {
-        sndFu(group, _FuParts(m1, group)*)
-        sndFu(group, _FuParts(m2, group)*)
+        sndFu(group, _FuParts(CurMassSlot(1), group)*)
+        sndFu(group, _FuParts(CurMassSlot(2), group)*)
     } else {
         sndFu(group, _FuParts(m, group)*)
     }
@@ -203,22 +238,16 @@ DoPpvFus() {
 ; just does what the plain key does, so the ctrl variant is never a dead key.
 DoAltFu1() {
     global editableFu1
-    if !FuGate()
-        return
     if !AltIntercept(CurMass(), 1, true, editableFu1)
         DoFu1()
 }
 DoAltFu2() {
     global editableFu2
-    if !FuGate()
-        return
     if !AltIntercept(CurMass(), 2, true, editableFu2)
         DoFu2()
 }
 DoAltFu3() {
     global editableFu3, walletCheckFu3
-    if !FuGate()
-        return
     if !AltIntercept(CurMass(), 3, true, walletCheckFu3 || editableFu3)
         DoFu3()
 }
@@ -228,9 +257,7 @@ DoAltFu3() {
 ; you switch to: pick one, then walk its follow-ups and ppv. The chosen branch is
 ; remembered per mass (_activeBranch) so fu2/fu3/ppv keep sending the same one.
 DoBranchPick() {
-    global _activeBranch, massNo
-    if !FuGate()
-        return
+    global _activeBranch
     brs := BranchList(CurMass())
     if !brs.Length
         return
@@ -243,17 +270,16 @@ DoBranchPick() {
         if !idx
             return
     }
-    _activeBranch[massNo] := idx
+    _activeBranch[_BranchKey()] := idx
     BranchSendGroup(brs[idx].fu[1])
 }
 
 BranchSendActiveGroup(g) {
-    global _activeBranch, massNo
-    if !FuGate()
-        return
+    global _activeBranch
     brs := BranchList(CurMass())
-    if _activeBranch.Has(massNo) && _activeBranch[massNo] <= brs.Length
-        BranchSendGroup(brs[_activeBranch[massNo]].fu[g])
+    k   := _BranchKey()
+    if _activeBranch.Has(k) && _activeBranch[k] <= brs.Length
+        BranchSendGroup(brs[_activeBranch[k]].fu[g])
 }
 
 DoBranchFu2() {
@@ -263,28 +289,21 @@ DoBranchFu3() {
     BranchSendActiveGroup(3)
 }
 DoBranchPpv() {
-    global _activeBranch, massNo
+    global _activeBranch
     brs := BranchList(CurMass())
-    if _activeBranch.Has(massNo) && _activeBranch[massNo] <= brs.Length
-        BranchSendPpv(brs[_activeBranch[massNo]].ppv)
+    k   := _BranchKey()
+    if _activeBranch.Has(k) && _activeBranch[k] <= brs.Length
+        BranchSendPpv(brs[_activeBranch[k]].ppv)
 }
 
 ; ── Wiring ────────────────────────────────────────────────────────────────────
-; Called at the END of a model script, once its data blocks exist. `n` is the
-; model file's number, which is also its hotkeys.ini section: [mass.<n>].
-;
-; Every slot below is attempted, but only the ones hotkeys.ahk declares for THIS
-; model get bound — models 2 and 3 have no mouse or short-key variants, and that
-; is not an error. HK_Bind would log and skip an undeclared id anyway; checking
-; first keeps error_log.txt free of noise that reads like a fault.
-MassInit(n) {
-    global massNo, modelFileNo, mouseControl
-    modelFileNo := n
 
-    slots := Map(
-        "fu1",      DoFu1,  "fu1short", DoFu1,  "mFu1", DoFu1,  "smFu1", DoFu1,
-        "fu2",      DoFu2,  "fu2short", DoFu2,  "mFu2", DoFu2,  "smFu2", DoFu2,
-        "fu3",      DoFu3,  "fu3short", DoFu3,  "mFu3", DoFu3,  "smFu3", DoFu3,
+; Every slot a mass section can declare, and what runs it.
+MassSlotHandlers() {
+    return Map(
+        "fu1",      DoFu1,  "fu1short", DoFu1,  "mFu1", DoFu1,
+        "fu2",      DoFu2,  "fu2short", DoFu2,  "mFu2", DoFu2,
+        "fu3",      DoFu3,  "fu3short", DoFu3,  "mFu3", DoFu3,
         "ppv",      DoPpv,
         "ppvFus",   DoPpvFus,
         "b1Ppv",    DoPpvFus,
@@ -295,11 +314,25 @@ MassInit(n) {
         "brFu2",    DoBranchFu2,
         "brFu3",    DoBranchFu3,
         "brPpv",    DoBranchPpv)
+}
 
-    for slot, fn in slots {
+; Bind one model's EXPLICIT keys — [mass.<n>] in hotkeys.ini.
+;
+; This is the manual scheme (§5.1): F1-F3 is model 1, F9-F11 is model 2, and the
+; key you press is what says which model you mean. Each handler is wrapped in
+; _ModelFire so it knows which that is. No gate, no timer, and no detector: these
+; keys work identically whether or not the screen detector is running, which is
+; exactly what v1 could not do — there, fu1-fu3 were gated, so with the detector
+; on and model 2 in front, model 1's F1 went dead.
+;
+; Only slots hotkeys.ahk actually declares get bound; a model with fewer keys is
+; not an error, and checking first keeps error_log.txt free of noise.
+MassBindModel(n) {
+    global mouseControl
+    for slot, fn in MassSlotHandlers() {
         id := "mass." n "." slot
         if HK_META.Has(id)
-            HK_Bind(id, fn)
+            HK_Bind(id, _ModelFire(n, fn))
     }
 
     ; Mouse-control off means the mouse-button follow-ups stay dark. Done after
@@ -312,11 +345,36 @@ MassInit(n) {
                 HK_SetState(id, "Off")
         }
     }
+}
 
-    ; The Scimitar keys are the same F13-F15 in every model, so without this one
-    ; press fired every model's follow-up at once. Registers this model's shared
-    ; send keys only while its tab is the active one.
-    StartFuGating(HK_ModelSendIds(n))
+; Bind the SHARED keys — [mass.active] in hotkeys.ini.
+;
+; One key set that follows whichever model is on screen. These are the keys that
+; used to be declared three times over (smFu1-3 = F13/F14/F15 in all of
+; [mass.1], [mass.2] and [mass.3]) and then un-declared again 350ms at a time by
+; StartFuGating, which existed solely because three PROCESSES could not otherwise
+; share a key. One process needs none of that: bind once, and resolve the model
+; at fire time.
+;
+; With no detector answer there is nothing to follow, so these do nothing rather
+; than guess — the numbered manual keys are the answer in that case.
+MassBindActive() {
+    for slot, fn in MassSlotHandlers() {
+        id := "mass.active." slot
+        if HK_META.Has(id)
+            HK_Bind(id, _ActiveFire(fn))
+    }
+}
+
+_ActiveFire(fn) {
+    return (*) => _RunOnActiveModel(fn)
+}
+_RunOnActiveModel(fn) {
+    n := ActiveModelNo()
+    if !n
+        return
+    _SetCurModel(n)
+    fn()
 }
 
 ; ── the "send the whole mass" triggers ────────────────────────────────────────
@@ -331,15 +389,15 @@ MassInit(n) {
 ;  :*X:__mm:: makes that a structural guarantee rather than a policy. Also
 ;  ARCHITECTURE.md §5.2.
 #HotIf UniversalSendActive()
-:*X:__mm::DoMass()
+:*X:__mm::_RunOnActiveModel(DoMass)
 #HotIf
 
 #HotIf NumberedSendActive(1)
-:*X:__mm1::DoMass()
+:*X:__mm1::(_SetCurModel(1), DoMass())
 #HotIf
 #HotIf NumberedSendActive(2)
-:*X:__mm2::DoMass()
+:*X:__mm2::(_SetCurModel(2), DoMass())
 #HotIf
 #HotIf NumberedSendActive(3)
-:*X:__mm3::DoMass()
+:*X:__mm3::(_SetCurModel(3), DoMass())
 #HotIf

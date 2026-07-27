@@ -20,105 +20,73 @@ global topChat := 300
 ; ! ALT
 ; + shift
 
-; ── active-model gating (driven by the screen detector) ───────────────────────
-; The detector writes the focused model's name to detector_status.ini. Each mass
-; script runs one model, so its follow-up hotkeys should only fire when ITS model
-; is the active tab — letting every model share the same 3 hotkeys.
+; ── which model is on screen ──────────────────────────────────────────────────
+; The detector writes the focused model's NAME to detector_status.ini; [ActiveMap]
+; in mass_gui.cfg maps each model slot to a name. Together they answer "which of
+; my three models is the user looking at".
+;
+; v1 needed a lot more than this, because the three models were three PROCESSES
+; that all tried to bind the same physical keys. StartFuGating ran a 350ms timer
+; in each one, re-reading this file off disk to switch the other models' hotkeys
+; Off; FuGate re-checked inside every handler; HK_ModelSendIds listed which ids
+; were shared; and hotkeys_window had to exempt those ids from its own conflict
+; report so it would not cry wolf. All five existed to arbitrate between
+; processes. One process needs none of them, and they are gone.
 ReadActiveModel() {
     return Trim(IniRead(MMA_DETECTOR, "detector", "active_model", ""))
 }
 
-; True if THIS model file is the one currently focused on screen.
-;  - detector off / no active model  -> true (gating disabled, normal behaviour)
-;  - this slot named                  -> true only when active model == this slot's name
-;  - this slot unnamed                -> the lowest-numbered unnamed slot AUTO-CLAIMS the
-;                                        active model (once), so scripts self-wire on first use
-ModelIsActive() {
-    global modelFileNo
+; Which model slot the detector is pointing at, or 0 for "no answer" — detector
+; off, Infloww not visible, or a name that matches no slot.
+;
+; An UNNAMED slot auto-claims the current name, lowest-numbered first, so a fresh
+; install wires itself up the first time you use it instead of needing the map
+; filled in by hand.
+ActiveModelNo() {
     active := ReadActiveModel()
     if (active = "")
-        return true
+        return 0
     cfg := MMA_CFG
-    myName := Trim(IniRead(cfg, "ActiveMap", "File" modelFileNo, ""))
-    if (myName != "")
-        return (StrLower(active) = StrLower(myName))
-    lowestUnnamed := 0
-    Loop 9 {
-        nm := Trim(IniRead(cfg, "ActiveMap", "File" A_Index, ""))
-        if (StrLower(nm) = StrLower(active))
-            return false                 ; already claimed by another slot -> not me
-        if (nm = "" && lowestUnnamed = 0)
-            lowestUnnamed := A_Index
+    Loop MASS_MODELS
+        if (StrLower(Trim(IniRead(cfg, "ActiveMap", "File" A_Index, ""))) = StrLower(active))
+            return A_Index
+    Loop MASS_MODELS {
+        if (Trim(IniRead(cfg, "ActiveMap", "File" A_Index, "")) = "") {
+            IniWrite(active, cfg, "ActiveMap", "File" A_Index)
+            return A_Index
+        }
     }
-    if (lowestUnnamed != modelFileNo)
-        return false
-    IniWrite(active, cfg, "ActiveMap", "File" modelFileNo)   ; auto-name this slot
-    return true
+    return 0
 }
-
-; in-handler safety for model-specific sends bound to non-shared keys
-FuGate() => ModelIsActive()
 
 ; ── __mm  vs  __mm1 / __mm2 / __mm3 ───────────────────────────────────────────
-;  Two ways to say "send the whole mass", and which one is live depends on
-;  whether the detector is running. See ARCHITECTURE.md §5.2.
+;  Two ways to say "send the whole mass", and which is live depends on whether
+;  the detector is running. See ARCHITECTURE.md §5.2.
 ;
 ;  DETECTOR ON  — "automatic mode". The screen says which model is in front, so
-;    bare __mm is unambiguous: it means "this one". Exactly one process answers,
-;    which is the point — otherwise all three expand the hotstring at once and
-;    triple-backspace the typed trigger.
+;    bare __mm is unambiguous: it means "this one".
 ;
 ;  DETECTOR OFF — "manual mode". Nothing on screen says which model you mean, so
-;    bare __mm has no correct answer. v1 guessed: it always fired model 1, which
-;    silently meant a manual model-2 user could not use __mm AT ALL — they typed
-;    it and got model 1's mass. A wrong mass sent to a fan is worse than no
-;    expansion, so bare __mm is now DISABLED here and the numbered triggers take
-;    over. __mm2 means model 2 because you said so, which is the same contract
-;    the manual F-keys already use: the thing you type IS the model selector.
+;    bare __mm has no correct answer. v1 guessed and always fired model 1, which
+;    meant a manual model-2 user typing __mm did not get nothing — they got MODEL
+;    1's mass, sent to their fan. A wrong mass is worse than no expansion, so bare
+;    __mm is disabled and the numbered triggers take over. __mm2 means model 2
+;    because you said so: the thing you type IS the model selector, same contract
+;    as the manual F-keys.
+;
+;  The two are mutually exclusive BY CONSTRUCTION, not by preference. __mm is
+;  declared :*X:, and `*` means "fire as soon as the trigger is typed, no ending
+;  character" — so while __mm is live it expands the instant you type the second
+;  m, and the `1` in __mm1 is never reached. Gating the numbered triggers on the
+;  same condition that silences __mm keeps "what is registered" equal to "what can
+;  actually fire", instead of leaving three hotstrings that look bound and cannot.
 
-; True when bare __mm may fire in THIS process. Manual mode: never.
 UniversalSendActive() {
-    global modelFileNo
-    if (ReadActiveModel() = "")
-        return false
-    return ModelIsActive()
+    return ActiveModelNo() != 0
 }
 
-; True when THIS process owns __mm<n> — manual mode, and n names this model file.
-;
-; The two schemes are mutually exclusive BY CONSTRUCTION, not by preference, and
-; the reason is the hotstring options: __mm is declared :*X:, and `*` means "fire
-; as soon as the trigger is typed, no ending character". So while __mm is live it
-; expands the instant you type the second m — the `1` in __mm1 is never reached.
-;
-; Registering the numbered triggers in automatic mode anyway would leave three
-; hotstrings that look bound, appear in the manager, and can never fire. Gating
-; them on the same condition that silences __mm keeps "what is registered" equal
-; to "what can happen", so exactly one scheme is live at a time.
 NumberedSendActive(n) {
-    global modelFileNo
-    if (ReadActiveModel() != "")     ; detector has an answer -> __mm owns the prefix
-        return false
-    return (modelFileNo = n)
-}
-
-; Register this model's SHARED send hotkeys only while its model is active, so
-; several model scripts can share the same keys (only one is registered at a time).
-; Takes hotkey IDS, not keys: a hard-coded key list stops matching the moment
-; someone rebinds it in hotkeys.ini, which is how F13-F15 ended up firing in every
-; model script at once. Call once after the keys are bound:
-;     StartFuGating(HK_ModelSendIds(modelFileNo))
-_gatedIds := []
-StartFuGating(ids) {
-    global _gatedIds := ids
-    SetTimer(UpdateFuGating, 350)
-    UpdateFuGating()
-}
-UpdateFuGating() {
-    global _gatedIds
-    state := ModelIsActive() ? "On" : "Off"
-    for id in _gatedIds
-        HK_SetState(id, state)
+    return ActiveModelNo() = 0        ; manual mode only; see above
 }
 
 Snd(arg){

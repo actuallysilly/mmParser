@@ -3,6 +3,7 @@
 #SingleInstance Force
 #Include "../core/crashlog.ahk"
 #Include "../core/hotkeys.ahk"
+#Include "../mass/store.ahk"
 #Include "../mass/archive.ahk"
 #Include "../mass/parser.ahk"
 #Include "../core/processes.ahk"
@@ -101,21 +102,12 @@ AllBranchFields() {
 ; the writer and the new-file template all read it, so adding a field here is
 ; enough. They used to carry three separate copies of this list.
 MassBlockProps() {
-    props := ["mass","fu1","fu1_5","fu1_7","fu2","fu2_5","fu2_7",
-              "fu3","fu3_5","fu3_7","ppv_base","ppv_f1","ppv_f2","ppv_f3"]
-    for _, f in AllBranchFields()
-        props.Push(f)
-    for _, f in AllAltFields()
-        props.Push(f)
-    props.Push("altGui")
-    return props
+    return MASS_Fields()
 }
 
 ; Fields whose value may span lines, so newlines survive the round trip as `n.
 MassPropIsMultiline(prop) {
-    if (prop = "ppv_base" || InStr(prop, "_alt"))
-        return true
-    return RegExMatch(prop, "^br\d+_(fu\d|ppv)$") > 0
+    return MASS_FieldIsMultiline(prop)
 }
 
 ; Parts of one stored alt, splitting the `n join back out.
@@ -1040,44 +1032,42 @@ ClearAll(*) {
         c.Value := ""
 }
 
-; ─── Load from file ───────────────────────────────────────────────────────────
+; ─── Load / save the mass library ─────────────────────────────────────────────
+; These used to read and WRITE AHK SOURCE: LoadFile regex-matched `mN := { … }`
+; blocks out of a model script, and ApplyFile spliced new ones back in via
+; BuildBlock/BuildMassTemplate/EscQ. All of that is gone — the library is data
+; now, and mass/store.ahk is the only thing that touches the file.
+;
+; The fname argument survives because every caller passes one (the model tabs,
+; the branch window, the Discord import). It is turned into a model NUMBER here
+; and used for nothing else.
+
+; "2_mass.ahk" -> 2. Kept tolerant: a bare number works too.
+ModelNoOf(fname) {
+    n := Integer(RegExReplace(fname, "\D", ""))
+    return (n >= 1 && n <= MASS_MODELS) ? n : 1
+}
 
 LoadFile(fname) {
     global
-    path := MMA_ScriptPath(fname)
-    if !FileExist(path) {
-        MsgBox "File not found:`n" path,, 0x10
-        return
-    }
-    content := FileRead(path, "UTF-8")
-    props   := MassBlockProps()
-    Loop 3 {
-        mNo := A_Index
-        if !RegExMatch(content, "m" mNo " := \{([^}]*)\}", &blk)
-            continue
-        blockText := blk[1]
-        for _, prop in props {
-            ck := "m" mNo "_" prop
-            ; alt fields are longest-first in MassBlockProps so "fu1_alt0" cannot be
-            ; matched by the "fu1" pattern; anchor anyway to be certain.
-            if RegExMatch(blockText, "(?:^|\R)\s*" prop ": " Chr(34) "((?:[^" Chr(34) Chr(96) "]|" Chr(96) ".)*)" Chr(34), &mv) && edCtrls.Has(ck) {
-                v := mv[1]
-                if MassPropIsMultiline(prop)
-                    v := StrReplace(v, "``n", "`r`n")
-                edCtrls[ck].Value := UnescQ(v)
-            }
+    modelNo := ModelNoOf(fname)
+    doc     := MASS_Load()
+    Loop MASS_SLOTS {
+        rec := MASS_Get(doc, modelNo, A_Index)
+        for field, val in rec {
+            ck := "m" A_Index "_" field
+            if edCtrls.Has(ck)
+                edCtrls[ck].Value := val
         }
     }
     RefreshAltWindow()
-    _nameMap := Map("1_mass.ahk", model1Name, "2_mass.ahk", model2Name, "3_mass.ahk", model3Name)
-    lblLoaded.Text := (_nameMap.Has(fname) ? _nameMap[fname] : fname) " loaded"
+    _nameMap := Map(1, model1Name, 2, model2Name, 3, model3Name)
+    lblLoaded.Text := (_nameMap.Has(modelNo) ? _nameMap[modelNo] : fname) " loaded"
 }
-
-; ─── Apply to file ────────────────────────────────────────────────────────────
 
 ApplyFile(fname, silent := false) {
     global
-    path := MMA_ScriptPath(fname)
+    modelNo := ModelNoOf(fname)
     allEmpty := true
     for _, c in edCtrls {
         if Trim(c.Value) != "" {
@@ -1091,123 +1081,48 @@ ApplyFile(fname, silent := false) {
         if MsgBox("All fields are empty. Save anyway?", "Confirm Save", 0x24) != "Yes"
             return
     }
-    content := FileExist(path) ? FileRead(path, "UTF-8") : BuildMassTemplate(fname)
-    Loop 3 {
-        mNo  := A_Index
-        repl := BuildBlock(mNo)
-        content := RegExReplace(content, "m" mNo " := \{[^}]*\}", repl, &n)
-        if !n && !silent
-            MsgBox "Warning: m" mNo " block not found in " fname,, 0x30
+
+    ; Read-modify-write the WHOLE library, not just this model: the file holds all
+    ; three, and the GUI only has this one on screen. Writing a document built from
+    ; the edit boxes alone would blank the other two.
+    doc := MASS_Load()
+    Loop MASS_SLOTS {
+        slot := A_Index
+        rec  := MASS_Blank()
+        for field in MASS_Fields() {
+            ck := "m" slot "_" field
+            rec[field] := edCtrls.Has(ck) ? edCtrls[ck].Value : ""
+        }
+        MASS_Set(doc, modelNo, slot, rec)
     }
-    try {
-        f := FileOpen(path, "w", "UTF-8")
-        f.Write(content)
-        f.Close()
-    } catch as e {
-        if !silent
-            MsgBox "Write error: " e.Message,, 0x10
+    if !MASS_Save(doc)
         return
-    }
+    NotifyMassesChanged()
     if silent
         return
-    if MsgBox("Saved to " fname ".`nReload script now?", "Done", 0x24) = "Yes"
-        Run path
+    MsgBox("Saved model " modelNo ".", "Done", 0x40)
 }
 
-BuildMassTemplate(fname) {
-    q := Chr(34)
-    SplitPath fname, , , , &base
-    num := RegExReplace(base, "\D", "")
-
-    ; The generated MassInit call only binds slots hotkeys.ahk declares. Without
-    ; this the file would build fine and then bind nothing, logging to error_log
-    ; where nobody looks.
-    if !HK_META.Has("mass." num ".fu1") {
-        MsgBox "No hotkeys are declared for model slot " num ".`n`n"
-             . "Add a [mass." num "] section to hotkeys.ini and HK_Def lines to "
-             . "hotkeys.ahk first, otherwise " fname " will load but none of its "
-             . "hotkeys will work.",, 0x30
-    }
-
-    ; A model file is DATA plus one MassInit call. Every behaviour — follow-ups,
-    ; alts, branches, PPV, __mm — is shared and lives in mass/runtime.ahk.
-    ;
-    ; This used to emit its own copy of DoFu1/DoFu2/DoFu3/DoPpv and the HK_Bind
-    ; lines, but never the alt or branch functions. Regenerating a file therefore
-    ; silently deleted its branch support, and the emitted follow-ups ignored the
-    ; EditableFu / WalletCheckFu3 / OpenTab settings that 1_mass.ahk honoured.
-    ; Emitting a shell instead is what keeps a generated model identical to a
-    ; hand-written one.
-    out := "#Requires AutoHotkey v2.0`n#SingleInstance Force`n"
-         . "; Model " num ". This file is DATA: the three mN blocks below hold the message`n"
-         . "; text and nothing else. Follow-ups, alts, branches, PPV and the __mm hotstring`n"
-         . "; are shared behaviour and live in src/mass/runtime.ahk — do not copy them in here.`n"
-         . "#Include " q "../../src/mass/runtime.ahk" q "`n`n"
-         . "; which of the three blocks the hotkeys act on; mass_gui rewrites this line`n"
-         . "massNo := 1`n"
-         . "modelFileNo := " num "`n`n"
-
-    Loop 3
-        out .= BuildBlock(A_Index) "`n`n"
-
-    out .= "; Binds every [mass." num "] key hotkeys.ahk declares, applies the Mouse-control`n"
-         . "; setting, and starts the active-model gating. See mass/runtime.ahk.`n"
-         . "MassInit(" num ")`n"
-    return out
+; Tell the engine the library changed, so the next keypress sends the new text.
+; No reload and no restart: the two processes share a FILE, and this is only the
+; nudge to re-read it. Same broadcast the settings toggles use.
+NotifyMassesChanged() {
+    try HK_Broadcast(0x8006)
 }
 
-
-BuildBlock(mNo) {
-    global
-    props  := MassBlockProps()
-    breaks := Map("fu1_7", 1, "fu2_7", 1, "fu3_7", 1, "ppv_f3", 1,
-                  "br1_ppv", 1, "br2_ppv", 1, "br3_ppv", 1,
-                  "fu1_alt2", 1, "fu2_alt2", 1, "fu3_alt2", 1)
-    out    := "m" mNo " := {`n"
-    Loop props.Length {
-        p     := props[A_Index]
-        val   := edCtrls.Has("m" mNo "_" p) ? edCtrls["m" mNo "_" p].Value : ""
-        val   := EscQ(val)
-        if MassPropIsMultiline(p)
-            val := StrReplace(StrReplace(val, "`r`n", "``n"), "`n", "``n")
-        comma := A_Index < props.Length ? "," : ""
-        out   .= p ': "' val '"' comma "`n"
-        if breaks.Has(p)
-            out .= "`n"
-    }
-    return out . "}"
-}
-
-; ─── Set massNo ───────────────────────────────────────────────────────────────
+; ─── Which mass a model sends ─────────────────────────────────────────────────
+; Was a `massNo := 1` line rewritten inside a RUNNING script's source, which then
+; had to be relaunched to take effect. It is state, so it lives with the data.
 
 SetMassNo(fname, n, *) {
-    global
-    path := MMA_ScriptPath(fname)
-    if !FileExist(path) {
-        MsgBox "File not found:`n" path,, 0x10
-        return
-    }
-    content := FileRead(path, "UTF-8")
-    content := RegExReplace(content, "massNo\s*:=\s*\d+", "massNo := " n, &cnt)
-    if !cnt {
-        MsgBox "massNo not found in " fname,, 0x30
-        return
-    }
-    f := FileOpen(path, "w", "UTF-8")
-    f.Write(content)
-    f.Close()
-    Run path
+    doc := MASS_Load()
+    MASS_SetMassNo(doc, ModelNoOf(fname), n)
+    if MASS_Save(doc)
+        NotifyMassesChanged()
 }
 
 ReadMassNo(fname) {
-    global SCRIPT_DIR
-    path := MMA_ScriptPath(fname)
-    if !FileExist(path)
-        return 1
-    content := FileRead(path, "UTF-8")
-    if RegExMatch(content, "massNo\s*:=\s*(\d+)", &m)
-        return Integer(m[1])
-    return 1
+    return MASS_MassNo(MASS_Load(), ModelNoOf(fname))
 }
 
 ; ─── Settings ─────────────────────────────────────────────────────────────────
@@ -1633,16 +1548,17 @@ OpenSettings(*) {
 ; Restart the running model scripts (used when a load-time setting changes).
 RestartMassScripts() {
     global SCRIPT_DIR, modelCount
-    if MsgBox("Mouse control changed.`nRestart the model scripts now?", "Done", 0x24) != "Yes"
+    ; Mouse-control is applied at BIND time (MassBindModel switches the mFu keys
+    ; Off), so it is the one setting that still needs a restart rather than a
+    ; broadcast. One engine to restart now, not three model scripts.
+    if MsgBox("Mouse control changed.`nRestart the mass engine now?", "Done", 0x24) != "Yes"
         return
-    Loop modelCount {
-        p := MMA_ModelFile(A_Index)
-        if WinExist(p " ahk_class AutoHotkey") {
-            ProcessClose WinGetPID(p " ahk_class AutoHotkey")
-            Sleep 150
-            Run p
-        }
+    eng := MMA_SRC "\mass\engine.ahk"
+    if WinExist(eng " ahk_class AutoHotkey") {
+        ProcessClose WinGetPID(eng " ahk_class AutoHotkey")
+        Sleep 150
     }
+    Run eng
 }
 
 OpenHotkeysGui(*) {
@@ -1859,13 +1775,10 @@ ToggleEditFuCell(f, ctrl) {
     _BroadcastEditableFu(f, val)
 }
 
+; One engine now, so these are one broadcast rather than a loop that poked three
+; model processes by window title. HK_Broadcast already finds every MMA script.
 _BroadcastEditableFu(f, val) {
-    global SCRIPT_DIR, modelCount
-    Loop modelCount {
-        path := MMA_ModelFile(A_Index)
-        if WinExist(path " ahk_class AutoHotkey")
-            PostMessage(0x8002 + f, val, 0, , path " ahk_class AutoHotkey")
-    }
+    HK_Broadcast(0x8002 + f, val)
 }
 
 WipeTemp(*) {
@@ -1894,11 +1807,6 @@ CheckCollisions() {
     }
     Loop Files, ACC_DIR "\*.ahk"
         files.Push(A_LoopFilePath)
-    Loop 3 {
-        fp := MMA_ModelFile(A_Index)
-        if FileExist(fp)
-            files.Push(fp)
-    }
 
     seen := Map()  ; trigger → Map(fname → 1)
 
@@ -1976,25 +1884,17 @@ OcrGrab() {
 _doubleMM := false
 
 ToggleDoubleMM() {
-    global SCRIPT_DIR, modelCount, _doubleMM
+    global _doubleMM
     _doubleMM := !_doubleMM
-    Loop modelCount {
-        path := MMA_ModelFile(A_Index)
-        if WinExist(path " ahk_class AutoHotkey")
-            PostMessage(0x8001, 0, 0, , path " ahk_class AutoHotkey")
-    }
+    HK_Broadcast(0x8001)
     ToolTip("Double MM: " (_doubleMM ? "ON" : "OFF"))
     SetTimer(() => ToolTip(), -1500)
 }
 
 _BroadcastWallet(val) {
-    global SCRIPT_DIR, modelCount, walletCheckFu3
+    global walletCheckFu3
     walletCheckFu3 := val
-    Loop modelCount {
-        path := MMA_ModelFile(A_Index)
-        if WinExist(path " ahk_class AutoHotkey")
-            PostMessage(0x8002, val, 0, , path " ahk_class AutoHotkey")
-    }
+    HK_Broadcast(0x8002, val)
 }
 
 ; ─── Hotkeys ──────────────────────────────────────────────────────────────────

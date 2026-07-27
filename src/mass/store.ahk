@@ -223,3 +223,19 @@ MASS_SetMassNo(doc, modelNo, slot) {
 MASS_Active(doc, modelNo) {
     return MASS_Get(doc, modelNo, MASS_MassNo(doc, modelNo))
 }
+
+; A mass as a plain OBJECT rather than a Map, i.e. m.fu1 instead of m["fu1"].
+;
+; Storage wants a Map (that is what a JSON object is, and what lets Normalise
+; iterate keys generically). The send path wants properties: every follow-up,
+; alt and branch helper in utils.ahk and runtime.ahk was written against m.fu1 /
+; m.%key% / m.HasOwnProp(key), and that code is correct and working. Converting
+; at the boundary keeps one shape for storage and one for sending without either
+; side compromising — and without touching a single line of the send logic, which
+; is the part it would hurt most to get wrong.
+MASS_AsObject(rec) {
+    o := {}
+    for k, v in rec
+        o.%k% := v
+    return o
+}
