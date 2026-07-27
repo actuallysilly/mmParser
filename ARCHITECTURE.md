@@ -20,11 +20,12 @@ just rearranging it:
 
 ## 1. Inventory
 
-There are 69 tracked files. They fall into **seven roles**, and today all seven are
-mixed together in the repo root. That is the whole problem: `paths.ahk` (a library that
+MMA had 69 tracked files falling into **seven roles**, all peers in the repo root. That
+was the whole problem, and §3 is the fix. Reading this section as history: `paths.ahk` (a library that
 never runs), `1_mass.ahk` (message data), `hotkeys.ini` (your settings) and
-`model_detect_test.ahk` (a dev rig from 2026) are peers in the same folder, so nothing
-about a filename tells you whether you may edit it, run it, or delete it.
+`model_detect_test.ahk` (a dev rig) sat side by side, so nothing about a filename told
+you whether you could edit it, run it, or delete it. **Links below point at where each
+file lives now.**
 
 ### 1.1 Entry points — processes that actually run
 
@@ -33,43 +34,43 @@ path**, which is how `HK_Broadcast` and `processes.ahk` find and close them.
 
 | File | What it is |
 |---|---|
-| [mass_gui.ahk](mass_gui.ahk) | **The app.** 80 KB, the largest file here. The main window, the paste/parse box, the model tabs, Settings, Add Hotkey, Branches, the script toggles, and the block-rewriter that saves a parsed mass back into a model file. Supervises every other process. |
-| [1_mass.ahk](1_mass.ahk) | Model 1. Three `mN := {...}` data blocks + `MassInit(1)`. Also owns the always-on nav/chat/utility keys, because it is the one model script always running. |
-| [2_mass.ahk](2_mass.ahk) / [3_mass.ahk](3_mass.ahk) | Models 2 and 3. Pure data + `MassInit(n)`. |
-| [general.ahk](general.ahk) | Always-on shared message hotstrings (`::_gns1::` etc.). |
-| [acc/ALIW.ahk](acc/ALIW.ahk) [acc/BRI.ahk](acc/BRI.ahk) [acc/TEMP.ahk](acc/TEMP.ahk) [acc/UND.ahk](acc/UND.ahk) | Per-account message hotstrings. Toggled on/off from the main window; `TEMP.ahk` is the scratch target for Add Hotkey. |
-| [sequences.ahk](sequences.ahk) | Recorded click/type macros — Discord open, and the Ctrl+click mass import that OCRs the Discord channel header to pick a model. |
-| [capitalizer.ahk](capitalizer.ahk) | Capitalizes the first letter after Enter / `.!?`+space. |
-| [model_detector.ahk](model_detector.ahk) | Background service. Pixel-scans the Infloww tab strip for the active model pill, OCRs its name on change, writes it to `detector_status.ini`. This is what lets one set of F-keys serve whichever model tab is focused. |
-| [stats_overlay.ahk](stats_overlay.ahk) | Background service. OCRs Sales / PPVs-sent / Fans-chatted off the Infloww **Home** window (via PrintWindow, so unfocused) and shows a colour-graded ratio overlay. |
-| [hotkeys_gui.ahk](hotkeys_gui.ahk) | Standalone window: rebind every hotkey. A pure view over `hotkeys.ini`. |
-| [hotstrings_gui.ahk](hotstrings_gui.ahk) | Standalone window: search the whole message library by trigger *or* by the text inside, jump to source, create overloads. |
-| [recorder.ahk](recorder.ahk) | Records mouse/keyboard into a new sequence and **writes AHK code into `sequences.ahk` and `hotkeys.ahk`**. |
-| [updater.ahk](updater.ahk) | Pulls updates from the GitHub raw URL, then relaunches `mass_gui.ahk`. Separate process so it can overwrite the GUI. |
-| [automation/automation.py](automation/automation.py) | Python background listener. Serves the `[automation]` hotkeys (hop kebabs, unsend last, count sales) by locating Infloww UI elements from a measured geometry map. Optional. |
-| [pinger/pinger.pyw](pinger/pinger.pyw) | Python background service. Beeps when an Infloww fan tab goes unread, by scanning for the `#ff7c71` unread dot/badge. Optional. |
+| [mass_gui.ahk](src/ui/main_window.ahk) | **The app.** 80 KB, the largest file here. The main window, the paste/parse box, the model tabs, Settings, Add Hotkey, Branches, the script toggles, and the block-rewriter that saves a parsed mass back into a model file. Supervises every other process. |
+| [1_mass.ahk](content/models/1_mass.ahk) | Model 1. Three `mN := {...}` data blocks + `MassInit(1)`. Also owns the always-on nav/chat/utility keys, because it is the one model script always running. |
+| [2_mass.ahk](content/models/2_mass.ahk) / [3_mass.ahk](content/models/3_mass.ahk) | Models 2 and 3. Pure data + `MassInit(n)`. |
+| [general.ahk](content/general.ahk) | Always-on shared message hotstrings (`::_gns1::` etc.). |
+| [acc/ALIW.ahk](content/accounts/ALIW.ahk) [acc/BRI.ahk](content/accounts/BRI.ahk) [acc/TEMP.ahk](content/accounts/TEMP.ahk) [acc/UND.ahk](content/accounts/UND.ahk) | Per-account message hotstrings. Toggled on/off from the main window; `TEMP.ahk` is the scratch target for Add Hotkey. |
+| [sequences.ahk](src/sequences/sequences.ahk) | Recorded click/type macros — Discord open, and the Ctrl+click mass import that OCRs the Discord channel header to pick a model. |
+| [capitalizer.ahk](src/capitalizer.ahk) | Capitalizes the first letter after Enter / `.!?`+space. |
+| [model_detector.ahk](src/screen/model_detector.ahk) | Background service. Pixel-scans the Infloww tab strip for the active model pill, OCRs its name on change, writes it to `detector_status.ini`. This is what lets one set of F-keys serve whichever model tab is focused. |
+| [stats_overlay.ahk](src/screen/stats_overlay.ahk) | Background service. OCRs Sales / PPVs-sent / Fans-chatted off the Infloww **Home** window (via PrintWindow, so unfocused) and shows a colour-graded ratio overlay. |
+| [hotkeys_gui.ahk](src/ui/hotkeys_window.ahk) | Standalone window: rebind every hotkey. A pure view over `hotkeys.ini`. |
+| [hotstrings_gui.ahk](src/ui/hotstrings_window.ahk) | Standalone window: search the whole message library by trigger *or* by the text inside, jump to source, create overloads. |
+| [recorder.ahk](src/sequences/recorder.ahk) | Records mouse/keyboard into a new sequence and **writes AHK code into `sequences.ahk` and `hotkeys.ahk`**. |
+| [updater.ahk](src/updater.ahk) | Pulls updates from the GitHub raw URL, then relaunches `mass_gui.ahk`. Separate process so it can overwrite the GUI. |
+| [automation/automation.py](src/services/automation/automation.py) | Python background listener. Serves the `[automation]` hotkeys (hop kebabs, unsend last, count sales) by locating Infloww UI elements from a measured geometry map. Optional. |
+| [pinger/pinger.pyw](src/services/pinger/pinger.pyw) | Python background service. Beeps when an Infloww fan tab goes unread, by scanning for the `#ff7c71` unread dot/badge. Optional. |
 
 ### 1.2 Libraries — `#Include`-only, never run alone
 
 | File | What it is |
 |---|---|
-| [paths.ahk](paths.ahk) | **The anchor.** Every path in MMA derived from `A_LineFile`, so nothing depends on which script is `A_ScriptDir`. Read its header before moving anything. |
-| [hotkeys.ahk](hotkeys.ahk) | The central hotkey registry. Contains **no keys** — only `HK_Def` declarations (id, label, context, owner). Keys live in `hotkeys.ini`. Also owns `HK_Bind`, `HK_Broadcast` and the cross-process message protocol. |
-| [modes.ahk](modes.ahk) | Easy vs Advanced, and the one registry (`FEAT_Def`) of every optional feature. In Easy mode features are switched **off**, not hidden. |
-| [utils.ahk](utils.ahk) | 26 KB grab bag: `snd()`/`Sendt()` send helpers, AFK handling, the active-model gate (`FuGate`/`ModelIsActive`), plumbing hotstrings. Included by every message script. |
-| [coords.ahk](coords.ahk) | Named screen coordinates + Corsair Scimitar button aliases. Written to by `recorder.ahk`. |
-| [crashlog.ahk](crashlog.ahk) | `OnError` → `error_log.txt`. Deliberately separate from `utils.ahk` so `mass_gui.ahk` can have crash logging without inheriting utils' hotstrings. |
-| [mass_runtime.ahk](mass_runtime.ahk) | **All model behaviour, once.** Follow-ups, alts, branches, PPV, the Settings toggles. Model files are data because this exists. |
-| [mass_parser.ahk](mass_parser.ahk) | The `!mm` / `f1` / `--Branch` / `~alt` paste format: parse it in, escape it back out. |
-| [archive.ahk](archive.ahk) | `mass_archive.txt`'s format, its one parser, and the viewer window. |
-| [processes.ahk](processes.ahk) | Start/stop/watch the five children. AHK ones are found by window title; the two Python ones sign in with a **named event** instead. |
-| [actions_menu.ahk](actions_menu.ahk) | Searchable window over every registered action, generated from `HK_ORDER`. Runs actions by broadcasting their index — including actions with no key bound. |
-| [modes_gui.ahk](modes_gui.ahk) | The Easy/Advanced + per-feature checkbox window, generated from `modes.ahk`. |
-| [hotstring_index.ahk](hotstring_index.ahk) | Parses `:*:trigger::{ snd("…") }` blocks out of the message `.ahk` files into records. The one writer is `HSI_DeleteBlock`. |
-| [hotstring_overloads.ahk](hotstring_overloads.ahk) | Lets one trigger have several variants (ask / random) **without ever rewriting your source files** — it re-points the trigger at runtime. |
-| [ocr_grab.ahk](ocr_grab.ahk) | Drag a box on screen → OCR it → text. Feeds Add Hotkey. |
-| [features.ahk](features.ahk) | 933 bytes, two functions: click the 2nd grey icon in the composer strip, plus a debug tooltip version. Included only by `1_mass.ahk`. Misnamed — nothing "features" about it. |
-| [lib/OCR.ahk](lib/OCR.ahk) | **Vendored third party** (`lib/OCR.LICENSE`). Wraps `Windows.Media.Ocr` — offline, nothing to install. |
+| [paths.ahk](src/core/paths.ahk) | **The anchor.** Every path in MMA derived from `A_LineFile`, so nothing depends on which script is `A_ScriptDir`. Read its header before moving anything. |
+| [hotkeys.ahk](src/core/hotkeys.ahk) | The central hotkey registry. Contains **no keys** — only `HK_Def` declarations (id, label, context, owner). Keys live in `hotkeys.ini`. Also owns `HK_Bind`, `HK_Broadcast` and the cross-process message protocol. |
+| [modes.ahk](src/core/modes.ahk) | Easy vs Advanced, and the one registry (`FEAT_Def`) of every optional feature. In Easy mode features are switched **off**, not hidden. |
+| [utils.ahk](src/core/utils.ahk) | 26 KB grab bag: `snd()`/`Sendt()` send helpers, AFK handling, the active-model gate (`FuGate`/`ModelIsActive`), plumbing hotstrings. Included by every message script. |
+| [coords.ahk](src/core/coords.ahk) | Named screen coordinates + Corsair Scimitar button aliases. Written to by `recorder.ahk`. |
+| [crashlog.ahk](src/core/crashlog.ahk) | `OnError` → `error_log.txt`. Deliberately separate from `utils.ahk` so `mass_gui.ahk` can have crash logging without inheriting utils' hotstrings. |
+| [mass_runtime.ahk](src/mass/runtime.ahk) | **All model behaviour, once.** Follow-ups, alts, branches, PPV, the Settings toggles. Model files are data because this exists. |
+| [mass_parser.ahk](src/mass/parser.ahk) | The `!mm` / `f1` / `--Branch` / `~alt` paste format: parse it in, escape it back out. |
+| [archive.ahk](src/mass/archive.ahk) | `mass_archive.txt`'s format, its one parser, and the viewer window. |
+| [processes.ahk](src/core/processes.ahk) | Start/stop/watch the five children. AHK ones are found by window title; the two Python ones sign in with a **named event** instead. |
+| [actions_menu.ahk](src/ui/actions_menu.ahk) | Searchable window over every registered action, generated from `HK_ORDER`. Runs actions by broadcasting their index — including actions with no key bound. |
+| [modes_gui.ahk](src/ui/modes_window.ahk) | The Easy/Advanced + per-feature checkbox window, generated from `modes.ahk`. |
+| [hotstring_index.ahk](src/hotstrings/index.ahk) | Parses `:*:trigger::{ snd("…") }` blocks out of the message `.ahk` files into records. The one writer is `HSI_DeleteBlock`. |
+| [hotstring_overloads.ahk](src/hotstrings/overloads.ahk) | Lets one trigger have several variants (ask / random) **without ever rewriting your source files** — it re-points the trigger at runtime. |
+| [ocr_grab.ahk](src/screen/ocr_grab.ahk) | Drag a box on screen → OCR it → text. Feeds Add Hotkey. |
+| [features.ahk](src/sequences/composer.ahk) | 933 bytes, two functions: click the 2nd grey icon in the composer strip, plus a debug tooltip version. Included only by `1_mass.ahk`. Misnamed — nothing "features" about it. |
+| [lib/OCR.ahk](src/vendor/OCR.ahk) | **Vendored third party** (`lib/OCR.LICENSE`). Wraps `Windows.Media.Ocr` — offline, nothing to install. |
 
 ### 1.3 Config that ships vs. state the machine owns
 
@@ -77,10 +78,10 @@ These are mixed together in the root today, and the git rules for them are incon
 
 | File | Owner | Tracked? |
 |---|---|---|
-| [hotkeys.default.ini](hotkeys.default.ini) | ships | yes — correct |
+| [hotkeys.default.ini](userdata/hotkeys.default.ini) | ships | yes — correct |
 | `hotkeys.ini` | user | no — correct, `HK_Init` creates it from the default |
-| [mass_gui.cfg](mass_gui.cfg) | user | **yes — wrong.** Holds your model names, `HiddenScripts`, calibrated OCR rects and the `DefaultFu3` message body. Same class of personal data as `hotkeys.ini`, which is correctly ignored. UTF-16LE. |
-| [hotstring_overloads.ini](hotstring_overloads.ini) | user | yes — currently only a test entry |
+| `userdata/mass_gui.cfg` | user | **was yes — wrong, now fixed.** Holds your model names, `HiddenScripts`, calibrated OCR rects and the `DefaultFu3` message body. Same class of personal data as `hotkeys.ini`, which is correctly ignored. UTF-16LE. |
+| `userdata/hotstring_overloads.ini` | user | **was yes — now untracked**, same rule as the rest |
 | `detector_status.ini` | machine | no — correct |
 | `mass_archive.txt` | user | no — correct |
 | `error_log.txt` | machine | no — correct (130 KB locally) |
@@ -90,26 +91,26 @@ These are mixed together in the root today, and the git rules for them are incon
 
 | File | What it is |
 |---|---|
-| [model_detect_test.ahk](model_detect_test.ahk) | The prototype `model_detector.ahk` grew out of. Hard-codes "grey on the left = AW, right = BUT". Superseded. |
-| [discord_header_test.ahk](discord_header_test.ahk) | Still useful: tunes the `[Discord]` header band that the mass-import fallback OCRs. |
+| [model_detect_test.ahk](tools/model_detect_test.ahk) | The prototype `model_detector.ahk` grew out of. Hard-codes "grey on the left = AW, right = BUT". Superseded. |
+| [discord_header_test.ahk](tools/discord_header_test.ahk) | Still useful: tunes the `[Discord]` header band that the mass-import fallback OCRs. |
 | `infloww ui elements/` | Gitignored. Five Python detector prototypes, the sliced element bitmaps, annotated screenshots, and the technique write-ups. Contains **real fan handles** in the screenshots — that is why it is ignored. |
-| [pinger/test_detect.py](pinger/test_detect.py) | Pinger's detection test against the reference PNGs. |
+| [pinger/test_detect.py](src/services/pinger/test_detect.py) | Pinger's detection test against the reference PNGs. |
 
 ### 1.5 Install / packaging
 
-[install.bat](install.bat) → [install.ps1](install.ps1) (installs AHK via winget, optionally
+[install.bat](install.bat) → [install.ps1](tools/install/install.ps1) (installs AHK via winget, optionally
 Python + deps, and **switches the Python features off in the cfg if you decline**),
-[createShortcut.bat](createShortcut.bat), [icon.ico](icon.ico),
-[installer/MMA.iss](installer/MMA.iss) + [installer/build.bat](installer/build.bat) (Inno Setup).
+[createShortcut.bat](tools/install/createShortcut.bat), [icon.ico](assets/icon.ico),
+[installer/MMA.iss](tools/installer/MMA.iss) + [installer/build.bat](tools/installer/build.bat) (Inno Setup).
 
 ### 1.6 Docs
 
 [README.md](README.md) (install + features; its "File structure" section is now out of date),
-[CHANGELOG.md](CHANGELOG.md), [guide.md](guide.md) (the paste format — this is *user*
-documentation with a developer-ish name), [branching_feature.md](branching_feature.md)
+[CHANGELOG.md](CHANGELOG.md), [guide.md](docs/mass-format.md) (the paste format — this is *user*
+documentation with a developer-ish name), [branching_feature.md](docs/proposals/branching.md)
 (unimplemented proposal for a web branch editor),
-[automation/UI-ELEMENT-MAP.md](automation/UI-ELEMENT-MAP.md) (measured Infloww geometry —
-the source of truth for `automation.py`), [pinger/README.md](pinger/README.md).
+[automation/UI-ELEMENT-MAP.md](src/services/automation/UI-ELEMENT-MAP.md) (measured Infloww geometry —
+the source of truth for `automation.py`), [pinger/README.md](src/services/pinger/README.md).
 
 ### 1.7 Delete
 
@@ -295,7 +296,7 @@ a default just returns the default, so settings quietly revert and nothing says 
 Fix all five *before* moving a single file.
 
 **4.1 — `HK_Broadcast` matches on `HK_DIR`, and that stops being the repo root.**
-[hotkeys.ahk:406](hotkeys.ahk#L406) finds MMA's scripts by testing whether a window title
+[hotkeys.ahk:406](src/core/hotkeys.ahk#L406) finds MMA's scripts by testing whether a window title
 starts with `HK_DIR "\"`. `HK_DIR` is hotkeys.ahk's own folder. Move it to `src/core/` and
 that prefix becomes `…\MMA\src\core\`, which **no running script's path starts with** — so
 every hotkey rebind, suspend, and Actions-menu fire silently stops reaching every other
@@ -312,12 +313,12 @@ folders — and keep the cfg storing bare names, so nobody's existing settings b
 
 **4.3 — `mass_gui.ahk` builds model paths by hand, in five places.**
 `SCRIPT_DIR "\" A_Index "_mass.ahk"` at lines
-[1639](mass_gui.ahk#L1639), [1864](mass_gui.ahk#L1864), [1897](mass_gui.ahk#L1897),
-[1981](mass_gui.ahk#L1981), [1993](mass_gui.ahk#L1993), plus four hard-coded
+[1639](src/ui/main_window.ahk#L1639), [1864](src/ui/main_window.ahk#L1864), [1897](src/ui/main_window.ahk#L1897),
+[1981](src/ui/main_window.ahk#L1981), [1993](src/ui/main_window.ahk#L1993), plus four hard-coded
 `["1_mass.ahk","2_mass.ahk","3_mass.ahk"]` arrays.
 *Fix:* `MMA_ModelFile(n)` in `paths.ahk`, one definition.
 
-**4.4 — `HSI_Files()` is a hard-coded list** ([hotstring_index.ahk:33](hotstring_index.ahk#L33))
+**4.4 — `HSI_Files()` is a hard-coded list** ([hotstring_index.ahk:33](src/hotstrings/index.ahk#L33))
 of `general.ahk` + four `acc\*.ahk` paths. Every one of those relative paths changes.
 *Fix:* enumerate `content/` instead, which also stops the list going stale when you add
 an account — the exact failure mode `HK_Broadcast`'s comment describes for the old
@@ -376,11 +377,11 @@ fires all three. Everything below exists only to stop that:
 
 | Mechanism | Where | What it's for |
 |---|---|---|
-| `StartFuGating` / `UpdateFuGating` | [utils.ahk:81](utils.ahk#L81) | A **350 ms timer, in each process**, re-reading `detector_status.ini` off disk to flip the other models' keys `Off` |
-| `UniversalSendActive` | [utils.ahk:67](utils.ahk#L67) | Picks one process to answer `__mm` — "otherwise all three would expand the hotstring at once and triple-backspace the typed trigger" |
-| `HK_ModelSendIds` | [hotkeys.ahk:359](hotkeys.ahk#L359) | Lists which ids are shared, so gating knows what to toggle |
-| Conflict-report exemption | [hotkeys_gui.ahk:145](hotkeys_gui.ahk#L145) | Model send keys must be exempt from each other's duplicate check |
-| `FuGate()` | [utils.ahk:60](utils.ahk#L60) | Per-handler re-check at fire time |
+| `StartFuGating` / `UpdateFuGating` | [utils.ahk:81](src/core/utils.ahk#L81) | A **350 ms timer, in each process**, re-reading `detector_status.ini` off disk to flip the other models' keys `Off` |
+| `UniversalSendActive` | [utils.ahk:67](src/core/utils.ahk#L67) | Picks one process to answer `__mm` — "otherwise all three would expand the hotstring at once and triple-backspace the typed trigger" |
+| `HK_ModelSendIds` | [hotkeys.ahk:359](src/core/hotkeys.ahk#L359) | Lists which ids are shared, so gating knows what to toggle |
+| Conflict-report exemption | [hotkeys_gui.ahk:145](src/ui/hotkeys_window.ahk#L145) | Model send keys must be exempt from each other's duplicate check |
+| `FuGate()` | [utils.ahk:60](src/core/utils.ahk#L60) | Per-handler re-check at fire time |
 
 One process needs **none** of this. But note carefully what it does *not* mean — see §5.1.
 
@@ -443,10 +444,10 @@ copies on and off every 350 ms. Naming it directly buys three things:
    the GUI crying wolf about three copies of a shared key. One real binding needs no
    exemption.
 3. **A real conflict stops being hidden.** `[mass.1] brPick=F6` and `[mass.3] fu1=F6` are
-   the same key, and [hotkeys.ahk:352](hotkeys.ahk#L352) already knows it. Because
+   the same key, and [hotkeys.ahk:352](src/core/hotkeys.ahk#L352) already knows it. Because
    `HK_ModelSendIds` lists `brPick`, `IsGatedSend` returns true for both, so `CanCollide`
    exempts the pair and the GUI **never reports it** — even though the comment at
-   [hotkeys_gui.ahk:181](hotkeys_gui.ahk#L181) claims the branch keys are "never gated"
+   [hotkeys_gui.ahk:181](src/ui/hotkeys_window.ahk#L181) claims the branch keys are "never gated"
    and this case *is* flagged. The code and its own comment disagree; with an explicit
    `[mass.active]`, the ambiguity that produced that disagreement is gone.
 
@@ -516,7 +517,7 @@ Three further wins:
 1. `src/mass/parser.ahk` keeps parsing the `!mm` paste format, but its output is a plain
    object instead of a source-code string. `EscQ`/`UnescQ` and `AHK_CHARS` are deleted.
 2. Saving a mass stops meaning "rewrite executable code that is currently `#Include`d".
-3. [branching_feature.md](branching_feature.md) wants a **web** editor that emits mass
+3. [branching_feature.md](docs/proposals/branching.md) wants a **web** editor that emits mass
    definitions. A browser tool emitting JSON that AHK reads is trivial; one emitting
    correct AHK source is grim.
 
