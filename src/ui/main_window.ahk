@@ -701,6 +701,12 @@ SetTimer(RefreshPingerLabel, -800)   ; after python has claimed the event
 if autoRestart
     SetTimer(WatchdogTick, 5000)
 
+; Ask about model names the detector cannot place. Here, in the GUI, because this
+; opens a window — ActiveModelStatus is also read from #HotIf as you type, and a
+; dialog there would be one popup per keystroke.
+if autoDetect
+    SetTimer(CheckUnmappedModel, 4000)
+
 SetTimer(() => CheckUpdate(true), -3000)  ; silent check 3s after startup
 
 ; ─── Resize ───────────────────────────────────────────────────────────────────
@@ -1135,6 +1141,79 @@ EngineRunning() {
     up := WinExist(MMA_SRC "\mass\engine.ahk ahk_class AutoHotkey") ? true : false
     DetectHiddenWindows prev
     return up
+}
+
+; ─── Learning what a model is called on screen ────────────────────────────────
+; MMA's model names, Infloww's tab labels and Discord's channel names are three
+; different sets of names for the same people — "Rama" here is "Bellarama" there.
+; No rule resolves that; MMA has to be told, once, and remember.
+;
+; [ActiveMap] File<n> is that memory: a comma-separated list of every on-screen
+; name that means model n. This is what fills it in, by asking, replacing an
+; auto-claim that used to guess silently and stick.
+;
+; Only ever asks about an "unknown" — one plausible name owned by no slot.
+; "ambiguous" (two tabs read as one) is never asked about: the answer would file a
+; string containing both models' names under one of them.
+
+_askedNames := Map()          ; names asked about this session, so we ask once
+
+CheckUnmappedModel() {
+    global _askedNames, _unmapGui
+    if (IsObject(_unmapGui) && WinExist("ahk_id " _unmapGui.Hwnd))
+        return                                   ; already asking
+    st := ActiveModelStatus()
+    if (st.state != "unknown")
+        return
+    if !IsAskableModelName(st.name)
+        return
+    key := StrLower(st.name)
+    if (_askedNames.Has(key) || IniRead(MMA_CFG, "ActiveMapIgnore", key, "") != "")
+        return
+    _askedNames[key] := true
+    PromptUnmappedModel(st.name)
+}
+
+_unmapGui := 0
+
+PromptUnmappedModel(detected) {
+    global g, modelCount, _unmapGui
+    items := []
+    Loop modelCount
+        items.Push(A_Index ": " ModelNameForSlot(A_Index))
+
+    _unmapGui := Gui("+Owner" g.Hwnd +AlwaysOnTop, "Unknown model on screen")
+    ug := _unmapGui
+    ug.SetFont("s9", "Segoe UI")
+    ug.Add("Text", "x12 y12 w330",
+           "Infloww is showing a model MMA does not recognise:")
+    ug.SetFont("s11 Bold")
+    ug.Add("Text", "x12 y34 w330", detected)
+    ug.SetFont("s9 Norm")
+    ug.Add("Text", "x12 y64 w330",
+           "Which of your models is that? MMA will remember it, so the "
+         . "follow-up keys can follow this tab.")
+    ddl := ug.Add("DropDownList", "x12 y108 w200 Choose1", items)
+
+    ug.Add("Button", "x12 y144 w110 h28 Default", "Remember").OnEvent("Click", Accept)
+    ug.Add("Button", "x130 y144 w110 h28", "Not a model").OnEvent("Click", Ignore)
+    ug.Add("Button", "x248 y144 w94 h28", "Later").OnEvent("Click", (*) => ug.Destroy())
+    ug.OnEvent("Close", (*) => ug.Destroy())
+    ug.OnEvent("Escape", (*) => ug.Destroy())
+    ug.Show("w356 h186")
+
+    Accept(*) {
+        if ddl.Value
+            ActiveMapAdd(ddl.Value, detected)
+        ug.Destroy()
+    }
+    ; Remembered across restarts, unlike the ask-once map — a name that is not a
+    ; model (a stray window, an OCR misread) would otherwise be asked about again
+    ; every single launch.
+    Ignore(*) {
+        try IniWrite("1", MMA_CFG, "ActiveMapIgnore", StrLower(detected))
+        ug.Destroy()
+    }
 }
 
 ; ─── Which mass a model sends ─────────────────────────────────────────────────

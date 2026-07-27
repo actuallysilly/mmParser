@@ -55,27 +55,120 @@ ReadActiveModel() {
 ; An UNNAMED slot auto-claims the current name, lowest-numbered first, so a fresh
 ; install wires itself up the first time you use it instead of needing the map
 ; filled in by hand.
+; Three ways a slot can own the detected text, tried per slot:
+;   1. [ActiveMap] File<n>   — the explicit map, exact. Written by the auto-claim
+;                              below, or by hand.
+;   2. [ModelAliases]        — the alias table you can already edit for the
+;                              Discord import. It existed and this never read it,
+;                              which is why an alias of rama=2 did nothing here.
+;   3. [Settings] Model<n>   — the display name, as a SUBSTRING. Infloww's tab
+;                              says "Bellarama" where MMA says "Rama"; requiring
+;                              equality meant a name you would call a match
+;                              was not one.
+;
+; MORE THAN ONE MATCH RETURNS 0, deliberately. If the detected text contains two
+; models' names there is no way to tell which tab is in front, and the cost of
+; guessing is one model's mass sent to the other's fan. 0 means "no answer", which
+; falls back to the manual keys — the safe direction.
+;
 ; The `global` line is not decoration. AHK v2 makes every name inside a function
 ; LOCAL unless declared, so `Loop MASS_MODELS` without it reads an unset local and
-; THROWS. And this function is reached from #HotIf, which AHK re-evaluates as you
-; type — so one missing declaration is not one error dialog, it is one per
-; keystroke. That is exactly what it did.
+; THROWS — and this is reached from #HotIf, which AHK re-evaluates as you type, so
+; that is one dialog per keystroke rather than one.
 ActiveModelNo() {
+    return ActiveModelStatus().no
+}
+
+; The same answer, plus WHY, for callers that can do something about it.
+;
+; state is one of:
+;   "none"       detector off, or Infloww not in front. Manual keys, no problem.
+;   "ok"         exactly one slot owns the name; .no is it.
+;   "unknown"    a plausible single name that maps to no slot — the case worth
+;                ASKING about, e.g. Infloww says "Bellarama" and nothing claims it.
+;   "ambiguous"  the text matches more than one slot, so it is almost certainly
+;                two tabs read as one. Never ask about this: the answer would put
+;                a string containing both models' names into one model's map.
+;
+; Deliberately read-only. This runs from #HotIf, i.e. as you type, so it must not
+; write the ini and must never open a dialog. The GUI owns the asking; see
+; PromptUnmappedModel in main_window.ahk.
+ActiveModelStatus() {
     global MASS_MODELS, MMA_CFG
-    active := ReadActiveModel()
+    active := Trim(ReadActiveModel())
     if (active = "")
-        return 0
-    cfg := MMA_CFG
+        return {no: 0, name: "", state: "none"}
+    cfg  := MMA_CFG
+    hits := []
     Loop MASS_MODELS
-        if (StrLower(Trim(IniRead(cfg, "ActiveMap", "File" A_Index, ""))) = StrLower(active))
-            return A_Index
-    Loop MASS_MODELS {
-        if (Trim(IniRead(cfg, "ActiveMap", "File" A_Index, "")) = "") {
-            IniWrite(active, cfg, "ActiveMap", "File" A_Index)
-            return A_Index
-        }
+        if _SlotOwnsName(cfg, A_Index, active)
+            hits.Push(A_Index)
+    if (hits.Length = 1)
+        return {no: hits[1], name: active, state: "ok"}
+    if (hits.Length > 1)
+        return {no: 0, name: active, state: "ambiguous"}
+    return {no: 0, name: active, state: "unknown"}
+}
+
+; Teach a slot one more on-screen name. [ActiveMap] File<n> is a COMMA-SEPARATED
+; list because one model has more than one external name — Infloww shows
+; "Bellarama" where Discord says "Rama" — and both have to resolve to the same
+; slot. Appends; never replaces what is already there.
+ActiveMapAdd(n, name) {
+    global MMA_CFG
+    name := Trim(name)
+    if (name = "")
+        return
+    cur := Trim(IniRead(MMA_CFG, "ActiveMap", "File" n, ""))
+    for existing in StrSplit(cur, ",")
+        if (StrLower(Trim(existing)) = StrLower(name))
+            return
+    IniWrite(cur = "" ? name : cur "," name, MMA_CFG, "ActiveMap", "File" n)
+}
+
+_SlotOwnsName(cfg, n, active) {
+    ; Substring, not equality — and that matters for the AMBIGUITY check as much
+    ; as for matching. "AW Bellarama" (two tabs read as one) has to count as
+    ; evidence for slot 1 as well as slot 2, or exactly one slot matches, the
+    ; caller sees no ambiguity, and it confidently returns the wrong model.
+    ;
+    ; A comma-separated LIST, because one model wears more than one name: MMA
+    ; calls it Rama, Infloww's tab says Bellarama, Discord's channel says
+    ; something else again. All of them point at the same slot.
+    for mapped in StrSplit(Trim(IniRead(cfg, "ActiveMap", "File" n, "")), ",") {
+        mapped := Trim(mapped)
+        if (mapped != "" && InStr(active, mapped))
+            return true
     }
-    return 0
+    disp := Trim(IniRead(cfg, "Settings", "Model" n, ""))
+    if (disp != "" && InStr(active, disp))          ; InStr is case-insensitive
+        return true
+    for line in StrSplit(Trim(IniRead(cfg, "ModelAliases", , "")), "`n", "`r") {
+        eq := InStr(line, "=")
+        if (!eq)
+            continue
+        alias := Trim(SubStr(line, 1, eq - 1))
+        slot  := Trim(SubStr(line, eq + 1))
+        if (alias != "" && slot = String(n) && InStr(active, alias))
+            return true
+    }
+    return false
+}
+
+; An unknown name worth ASKING about: one plausible model name, not two tabs run
+; together and not a stray window's chrome.
+;
+; This replaced a silent auto-claim that gave any unrecognised string to the first
+; empty slot. That is how the detector's header describes
+; "File Edit Selection View Go R" ending up as a model's identity and permanently
+; gating its keys off. A wrong slot claim is silent and sticky; a question is
+; neither, and the names genuinely do not match across Discord/Infloww/MMA, so
+; there is no rule that could get this right without being told.
+IsAskableModelName(name) {
+    name := Trim(name)
+    if (name = "" || StrLen(name) > 24)
+        return false
+    return !RegExMatch(name, "\s")
 }
 
 ; ── __mm  vs  __mm1 / __mm2 / __mm3 ───────────────────────────────────────────

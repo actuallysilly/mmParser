@@ -36,6 +36,10 @@ ScanStep := Integer(IniRead(CFG, "Detector", "ScanStep", "4"))
 PollMs   := Integer(IniRead(CFG, "Detector", "PollMs",   "500"))
 OcrScale := Integer(IniRead(CFG, "Detector", "OcrScale", "3"))
 MoveTol  := Integer(IniRead(CFG, "Detector", "MoveTol",  "20"))
+; Widest gap in px that still counts as INSIDE one pill. A pill is a solid block
+; of colour so its columns are contiguous; anything wider than this is the space
+; between two tabs, and grouping across it is what produced "AW Bellarama".
+GapTol   := Integer(IniRead(CFG, "Detector", "GapTol",   "12"))
 ; Foreground gate. This MUST default to the Infloww window, not to "" — the scan
 ; below looks at a fixed screen rectangle, not at a window, so with no gate it
 ; happily OCRs whatever else is sitting at those coordinates. That is not
@@ -51,7 +55,8 @@ GreyRGB  := Integer(RegExMatch(GreyHex, "i)^0x") ? GreyHex : "0x" GreyHex)
 if (IniRead(CFG, "Detector", "RegionW", "") = "") {
     for k, v in Map("RegionX",RegionX, "RegionY",RegionY, "RegionW",RegionW, "RegionH",RegionH,
                     "GreyColor",GreyHex, "GreyTol",GreyTol, "MinGrey",MinGrey, "ScanStep",ScanStep,
-                    "PollMs",PollMs, "OcrScale",OcrScale, "MoveTol",MoveTol, "WinMatch",WinMatch)
+                    "PollMs",PollMs, "OcrScale",OcrScale, "MoveTol",MoveTol, "GapTol",GapTol,
+                    "WinMatch",WinMatch)
         try IniWrite(v, CFG, "Detector", k)
 }
 
@@ -66,7 +71,7 @@ SetTimer(Poll, PollMs)
 
 Poll() {
     global RegionX, RegionY, RegionW, RegionH, GreyRGB, GreyTol, MinGrey, ScanStep
-    global OcrScale, MoveTol, WinMatch, _lastCentre, _lastName
+    global OcrScale, MoveTol, GapTol, WinMatch, _lastCentre, _lastName
 
     if (WinMatch != "" && !WinActive(WinMatch)) {
         WriteActive("")
@@ -74,7 +79,7 @@ Poll() {
         return
     }
 
-    r := ScanGrey(RegionX, RegionY, RegionX + RegionW, RegionY + RegionH, GreyRGB, GreyTol, ScanStep)
+    r := ScanGrey(RegionX, RegionY, RegionX + RegionW, RegionY + RegionH, GreyRGB, GreyTol, ScanStep, GapTol)
     if (r.count < MinGrey) {
         WriteActive("")                      ; no active pill -> gating off
         _lastCentre := -99999, _lastName := ""
@@ -93,25 +98,55 @@ Poll() {
         WriteActive(_lastName)
 }
 
-; Grid-scan; count grey pixels, their horizontal centroid, and their extent.
-ScanGrey(x1, y1, x2, y2, target, tol, step) {
-    count := 0, sumX := 0, minX := 0x7FFFFFFF, maxX := -1
-    y := y1
-    while (y <= y2) {
-        x := x1
-        while (x <= x2) {
-            if (ColorDist(PixelGetColor(x, y), target) <= tol) {
-                count++, sumX += x
-                if (x < minX)
-                    minX := x
-                if (x > maxX)
-                    maxX := x
-            }
-            x += step
+; Grid-scan the band and return the DOMINANT contiguous run of grey columns.
+;
+; This used to return the min/max X of EVERY grey pixel in the region, which is
+; only correct when exactly one thing in the band is grey. It is not: a second
+; tab's chrome, a hover state, or any grey UI at those coordinates gives a second
+; blob, and min..max then spans BOTH pills. OCR duly read the pair as one string —
+; "AW Bellarama" — and one string holding two model names cannot be resolved
+; safely by anything downstream. It also dragged avgX to a point between the two
+; blobs, so the "pill moved" check stopped tracking tab switches.
+;
+; A pill is a solid block of background colour, so its columns are contiguous;
+; separate pills are separated by a real gap. Group the grey columns into runs,
+; break on any gap wider than `gap` px, and keep the run holding the most grey.
+ScanGrey(x1, y1, x2, y2, target, tol, step, gap) {
+    cols := []                        ; [{x, n}] for columns containing grey
+    x := x1
+    while (x <= x2) {
+        n := 0
+        y := y1
+        while (y <= y2) {
+            if (ColorDist(PixelGetColor(x, y), target) <= tol)
+                n++
+            y += step
         }
-        y += step
+        if (n)
+            cols.Push({x: x, n: n})
+        x += step
     }
-    return {count: count, avgX: (count ? Round(sumX / count) : -1), minX: minX, maxX: maxX}
+    if !cols.Length
+        return {count: 0, avgX: -1, minX: 0, maxX: -1}
+
+    best := {count: 0, minX: 0, maxX: -1, sumX: 0}
+    run  := {count: 0, minX: cols[1].x, maxX: cols[1].x, sumX: 0}
+    prev := cols[1].x
+    for c in cols {
+        if (c.x - prev > gap) {                     ; gap -> this run ended
+            if (run.count > best.count)
+                best := run
+            run := {count: 0, minX: c.x, maxX: c.x, sumX: 0}
+        }
+        run.count += c.n
+        run.sumX  += c.x * c.n
+        run.maxX  := c.x
+        prev := c.x
+    }
+    if (run.count > best.count)
+        best := run
+    return {count: best.count, avgX: Round(best.sumX / best.count),
+            minX: best.minX, maxX: best.maxX}
 }
 
 ; OCR a rectangle to a single cleaned line; "" on any failure.
