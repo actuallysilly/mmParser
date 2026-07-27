@@ -4,6 +4,10 @@
 #Include "../core/crashlog.ahk"
 #Include "../core/hotkeys.ahk"
 #Include "../mass/store.ahk"
+; Which model is on screen. Its own file precisely so the GUI can ask without
+; including utils.ahk, whose hotstrings and send helpers belong to the message
+; scripts, not to a window.
+#Include "../core/active_model.ahk"
 #Include "../mass/archive.ahk"
 #Include "../mass/parser.ahk"
 #Include "../core/processes.ahk"
@@ -1162,6 +1166,8 @@ CheckUnmappedModel() {
     global _askedNames, _unmapGui
     if (IsObject(_unmapGui) && WinExist("ahk_id " _unmapGui.Hwnd))
         return                                   ; already asking
+    if (ModelMatchMode() = "position")
+        return                               ; positional mode has no names to ask about
     st := ActiveModelStatus()
     if (st.state != "unknown")
         return
@@ -1182,7 +1188,11 @@ PromptUnmappedModel(detected) {
     Loop modelCount
         items.Push(A_Index ": " ModelNameForSlot(A_Index))
 
-    _unmapGui := Gui("+Owner" g.Hwnd +AlwaysOnTop, "Unknown model on screen")
+    ; " +AlwaysOnTop" must be INSIDE the string. Written bare it is the unary +
+    ; applied to a variable named AlwaysOnTop, which does not exist — an unset-
+    ; variable throw the first time an unknown model appeared, i.e. exactly when
+    ; this window is needed and never before.
+    _unmapGui := Gui("+Owner" g.Hwnd " +AlwaysOnTop", "Unknown model on screen")
     ug := _unmapGui
     ug.SetFont("s9", "Segoe UI")
     ug.Add("Text", "x12 y12 w330",
@@ -1459,10 +1469,43 @@ OpenSettings(*) {
     ; was toggled from the main window, or died on its own.
     lblPinger := sg.Add("Text", "x" STAT_X " y" y " w96", "")
     y += 24
-    chkAutoDetect := sg.Add("Checkbox", "x" PAD " y" y " w" LBL_W, "Auto-detect the active model (OCR) — one f1/f2/f3 set, gated by tab")
+    chkAutoDetect := sg.Add("Checkbox", "x" PAD " y" y " w" LBL_W, "Auto-detect the active model — one f1/f2/f3 set, follows the front tab")
     chkAutoDetect.Value := autoDetect
     lblDetector := sg.Add("Text", "x" STAT_X " y" y " w96", "")
     y += 24
+
+    ; ── how the detector decides which model ──────────────────────────────────
+    ; By NAME it OCRs the pill and matches it against [ActiveMap]. That survives
+    ; you reordering your tabs, but only once the names are mapped, and the names
+    ; are the fragile part — MMA, Infloww and Discord each have their own.
+    ;
+    ; By POSITION it uses nothing but the tab's place in the strip, so there is no
+    ; OCR and nothing to map. The cost is that it trusts the ORDER: the list below
+    ; has to match the strip left-to-right, and dragging a tab moves the keys with
+    ; the position rather than the person.
+    sg.Add("Text", "x" (PAD + 18) " y" y " w120", "Decide which model by:")
+    rdName := sg.Add("Radio", "x" (PAD + 150) " y" y " Group", "name (OCR)")
+    rdPos  := sg.Add("Radio", "x" (PAD + 250) " y" y, "tab position")
+    if (StrLower(Trim(IniRead(CFG_FILE, "Settings", "ModelMatch", "name"))) = "position")
+        rdPos.Value := true
+    else
+        rdName.Value := true
+    y += 26
+
+    ; Tab order, left to right. One dropdown per position; identity by default.
+    sg.Add("Text", "x" (PAD + 18) " y" y " w120", "Tab order (left→right):")
+    ddlPos := []
+    _posItems := []
+    Loop modelCount
+        _posItems.Push(A_Index ": " ModelNameForSlot(A_Index))
+    Loop modelCount {
+        _p  := A_Index
+        _dd := sg.Add("DropDownList", "x" (PAD + 150 + (_p - 1) * 110) " y" (y - 4) " w104", _posItems)
+        _cur := Integer(IniRead(CFG_FILE, "Positional", "Pos" _p, _p))
+        _dd.Value := (_cur >= 1 && _cur <= modelCount) ? _cur : _p
+        ddlPos.Push(_dd)
+    }
+    y += 30
     ; The key, not the hotkey id: "gui.toggleStats" told you nothing about which
     ; keys to press, and it was the longer of the two labels that wrapped.
     chkStats := sg.Add("Checkbox", "x" PAD " y" y " w" LBL_W,
@@ -1618,6 +1661,10 @@ OpenSettings(*) {
             LaunchDetector()
         else
             StopDetector()
+
+        IniWrite(rdPos.Value ? "position" : "name", CFG_FILE, "Settings", "ModelMatch")
+        for _i, _dd in ddlPos
+            IniWrite(_dd.Value ? _dd.Value : _i, CFG_FILE, "Positional", "Pos" _i)
 
         statsOverlay := chkStats.Value ? 1 : 0
         IniWrite(statsOverlay, CFG_FILE, "Settings", "StatsOverlay")

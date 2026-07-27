@@ -40,6 +40,11 @@ MoveTol  := Integer(IniRead(CFG, "Detector", "MoveTol",  "20"))
 ; of colour so its columns are contiguous; anything wider than this is the space
 ; between two tabs, and grouping across it is what produced "AW Bellarama".
 GapTol   := Integer(IniRead(CFG, "Detector", "GapTol",   "12"))
+; The INACTIVE pill colour. Needed only to count tabs, which is what positional
+; mode reads instead of a name: a grey-only scan sees the lit tab but has no way
+; to know whether it is the first of three or the third.
+DarkHex  := Trim(IniRead(CFG, "Detector", "InactiveColor", "0x0D0D0D"))
+DarkRGB  := Integer(RegExMatch(DarkHex, "i)^0x") ? DarkHex : "0x" DarkHex)
 ; Foreground gate. This MUST default to the Infloww window, not to "" — the scan
 ; below looks at a fixed screen rectangle, not at a window, so with no gate it
 ; happily OCRs whatever else is sitting at those coordinates. That is not
@@ -56,6 +61,7 @@ if (IniRead(CFG, "Detector", "RegionW", "") = "") {
     for k, v in Map("RegionX",RegionX, "RegionY",RegionY, "RegionW",RegionW, "RegionH",RegionH,
                     "GreyColor",GreyHex, "GreyTol",GreyTol, "MinGrey",MinGrey, "ScanStep",ScanStep,
                     "PollMs",PollMs, "OcrScale",OcrScale, "MoveTol",MoveTol, "GapTol",GapTol,
+                    "InactiveColor",DarkHex,
                     "WinMatch",WinMatch)
         try IniWrite(v, CFG, "Detector", k)
 }
@@ -71,17 +77,20 @@ SetTimer(Poll, PollMs)
 
 Poll() {
     global RegionX, RegionY, RegionW, RegionH, GreyRGB, GreyTol, MinGrey, ScanStep
-    global OcrScale, MoveTol, GapTol, WinMatch, _lastCentre, _lastName
+    global OcrScale, MoveTol, GapTol, DarkRGB, WinMatch, _lastCentre, _lastName
 
     if (WinMatch != "" && !WinActive(WinMatch)) {
         WriteActive("")
+        WritePos(0, 0)
         _lastCentre := -99999, _lastName := ""
         return
     }
 
-    r := ScanGrey(RegionX, RegionY, RegionX + RegionW, RegionY + RegionH, GreyRGB, GreyTol, ScanStep, GapTol)
+    r := ScanPills(RegionX, RegionY, RegionX + RegionW, RegionY + RegionH,
+                   GreyRGB, DarkRGB, GreyTol, ScanStep, GapTol)
     if (r.count < MinGrey) {
         WriteActive("")                      ; no active pill -> gating off
+        WritePos(0, 0)
         _lastCentre := -99999, _lastName := ""
         return
     }
@@ -96,6 +105,10 @@ Poll() {
     }
     if (_lastName != "")
         WriteActive(_lastName)
+
+    ; Written every poll, and cheaply — unlike the name it needs no OCR, so
+    ; positional mode keeps working even when OCR reads nothing at all.
+    WritePos(r.index, r.total)
 }
 
 ; Grid-scan the band and return the DOMINANT contiguous run of grey columns.
@@ -111,42 +124,63 @@ Poll() {
 ; A pill is a solid block of background colour, so its columns are contiguous;
 ; separate pills are separated by a real gap. Group the grey columns into runs,
 ; break on any gap wider than `gap` px, and keep the run holding the most grey.
-ScanGrey(x1, y1, x2, y2, target, tol, step, gap) {
-    cols := []                        ; [{x, n}] for columns containing grey
+; Also reports the active pill's POSITION in the strip, which is what positional
+; mode uses instead of a name (see utils.ahk's ActiveModelNo).
+;
+; Position needs every tab, not just the lit one, so the scan matches BOTH pill
+; colours: active pills are grey, inactive ones near-black. Columns holding either
+; are grouped into runs — one run per tab — and the run carrying the most
+; active-coloured pixels is the tab in front. Its rank left-to-right is the index.
+;
+; Counting tabs this way rather than dividing X by a tab pitch is deliberate: the
+; strip SHRINKS its pitch as tabs are added (~170px at 4 tabs, ~130px at 13), so
+; any fixed-pitch arithmetic is right until the day you open one more chat.
+ScanPills(x1, y1, x2, y2, activeRGB, inactiveRGB, tol, step, gap) {
+    cols := []                    ; [{x, act, any}] per column that holds a pill
     x := x1
     while (x <= x2) {
-        n := 0
+        act := 0, any := 0
         y := y1
         while (y <= y2) {
-            if (ColorDist(PixelGetColor(x, y), target) <= tol)
-                n++
+            c := PixelGetColor(x, y)
+            if (ColorDist(c, activeRGB) <= tol)
+                act++, any++
+            else if (ColorDist(c, inactiveRGB) <= tol)
+                any++
             y += step
         }
-        if (n)
-            cols.Push({x: x, n: n})
+        if (any)
+            cols.Push({x: x, act: act, any: any})
         x += step
     }
+    none := {count: 0, avgX: -1, minX: 0, maxX: -1, index: 0, total: 0}
     if !cols.Length
-        return {count: 0, avgX: -1, minX: 0, maxX: -1}
+        return none
 
-    best := {count: 0, minX: 0, maxX: -1, sumX: 0}
-    run  := {count: 0, minX: cols[1].x, maxX: cols[1].x, sumX: 0}
+    runs := []
+    run  := {act: 0, sumX: 0, minX: cols[1].x, maxX: cols[1].x}
     prev := cols[1].x
     for c in cols {
-        if (c.x - prev > gap) {                     ; gap -> this run ended
-            if (run.count > best.count)
-                best := run
-            run := {count: 0, minX: c.x, maxX: c.x, sumX: 0}
+        if (c.x - prev > gap) {                     ; gap -> that tab ended
+            runs.Push(run)
+            run := {act: 0, sumX: 0, minX: c.x, maxX: c.x}
         }
-        run.count += c.n
-        run.sumX  += c.x * c.n
-        run.maxX  := c.x
+        run.act  += c.act
+        run.sumX += c.x * c.act
+        run.maxX := c.x
         prev := c.x
     }
-    if (run.count > best.count)
-        best := run
-    return {count: best.count, avgX: Round(best.sumX / best.count),
-            minX: best.minX, maxX: best.maxX}
+    runs.Push(run)
+
+    best := 0
+    for i, r in runs
+        if (!best || r.act > runs[best].act)
+            best := i
+    if (!best || !runs[best].act)
+        return none                                  ; tabs, but none of them lit
+    b := runs[best]
+    return {count: b.act, avgX: Round(b.sumX / b.act), minX: b.minX, maxX: b.maxX,
+            index: best, total: runs.Length}
 }
 
 ; OCR a rectangle to a single cleaned line; "" on any failure.
@@ -167,6 +201,17 @@ WriteActive(name) {
         return
     _written := name
     try IniWrite(name, STATUS, "detector", "active_model")
+}
+
+_wPos := -1
+_wTot := -1
+WritePos(index, total) {
+    global STATUS, _wPos, _wTot
+    if (index = _wPos && total = _wTot)
+        return
+    _wPos := index, _wTot := total
+    try IniWrite(index, STATUS, "detector", "active_index")
+    try IniWrite(total, STATUS, "detector", "tab_count")
 }
 
 ; per-channel max distance between two 0xRRGGBB colours
