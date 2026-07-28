@@ -28,7 +28,28 @@
 ; ============================================================================
 
 #define MyAppName        "MMA"
-#define MyAppVersion     "1.9.2"
+
+; Read from version.txt rather than typed here. It was "1.9.2" while version.txt
+; said 2.0.0-alpha, and a version that only lives in the installer script is a
+; version nobody remembers to bump — which is how a build from before the v2
+; rename stayed in dist\ and got shipped: it wrote a desktop shortcut pointing at
+; mass_gui.ahk, a file the tree it had just installed no longer contains.
+;
+; SourcePath is this .iss file's own folder (with a trailing backslash), so this
+; resolves no matter what directory ISCC is invoked from.
+#define MyVersionFile FileOpen(SourcePath + "..\..\version.txt")
+#define MyAppVersion  Trim(FileRead(MyVersionFile))
+#expr FileClose(MyVersionFile)
+#if MyAppVersion == ""
+  #error version.txt is empty or missing — the installer version comes from it
+#endif
+
+; VersionInfoVersion is a Windows FILE VERSION resource and takes digits and dots
+; only; "2.0.0-alpha" makes ISCC fail outright. AppVersion (what the user sees in
+; Add/Remove Programs) keeps the full string, so the pre-release marker is not
+; lost — it is only dropped for the numeric resource.
+#define MyNumericVersion (Pos("-", MyAppVersion) > 0 ? Copy(MyAppVersion, 1, Pos("-", MyAppVersion) - 1) : MyAppVersion)
+
 #define MyPublisher      "actually.silly"
 #define MyRepoZip        "https://github.com/actuallysilly/mmParser/archive/refs/heads/main.zip"
 #define MyFinishMessage  "MMA is installed. Press the Settings button inside it to change anything you picked here."
@@ -41,7 +62,7 @@ AppId={{8F3A6C21-4B7E-4E2A-9D55-2C1A7E9B4D30}
 AppName={#MyAppName}
 AppVersion={#MyAppVersion}
 AppPublisher={#MyPublisher}
-VersionInfoVersion={#MyAppVersion}
+VersionInfoVersion={#MyNumericVersion}
 
 ; MMA writes its config, hotkeys, archive and logs INTO ITS OWN FOLDER, so it
 ; must not land in Program Files — a normal user cannot write there, and the app
@@ -544,25 +565,47 @@ begin
 
   WizardForm.StatusLabel.Caption := 'Installing files...';
 
-  // Pass 1: all the code, explicitly excluding anything that belongs to the
-  // person rather than to the release. On a reinstall this is what stops an
-  // upgrade from eating their messages, keys and settings.
+  // These three passes must agree with IsUserFile() below — its comment says so,
+  // and they had stopped agreeing. The excludes here were still v1 filenames:
+  // "/XD acc" cannot match content\accounts, and a bare "general.ahk" cannot
+  // match content\general.ahk. So an upgrade copied the maintainer's copies
+  // straight over the user's account files and their hotstring library.
+
+  // Pass 1: src\ MIRRORED. /MIR is what /E is not — it DELETES files in the
+  // destination that are no longer in the release. Without it, every file ever
+  // removed upstream stays behind forever: an install upgraded from 1.9.x still
+  // had src\ui\modes_window.ahk sitting next to the settings window that
+  // replaced it. src\ is 100% release-owned, so mirroring it is safe; /MIR
+  // anywhere higher would delete userdata\ and content\.
+  Exec(ExpandConstant('{sys}\robocopy.exe'),
+    '"' + Tmp + '\src" "' + ExpandConstant('{app}\src') + '" /MIR /NFL /NDL /NJH /NJS /NP',
+    '', SW_HIDE, ewWaitUntilTerminated, R);
+
+  // Pass 2: everything else that belongs to the release. src is already done;
+  // userdata and content belong to the person and are handled below.
   Exec(ExpandConstant('{sys}\robocopy.exe'),
     '"' + Tmp + '" "' + ExpandConstant('{app}') + '" /E /NFL /NDL /NJH /NJS /NP ' +
-    '/XD userdata ' +
-    '1_mass.ahk 2_mass.ahk 3_mass.ahk general.ahk /XD acc',
+    '/XD src userdata content',
     '', SW_HIDE, ewWaitUntilTerminated, R);
 
-  // Pass 2: the user-owned files, but ONLY where they are missing.
-  // /XC /XN /XO together mean "skip anything that already exists", regardless of
-  // which copy is newer.
+  // Pass 3: content\ — the masses and the hotstring library — but ONLY where a
+  // file is missing. /XC /XN /XO together mean "skip anything that already
+  // exists", whichever copy is newer, so a fresh install gets the examples and
+  // an upgrade never touches a line the user has written.
   Exec(ExpandConstant('{sys}\robocopy.exe'),
-    '"' + Tmp + '" "' + ExpandConstant('{app}') + '" ' +
-    '1_mass.ahk 2_mass.ahk 3_mass.ahk general.ahk /XC /XN /XO /NFL /NDL /NJH /NJS /NP',
+    '"' + Tmp + '\content" "' + ExpandConstant('{app}\content') + '" /E ' +
+    '/XC /XN /XO /NFL /NDL /NJH /NJS /NP',
     '', SW_HIDE, ewWaitUntilTerminated, R);
 
+  // Pass 4: hotkeys.default.ini BY NAME, and overwriting — it is release-owned,
+  // it is how a new release ships new keys, and HK_Init merges out of it without
+  // disturbing any key the user has already set. Naming the one file rather than
+  // copying the folder is the safety: userdata\ also holds masses.json,
+  // hotkeys.ini and mass_gui.cfg, and no rule that walks the folder can ever be
+  // one typo away from overwriting those.
   Exec(ExpandConstant('{sys}\robocopy.exe'),
-    '"' + Tmp + '\acc" "' + ExpandConstant('{app}\acc') + '" /E /XC /XN /XO /NFL /NDL /NJH /NJS /NP',
+    '"' + Tmp + '\userdata" "' + ExpandConstant('{app}\userdata') + '" ' +
+    'hotkeys.default.ini /NFL /NDL /NJH /NJS /NP',
     '', SW_HIDE, ewWaitUntilTerminated, R);
 end;
 
