@@ -160,9 +160,15 @@ AutomationListenerRunning() {
 ; announce := true when the user just switched this on by hand, so "nothing
 ; happened" gets an explanation. Silent at startup — see PythonAvailable().
 LaunchAutomationListener(announce := false) {
-    global SCRIPT_DIR, automationListener
-    if !automationListener || AutomationListenerRunning()
+    global SCRIPT_DIR
+    if AutomationListenerRunning()
         return
+    ; FEAT reads the cfg key, so it is right the moment Settings writes it. This
+    ; used to ALSO check an `automationListener` global that the old Settings
+    ; window assigned on save — and once the Features tab became the only writer
+    ; of that key, nothing assigned the global any more. It kept its startup value
+    ; for the whole session, so switching the listener on and pressing Save
+    ; returned here, read a stale 0, and silently did nothing.
     if !FEAT("automation")
         return
     if !PythonAvailable() {
@@ -350,15 +356,20 @@ WatchdogTick() {
     ; Easy mode runs no children, so the watchdog has nothing to restart.
     if !FEAT("startupScripts")
         return
-    global pinger, autoDetect, statsOverlay
     LaunchEngine()                  ; core, not optional — see _EngineFile
     LaunchStartupScripts()
     LaunchAutomationListener()
-    if pinger
+    ; FEAT, not the pinger/autoDetect/statsOverlay globals these used to test.
+    ; Each Launch* already refuses when its own feature is off, so the test here
+    ; was only ever a shortcut — and a shortcut that went stale the moment the
+    ; Features tab became the sole writer of those keys. A watchdog reading
+    ; last-startup's values is worse than no watchdog: it silently stops
+    ; restarting the thing you just switched on.
+    if FEAT("pinger")
         LaunchPinger()
-    if autoDetect
+    if FEAT("modelDetector")
         LaunchDetector()
-    if statsOverlay
+    if FEAT("statsOverlay")
         LaunchStatsOverlay()
     RefreshPingerLabel()
 }

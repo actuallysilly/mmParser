@@ -59,24 +59,26 @@ editableFu3    := Integer(IniRead(MMA_CFG, "Settings", "EditableFu3",    "0"))
 doubleMM := false
 
 ; ── Live settings messages from mass_gui ──────────────────────────────────────
-; Message numbers are a contract with main_window.ahk: 0x8001 doubleMM, 0x8002
-; WalletCheckFu3, 0x8003-0x8005 EditableFu1-3. _BroadcastEditableFu() there posts
-; to every running model script; before this file only 1_mass.ahk listened.
+; The numbers are a contract with main_window.ahk, and they are declared in
+; core/messages.ahk — the whole contract in one file, rather than the bare hex
+; that used to sit here with a comment listing what each one meant.
+; _BroadcastEditableFu() there posts to every running model script; before this
+; file only 1_mass.ahk listened.
 ToggleDMMMsg(wParam, lParam, msg, hwnd) {
     global doubleMM
     doubleMM := !doubleMM
 }
-OnMessage(0x8001, ToggleDMMMsg)
+OnMessage(MMA_MSG_DOUBLE_MM, ToggleDMMMsg)
 
 SetWalletMsg(wParam, lParam, msg, hwnd) {
     global walletCheckFu3
     walletCheckFu3 := wParam
 }
-OnMessage(0x8002, SetWalletMsg)
+OnMessage(MMA_MSG_WALLET_FU3, SetWalletMsg)
 
 SetEditableFuMsg(wParam, lParam, msg, hwnd) {
     global editableFu1, editableFu2, editableFu3
-    fuIdx := msg - 0x8002   ; 0x8003→1, 0x8004→2, 0x8005→3
+    fuIdx := MMA_MSG_EditableFuNo(msg)      ; was msg - 0x8002
     if fuIdx = 1
         editableFu1 := wParam
     else if fuIdx = 2
@@ -84,9 +86,9 @@ SetEditableFuMsg(wParam, lParam, msg, hwnd) {
     else if fuIdx = 3
         editableFu3 := wParam
 }
-OnMessage(0x8003, SetEditableFuMsg)
-OnMessage(0x8004, SetEditableFuMsg)
-OnMessage(0x8005, SetEditableFuMsg)
+OnMessage(MMA_MSG_EDITABLE_FU1, SetEditableFuMsg)
+OnMessage(MMA_MSG_EDITABLE_FU2, SetEditableFuMsg)
+OnMessage(MMA_MSG_EDITABLE_FU3, SetEditableFuMsg)
 
 ; ── Sending ───────────────────────────────────────────────────────────────────
 ; Pastes the whole group as ONE block and does not press Enter, so you can edit
@@ -161,7 +163,12 @@ _DoFuGroup(group, editable, openTab) {
     editable := editable && FEAT("editableFu")
     openTab  := openTab  && FEAT("openTab")
     sendBoth := doubleMM && FEAT("doubleMM")
-    if AltIntercept(CurMass(), group, false, editable)
+    ; One key. If this follow-up has alts or branches, they stage and TAB walks
+    ; them; if it has neither, nothing appears and the send below runs. The old
+    ; second key (ctrl+f<N>) and the PromptAltCtrl setting that chose between them
+    ; are gone — they existed to decide which of two buttons offered the choice,
+    ; and there is one button now.
+    if AltIntercept(CurMass(), group, editable, ActiveBranchNo())
         return
     m := CurMass()
     if editable {
@@ -197,7 +204,7 @@ _FuParts(m, group) {
 
 ; The fallback FU3, as one part per line. Stored in mass_gui.cfg with `n for a
 ; line break — an ini has no other way to hold one — which is the same escape the
-; alt fields use, so AltPartsRT already knows how to read it. Each line goes out
+; alt fields use, so MASS_SplitParts already knows how to read it. Each line goes out
 ; as its own message, exactly like the three f3 fields would have.
 ;
 ; Read per press rather than cached: editing it in Settings then takes effect
@@ -205,7 +212,7 @@ _FuParts(m, group) {
 DefaultFu3Parts() {
     if !FEAT("defaultFu3")
         return ["", "", ""]
-    return AltPartsRT(IniRead(MMA_CFG, "Settings", "DefaultFu3", ""))
+    return MASS_SplitParts(IniRead(MMA_CFG, "Settings", "DefaultFu3", ""))
 }
 
 DoFu1() {
@@ -232,9 +239,14 @@ DoMass() {
 }
 
 ; PPV base. Paste-only for the same reason as DoMass.
+;
+; Same one-key rule as the follow-ups: with branch PPVs present this stages them
+; alongside the trunk's and TAB walks the list. That is what retired brPpv.
 DoPpv() {
     global openTabPpv, openInNewTabButton
     m := CurMass()
+    if AltInterceptPpv(m, true, ActiveBranchNo())
+        return
     if m.ppv_base = ""
         return
     A_Clipboard := m.ppv_base
@@ -251,68 +263,42 @@ DoPpvFus() {
     snd(m.ppv_f3)
 }
 
-; ── Alt follow-ups ────────────────────────────────────────────────────────────
-; ctrl+<follow-up key>. Offers the alternatives; with nothing to choose between it
-; just does what the plain key does, so the ctrl variant is never a dead key.
-DoAltFu1() {
-    global editableFu1
-    if !AltIntercept(CurMass(), 1, true, editableFu1)
-        DoFu1()
-}
-DoAltFu2() {
-    global editableFu2
-    if !AltIntercept(CurMass(), 2, true, editableFu2)
-        DoFu2()
-}
-DoAltFu3() {
-    global editableFu3, walletCheckFu3
-    if !AltIntercept(CurMass(), 3, true, walletCheckFu3 || editableFu3)
-        DoFu3()
+; ── Which branch this conversation is on ──────────────────────────────────────
+;  Branches used to be four keys of their own — brPick opened a list window, then
+;  brFu2/brFu3/brPpv replayed whatever it had remembered. That was a second way to
+;  ask the same question the alt key already asked, so it is one list on one key
+;  now (see AltVariants) and these two functions are all that is left: the memory,
+;  and the hook that writes it.
+;
+;  The memory still matters. A branch means the NEXT follow-ups change too, so
+;  once you pick one at f1, f2 and f3 open on that same branch instead of making
+;  you find it again. TAB still reaches everything, so it is a starting point and
+;  never a lock.
+
+; The branch the current model's current mass is on, or 0 for the trunk.
+ActiveBranchNo() {
+    global _activeBranch
+    k := _BranchKey()
+    if !_activeBranch.Has(k)
+        return 0
+    n := _activeBranch[k]
+    ; Guard against a mass that has been edited since: the branch that was picked
+    ; may no longer exist, and indexing BranchList past its end throws inside a
+    ; hotkey handler.
+    return (n >= 1 && n <= BranchList(CurMass()).Length) ? n : 0
 }
 
-; ── --Name branches ───────────────────────────────────────────────────────────
-; The trunk (base fu1/fu2/fu3) sends on the normal keys. A branch is a continuation
-; you switch to: pick one, then walk its follow-ups and ppv. The chosen branch is
-; remembered per mass (_activeBranch) so fu2/fu3/ppv keep sending the same one.
-DoBranchPick() {
+; Installed into ALT_ON_PICK below, so committing a staged choice records where
+; the conversation went. Picking a trunk variant CLEARS the branch — going back to
+; "main" at f2 has to mean the trunk, or there would be no way back.
+RememberBranch(branch) {
     global _activeBranch
-    brs := BranchList(CurMass())
-    if !brs.Length
-        return
-    idx := 1
-    if brs.Length > 1 {
-        labels := []
-        for b in brs
-            labels.Push(b.name (b.fu[1].Length ? "  —  " b.fu[1][1] : ""))
-        idx := Overload_Choose(labels)
-        if !idx
-            return
-    }
-    _activeBranch[_BranchKey()] := idx
-    BranchSendGroup(brs[idx].fu[1])
+    if branch
+        _activeBranch[_BranchKey()] := branch
+    else
+        _activeBranch.Delete(_BranchKey())
 }
-
-BranchSendActiveGroup(g) {
-    global _activeBranch
-    brs := BranchList(CurMass())
-    k   := _BranchKey()
-    if _activeBranch.Has(k) && _activeBranch[k] <= brs.Length
-        BranchSendGroup(brs[_activeBranch[k]].fu[g])
-}
-
-DoBranchFu2() {
-    BranchSendActiveGroup(2)
-}
-DoBranchFu3() {
-    BranchSendActiveGroup(3)
-}
-DoBranchPpv() {
-    global _activeBranch
-    brs := BranchList(CurMass())
-    k   := _BranchKey()
-    if _activeBranch.Has(k) && _activeBranch[k] <= brs.Length
-        BranchSendPpv(brs[_activeBranch[k]].ppv)
-}
+global ALT_ON_PICK := RememberBranch
 
 ; ── Wiring ────────────────────────────────────────────────────────────────────
 
@@ -333,13 +319,17 @@ MassSlotHandlers() {
         "mass",     DoMass,
         ; One key for the whole f1->f2->f3 walk; see mass/next_fu.ahk.
         "nextFu",   DoNextFu,
-        "altFu1",   DoAltFu1,
-        "altFu2",   DoAltFu2,
-        "altFu3",   DoAltFu3,
-        "brPick",   DoBranchPick,
-        "brFu2",    DoBranchFu2,
-        "brFu3",    DoBranchFu3,
-        "brPpv",    DoBranchPpv)
+        ; altFu1-3 are a SECOND KEY for fu1-3, kept only so an existing ^F1
+        ; binding does not go dead. They do exactly what the plain key does —
+        ; there is nothing left for a separate "pick alt" key to do now that the
+        ; plain key stages every alt AND every branch.
+        ;
+        ; brPick / brFu2 / brFu3 / brPpv were here. They are gone, not renamed:
+        ; the branch variants are in the same staged list as the alts, and the
+        ; branch you are on is remembered from what you pick there.
+        "altFu1",   DoFu1,
+        "altFu2",   DoFu2,
+        "altFu3",   DoFu3)
 }
 
 ; Bind one model's EXPLICIT keys — [mass.<n>] in hotkeys.ini.

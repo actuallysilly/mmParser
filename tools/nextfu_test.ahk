@@ -112,6 +112,40 @@ Ck("too-short f1 ignored",
 Ck("empty f3 ignored",
    NFU_LastGroup(S, NFU_Norm("im still thinking about it honestly cant stop picturing your reaction"), CFG).group, 2)
 
+; ── group 3 falls back to the Default FU3 text ───────────────────────────────
+; A mass with no f3 of its own SENDS the Default FU3 from Settings, so that text
+; is what ends up in the conversation and that is what the walker has to match.
+; Matching the blank stored fields instead meant f3 was never found: press again
+; and it read f2 as the last one sent and re-sent the default to the same fan.
+;
+; This writes to the live cfg to make the fallback deterministic, so it saves and
+; restores it. A test that edits real config has to leave it as it found it —
+; mass_bind_test used to change ModelMatch and never put it back.
+_savedFu3 := IniRead(MMA_CFG, "Settings", "DefaultFu3", "")
+IniWrite("this is the fallback third follow up message", MMA_CFG, "Settings", "DefaultFu3")
+D := {fu1: "hey babe did you get a chance to look at what i sent you earlier",
+      fu1_5: "", fu1_7: "",
+      fu2: "im still thinking about it honestly cant stop picturing your reaction",
+      fu2_5: "", fu2_7: "",
+      fu3: "", fu3_5: "", fu3_7: ""}
+_chat := "hey babe did you get a chance to look at what i sent you earlier"
+       . " im still thinking about it honestly cant stop picturing your reaction"
+       . " this is the fallback third follow up message"
+; Off in Easy mode, where the fallback genuinely does not apply — so assert the
+; behaviour that matches the mode rather than assuming Advanced.
+if FEAT("defaultFu3")
+    Ck("default f3 counts as f3", NFU_LastGroup(D, NFU_Norm(_chat), CFG).group, 3)
+else
+    Ck("no fallback in easy mode", NFU_LastGroup(D, NFU_Norm(_chat), CFG).group, 2)
+; ...and the mass's OWN f3 still wins when it has one.
+D2 := D.Clone()
+D2.fu3 := "last chance before i take it down tonight promise you wont regret it"
+Ck("real f3 still matches",
+   NFU_LastGroup(D2, NFU_Norm("hey babe did you get a chance to look at what i sent you earlier"
+                            . " last chance before i take it down tonight promise you wont regret it"),
+                 CFG).group, 3)
+IniWrite(_savedFu3, MMA_CFG, "Settings", "DefaultFu3")
+
 ; ── multi-part follow-ups (fuN, fuN_5, fuN_7 are three separate messages) ────
 P := {fu1: "first part of the opener that goes out on its own",
       fu1_5: "second part which lands a few seconds later",
@@ -126,6 +160,100 @@ Ck("matches the last part",   NFU_LastGroup(P, NFU_Norm("and the third part roun
 Ck("later group still wins",
    NFU_LastGroup(P, NFU_Norm("and the third part rounds it off nicely"
                            . " completely different second follow up message here"), CFG).group, 2)
+
+; ── f1 is gated on the mass being visible ────────────────────────────────────
+; "No follow-up found" has two causes a substring search cannot tell apart: the
+; sequence has not started, or we cannot see it (scrolled up, or the mass never
+; went to this chat). The mass being on screen is the evidence that separates
+; them, so f1 waits for it. Without this the key opens with "did you see what I
+; sent?" to someone who was sent nothing.
+MM := {mass: "hey love i put together something special for you tonight and i really"
+             . " hope you like it because i thought about you the whole time",
+       fu1: "hey babe did you get a chance to look at what i sent you earlier",
+       fu1_5: "", fu1_7: "", fu2: "", fu2_5: "", fu2_7: "",
+       fu3: "", fu3_5: "", fu3_7: ""}
+
+Ck("mass visible -> seen",
+   NFU_MassPresence(MM, NFU_Norm("hey love i put together something special for you"
+                               . " tonight and i really hope you like it because i"
+                               . " thought about you the whole time"), CFG), "seen")
+Ck("mass absent -> absent",
+   NFU_MassPresence(MM, NFU_Norm("hey there whats up how are you doing today"), CFG), "absent")
+; Only the TAIL of a long mass is still on screen — the top has scrolled off.
+; Three needles exist exactly so this still counts.
+Ck("mass tail only -> seen",
+   NFU_MassPresence(MM, NFU_Norm("because i thought about you the whole time"), CFG), "seen")
+; OCR damage in one window must not hide it either.
+Ck("mass with a typo -> seen",
+   NFU_MassPresence(MM, NFU_Norm("hey love i put together something speciai for you"
+                               . " tonight and i really hope you like it because i"
+                               . " thought about you the whole time"), CFG), "seen")
+; Nothing to check against is NOT permission to send.
+NOMASS := MM.Clone()
+NOMASS.mass := ""
+Ck("no mass stored -> uncheckable",
+   NFU_MassPresence(NOMASS, NFU_Norm("anything at all here"), CFG), "uncheckable")
+; A mass too short to identify is equally unusable as evidence.
+SHORTMASS := MM.Clone()
+SHORTMASS.mass := "hi"
+Ck("mass too short -> uncheckable",
+   NFU_MassPresence(SHORTMASS, NFU_Norm("hi"), CFG), "uncheckable")
+
+; The gate applies ONLY to starting the sequence. Once a follow-up is on screen
+; the thread speaks for itself and the mass may well have scrolled away.
+Ck("f1 on screen still walks to f2 without the mass",
+   NFU_LastGroup(M, NFU_Norm("hey babe did you get a chance to look at what i sent you earlier"),
+                 CFG).group, 1)
+
+; ── sparse masses, which are the normal case and not an edge case ────────────
+; A mass is not required to carry all three follow-ups. f1 only is common; f1 and
+; f3 with a hole in the middle is legitimate too. "Next" therefore means the next
+; follow-up THAT EXISTS — counting group + 1 blindly fired an empty send, and
+; sndFu returns silently on empty parts, so the key did nothing while announcing
+; that it had sent something.
+;
+; DefaultFu3 is forced blank here so group 3 is genuinely empty: with it set, a
+; mass with no f3 still HAS a third follow-up (the fallback) and would rightly
+; report one. Saved and restored, like every other test that touches live config.
+_savedFu3b := IniRead(MMA_CFG, "Settings", "DefaultFu3", "")
+IniWrite("", MMA_CFG, "Settings", "DefaultFu3")
+
+ONLY1 := {fu1: "hey babe did you get a chance to look at what i sent you earlier",
+          fu1_5: "", fu1_7: "", fu2: "", fu2_5: "", fu2_7: "",
+          fu3: "", fu3_5: "", fu3_7: ""}
+Ck("f1-only: nothing sent yet -> f1", NFU_NextWithContent(ONLY1, 0), 1)
+Ck("f1-only: after f1 -> nothing",    NFU_NextWithContent(ONLY1, 1), 0)
+
+; The hole in the middle: after f1 the next one that exists is f3, not "f2 then
+; give up". Skipping is the right answer — f3 is a real message the fan has not had.
+GAP := {fu1: "hey babe did you get a chance to look at what i sent you earlier",
+        fu1_5: "", fu1_7: "", fu2: "", fu2_5: "", fu2_7: "",
+        fu3: "last chance before i take it down tonight promise you wont regret it",
+        fu3_5: "", fu3_7: ""}
+Ck("gap: after f1 -> skips to f3", NFU_NextWithContent(GAP, 1), 3)
+Ck("gap: after f3 -> nothing",     NFU_NextWithContent(GAP, 3), 0)
+
+; A part in fuN_5 with fuN itself blank still counts as content.
+LATE := {fu1: "", fu1_5: "the second part carries this whole follow-up", fu1_7: "",
+         fu2: "", fu2_5: "", fu2_7: "", fu3: "", fu3_5: "", fu3_7: ""}
+Ck("a _5 part alone counts", NFU_NextWithContent(LATE, 0), 1)
+
+EMPTY := {fu1: "", fu1_5: "", fu1_7: "", fu2: "", fu2_5: "", fu2_7: "",
+          fu3: "", fu3_5: "", fu3_7: ""}
+Ck("nothing to send at all", NFU_NextWithContent(EMPTY, 0), 0)
+
+IniWrite(_savedFu3b, MMA_CFG, "Settings", "DefaultFu3")
+
+; With a Default FU3 configured, a mass with no f3 DOES have a third follow-up,
+; so the walk runs f1 -> f2 -> default. Mode-aware, since Easy switches it off.
+IniWrite("this is the fallback third follow up message", MMA_CFG, "Settings", "DefaultFu3")
+NOF3 := {fu1: "hey babe did you get a chance to look at what i sent you earlier",
+         fu1_5: "", fu1_7: "",
+         fu2: "im still thinking about it honestly cant stop picturing your reaction",
+         fu2_5: "", fu2_7: "", fu3: "", fu3_5: "", fu3_7: ""}
+Ck("after f2, the default counts as f3",
+   NFU_NextWithContent(NOF3, 2), FEAT("defaultFu3") ? 3 : 0)
+IniWrite(_savedFu3b, MMA_CFG, "Settings", "DefaultFu3")
 
 ; ── needles ──────────────────────────────────────────────────────────────────
 Ck("short part -> no needles", NFU_Needles("hey", CFG).Length, 0)

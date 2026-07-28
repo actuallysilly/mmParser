@@ -34,8 +34,13 @@ global MMA_ROOT := MMA_ParentDir(MMA_ParentDir(MMA_ParentDir(A_LineFile)))
 global MMA_SRC       := MMA_ROOT "\src"
 global MMA_CONTENT   := MMA_ROOT "\content"        ; hand-written AHK message files
 global MMA_ACC_DIR   := MMA_CONTENT "\accounts"    ; per-account hotstring files
-global MMA_USERDATA  := MMA_ROOT "\userdata"       ; settings, messages, logs
+global MMA_USERDATA  := MMA_ROOT "\userdata"       ; settings and messages
 global MMA_ASSETS    := MMA_ROOT "\assets"
+; Diagnostics: crash traces and whatever the probe tools dump. Its own folder
+; because these are THROWAWAY — you read one, you fix the thing, you delete it —
+; and mixing them into userdata\ put them next to masses.json and hotkeys.ini,
+; the two files you must never delete by mistake.
+global MMA_DEBUGLOGS := MMA_ROOT "\debuglogs"
 
 ; ─── Files the user owns ──────────────────────────────────────────────────────
 ; All of these live in userdata\, which is gitignored except for the .default
@@ -47,8 +52,21 @@ global MMA_OVERLOADS   := MMA_USERDATA "\hotstring_overloads.ini"
 global MMA_MASSES      := MMA_USERDATA "\masses.json"
 global MMA_ARCHIVE     := MMA_USERDATA "\mass_archive.txt"
 global MMA_DETECTOR    := MMA_USERDATA "\detector_status.ini"
-global MMA_ERRLOG      := MMA_USERDATA "\error_log.txt"
 global MMA_VERSION     := MMA_ROOT "\version.txt"
+
+; ─── Diagnostics ──────────────────────────────────────────────────────────────
+; Created HERE, at load, rather than by each writer.
+;
+; Every one of these is written with FileAppend, which throws if the folder is
+; missing — and each writer is inside a `try` precisely because a logger must not
+; be able to crash the thing it is logging for. So a missing folder would not
+; raise anything: the crash log would silently stop recording crashes, which is
+; the one failure you cannot debug from the log. One idempotent DirCreate, in the
+; file every script already includes, removes the possibility.
+try DirCreate(MMA_DEBUGLOGS)
+global MMA_ERRLOG       := MMA_DEBUGLOGS "\error_log.txt"
+global MMA_PROBE_DETECT := MMA_DEBUGLOGS "\detector_probe.txt"
+global MMA_PROBE_NEXTFU := MMA_DEBUGLOGS "\nextfu_probe.txt"
 
 ; ─── Source files referenced as PATHS rather than #Included ───────────────────
 ;  Three things do this and all three are easy to miss when moving files:

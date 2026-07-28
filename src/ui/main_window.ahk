@@ -11,7 +11,9 @@
 #Include "../mass/archive.ahk"
 #Include "../mass/parser.ahk"
 #Include "../core/processes.ahk"
-#Include "modes_window.ahk"
+; Every setting in one window: the tabs, the feature registry's checkboxes and the
+; hotkey editor that used to be a separate process.
+#Include "settings_window.ahk"
 #Include "../screen/ocr_grab.ahk"
 #Include "actions_menu.ahk"
 DetectHiddenWindows true
@@ -52,26 +54,22 @@ keyMap := Map(
 ; An alt may itself be multi-part, so its parts are stored in a single field joined
 ; by a literal `n — the same escape ppv_base already uses. Keeping it to one field
 ; per alt is what stops the mN block from growing 27 fields wider.
-ALT_MAX    := 3                       ; alt0..alt2 per follow-up
+; HOW MANY alts is store.ahk's business — it owns the record shape, and a field
+; count IS part of that shape. This file used to declare its own ALT_MAX := 3
+; alongside utils.ahk's ALT_MAX_RT := 3, under a comment reading "must match
+; ALT_MAX in main_window.ahk". Three copies of one number, kept in step by hand.
 ALT_GROUPS := ["fu1", "fu2", "fu3"]
 
 ; "fu1" -> ["fu1_alt0", "fu1_alt1", "fu1_alt2"]
+;
+; Not MASS_AltFields(): that one takes the GROUP NUMBER and this takes the group
+; NAME, which is what ALT_GROUPS and the control keys are built from. Same list,
+; and now the same count behind it.
 AltFields(group) {
-    global ALT_MAX
+    global MASS_ALT_MAX
     out := []
-    Loop ALT_MAX
+    Loop MASS_ALT_MAX
         out.Push(group "_alt" (A_Index - 1))
-    return out
-}
-
-; Every alt field, in block order. Used by the loader, the writer and the editor
-; so a new alt slot only has to be declared in ALT_MAX.
-AllAltFields() {
-    global ALT_GROUPS
-    out := []
-    for _, grp in ALT_GROUPS
-        for _, f in AltFields(grp)
-            out.Push(f)
     return out
 }
 
@@ -80,27 +78,14 @@ AllAltFields() {
 ; (its own fu1/fu2/fu3 + ppv), sent as a continuation after the shared trunk. Each
 ; branch is stored in its own fields; a group's parts are `n-joined into one field,
 ; the same compact scheme the alts use. This REPLACED the old or-or (b2_*) branch.
-BRANCH_MAX    := 3                     ; --Name branches per mass
-BRANCH_GROUPS := ["fu1", "fu2", "fu3", "ppv"]
-
-; branch 1 -> ["br1_name","br1_fu1","br1_fu2","br1_fu3","br1_ppv"]
-BranchFields(k) {
-    global BRANCH_GROUPS
-    out := ["br" k "_name"]
-    for _, grp in BRANCH_GROUPS
-        out.Push("br" k "_" grp)
-    return out
-}
-
-; Every branch field, in block order.
-AllBranchFields() {
-    global BRANCH_MAX
-    out := []
-    Loop BRANCH_MAX
-        for _, f in BranchFields(A_Index)
-            out.Push(f)
-    return out
-}
+; The count lives in store.ahk as MASS_BRANCH_MAX, for the same reason as the
+; alts above.
+;
+; BRANCH_GROUPS / BranchFields() / AllBranchFields() stood here too, and so did
+; AllAltFields(). All four were dead: they existed to emit the `mN := { … }`
+; source block, and that serialiser went when the library became masses.json.
+; MASS_BranchFields() in store.ahk is the surviving copy and returns the same
+; five names.
 
 ; The mN := {} field list, in block order. Single source of truth — the loader,
 ; the writer and the new-file template all read it, so adding a field here is
@@ -114,49 +99,87 @@ MassPropIsMultiline(prop) {
     return MASS_FieldIsMultiline(prop)
 }
 
-; Parts of one stored alt, splitting the `n join back out.
-AltParts(stored) {
-    parts := []
-    for _, p in StrSplit(StrReplace(StrReplace(stored, "`r`n", "`n"), "``n", "`n"), "`n")
-        if Trim(p) != ""
-            parts.Push(Trim(p))
-    return parts
-}
+; AltParts() stood here — the same splitter as utils.ahk's AltPartsRT(), to the
+; character. It had no callers left, and the surviving copy is MASS_SplitParts()
+; in store.ahk, beside MASS_FieldIsMultiline() which says what needs splitting.
 
-; Does this mass/follow-up carry at least one alt?
-MassHasAlts(mNo, group) {
-    global edCtrls
-    for _, fld in AltFields(group) {
-        ck := "m" mNo "_" fld
-        if edCtrls.Has(ck) && Trim(edCtrls[ck].Value) != ""
-            return true
+; MassHasAlts(), MakeAltGuiToggle() and AltGuiToggled() stood here. The first had
+; no callers; the other two drove the "alt: gui" checkbox, and the modal chooser
+; it switched to is gone — TAB staging is the only picker now.
+
+; One cell of the Variants window: every way to answer ONE follow-up, in the
+; order the staged list shows them. `grp` is "fu1"/"fu2"/"fu3" or "ppv".
+;
+; Only the alt and branch boxes are registered in edCtrls. "main" is a read-only
+; echo, because the editable control for it is in the main panel and edCtrls maps
+; one key to one control — registering it twice would leave the main panel's box
+; loaded from nothing and saved from nothing.
+VarBuildCell(gv, mNo, grp, x, y) {
+    global edCtrls, varBaseEcho, varBranchLbls
+    global VAR_LABEL_W, VAR_EDIT_DX, VAR_EDIT_W, MASS_BRANCH_MAX
+    isPpv := (grp = "ppv")
+    ex := x + VAR_EDIT_DX
+
+    gv.SetFont("s10 Bold cB89CFF", "Segoe UI")
+    gv.Add("Text", "x" x " y" y " w200", isPpv ? "PPV" : StrUpper(grp))
+    gv.SetFont("s9 Norm cE6E4EE", "Segoe UI")
+    y += 22
+
+    gv.Add("Text", "x" x " y" (y+3) " w" VAR_LABEL_W " Right c8E8AA6", "main:")
+    varBaseEcho[mNo "_" grp] := gv.Add("Edit",
+        "x" ex " y" y " w" VAR_EDIT_W " h" (isPpv ? 38 : 20)
+      . " ReadOnly -VScroll " (isPpv ? "Multi " : "") "Background201E2B")
+    y += isPpv ? 44 : 26
+
+    ; The PPV has no alt wordings — only the follow-ups do. Its alternatives are
+    ; the branches' PPVs, which the loop below adds.
+    if !isPpv {
+        for ai, fld in AltFields(grp) {
+            gv.Add("Text", "x" x " y" (y+3) " w" VAR_LABEL_W " Right c8E8AA6", "alt " ai ":")
+            edCtrls["m" mNo "_" fld] := gv.Add("Edit",
+                "x" ex " y" y " w" VAR_EDIT_W " h40 Multi +VScroll Background201E2B")
+            y += 44
+        }
     }
-    return false
+
+    Loop MASS_BRANCH_MAX {
+        k   := A_Index
+        key := "m" mNo "_br" k "_" grp
+        varBranchLbls[key] := gv.Add("Text",
+            "x" x " y" (y+3) " w" VAR_LABEL_W " Right c8E8AA6", "br" k ":")
+        edCtrls[key] := gv.Add("Edit",
+            "x" ex " y" y " w" VAR_EDIT_W " h40 Multi +VScroll Background201E2B")
+        y += 44
+    }
+    return y
 }
 
-MakeAltGuiToggle(mNo) {
-    return AltGuiToggled.Bind(mNo)
+; Retitle branch k's four row labels from its name box. A branch is one thing
+; spread across four cells, so naming it once has to be visible in all four.
+VarRenameBranch(mNo, k, *) {
+    global edCtrls, varBranchLbls
+    nk := "m" mNo "_br" k "_name"
+    nm := edCtrls.Has(nk) ? Trim(edCtrls[nk].Value) : ""
+    if (nm = "")
+        nm := "br" k
+    else if (StrLen(nm) > 9)
+        nm := SubStr(nm, 1, 8) Chr(0x2026)      ; the label is 78px, not elastic
+    for _, grp in ["fu1", "fu2", "fu3", "ppv"] {
+        lk := "m" mNo "_br" k "_" grp
+        if varBranchLbls.Has(lk)
+            varBranchLbls[lk].Text := nm ":"
+    }
 }
 
-AltGuiToggled(mNo, *) {
-    global altGuiChks, edCtrls
-    ck := "m" mNo "_altGui"
-    if edCtrls.Has(ck)
-        edCtrls[ck].Value := altGuiChks[mNo].Value ? "1" : "0"
-}
-
-; Mirror the stored altGui values onto the checkboxes, and echo each base variant
-; so the window is readable after a Load. Called on load and on parse.
-RefreshAltWindow() {
-    global edCtrls, altGuiChks, altBaseEcho, ALT_GROUPS
+; Echo each "main" box into the Variants window and retitle every branch row, so
+; the window reads correctly after a Load or a parse. Called by both.
+VarRefresh() {
+    global edCtrls, varBaseEcho, ALT_GROUPS, MASS_BRANCH_MAX
     Loop 3 {
         mNo := A_Index
-        ck := "m" mNo "_altGui"
-        if edCtrls.Has(ck) && altGuiChks.Has(mNo)
-            altGuiChks[mNo].Value := (Trim(edCtrls[ck].Value) = "1")
         for _, grp in ALT_GROUPS {
             key := mNo "_" grp
-            if !altBaseEcho.Has(key)
+            if !varBaseEcho.Has(key)
                 continue
             parts := []
             for _, sfx in ["", "_5", "_7"] {
@@ -167,27 +190,23 @@ RefreshAltWindow() {
             joined := ""
             for _, p in parts
                 joined .= (joined != "" ? "  |  " : "") p
-            altBaseEcho[key].Value := joined
+            varBaseEcho[key].Value := joined
         }
+        pk := mNo "_ppv"
+        if varBaseEcho.Has(pk) {
+            bk := "m" mNo "_ppv_base"
+            varBaseEcho[pk].Value := edCtrls.Has(bk) ? edCtrls[bk].Value : ""
+        }
+        Loop MASS_BRANCH_MAX
+            VarRenameBranch(mNo, A_Index)
     }
 }
 
-SaveAltToFile(*) {
-    global altTabs
-    ApplyFile(MMA_ModelNames()[altTabs.Value])
-}
-
-OpenAltWindow(*) {
-    global gAlt, ALT_W, tabs, altTabs
-    RefreshAltWindow()
-    altTabs.Value := tabs.Value          ; open on the model you are looking at
-    gAlt.Show("w" ALT_W " h878")
-}
-
-OpenBranchWindow(*) {
-    global gBranch, BR_W, tabs, brTabs
-    brTabs.Value := tabs.Value           ; open on the model you are looking at
-    gBranch.Show("w" BR_W " h862")
+OpenVariantsWindow(*) {
+    global gVar, VAR_W, VAR_H, tabs, varTabs
+    VarRefresh()
+    varTabs.Value := tabs.Value          ; open on the model you are looking at
+    gVar.Show("w" VAR_W " h" VAR_H)
 }
 
 AHK_CHARS  := ["``", Chr(34), ";"]   ; backtick must be first
@@ -198,7 +217,11 @@ AHK_CHARS  := ["``", Chr(34), ";"]   ; backtick must be first
 PREFIX_EXCEPTIONS := Map("http",1, "https",1, "ftp",1, "ftps",1, "mailto",1, "tel",1, "file",1)
 
 edCtrls    := Map()
-altBaseEcho := Map()  ; "<mNo>_<group>" → read-only echo of the base variant in the alt window
+; Declared HERE, not beside the Variants window that fills them, because the main
+; window is Show()n well before that block runs and VarRefresh() calls .Has() on
+; both — an unset global would throw rather than find nothing.
+varBaseEcho   := Map()  ; "<mNo>_<group>" → read-only echo of the main panel's box
+varBranchLbls := Map()  ; "m<n>_br<k>_<grp>" → row label, retitled by the name box
 scriptPIDs := Map()   ; path → PID for toggle tracking
 togCtrls   := []      ; [{c, x, oy}] script toggle section, y moves on resize
 topCtrls   := []      ; [{c, ox}]       — right-panel top labels, x-slide on resize
@@ -230,7 +253,6 @@ walletCheckFu3    := Integer(IniRead(CFG_FILE, "Settings", "WalletCheckFu3",    
 fastParseAutosave := Integer(IniRead(CFG_FILE, "Settings", "FastParseAutosave", "0"))
 ; On by default: the follow-up keys keep sending the main branch as they always
 ; have, and ctrl+key is what opens the alt chooser. Off makes the plain key prompt.
-promptAltCtrl     := Integer(IniRead(CFG_FILE, "Settings", "PromptAltCtrl", "1"))
 _hiddenRaw        := IniRead(CFG_FILE, "Settings", "HiddenScripts", "")
 hiddenScripts     := Map()
 for _h in StrSplit(_hiddenRaw, ",")
@@ -526,13 +548,10 @@ btnPinger.OnEvent("Click", TogglePinger)
 ModeCtrl(btnPinger)   ; NOT FeatCtrl: this button is the pinger's own on/off switch
 RegTog(btnPinger, 95, 0)
 
-c := g.Add("Button", "x" TAB_X " y" TOGG_Y0 " w95 h28", "Alt FUs…")
-c.OnEvent("Click", OpenAltWindow)
-FeatCtrl(c, "altFollowups")
-RegTog(c, 95, 0)
-
-c := g.Add("Button", "x" TAB_X " y" TOGG_Y0 " w95 h28", "Branches…")
-c.OnEvent("Click", OpenBranchWindow)
+; ONE button. "Alt FUs…" and "Branches…" were two, opening two windows that
+; edited two halves of the same list — see the Variants window below.
+c := g.Add("Button", "x" TAB_X " y" TOGG_Y0 " w95 h28", "Variants…")
+c.OnEvent("Click", OpenVariantsWindow)
 FeatCtrl(c, "altFollowups")
 RegTog(c, 95, 0)
 
@@ -587,110 +606,80 @@ try {
     A_TrayMenu.Default := "Kill all scripts && Exit"
 }
 
-; ─── Branches window (--Name alternate sequences; hidden until opened) ────────
-; One tab per model, BRANCH_MAX branches each. Parsing a `--Name` mass writes
-; straight into these controls, and this is where you see or edit them.
+; ─── Variants window (hidden until opened) ────────────────────────────────────
+;  ONE window. It was two — "Alt FUs…" opened gAlt and "Branches…" opened
+;  gBranch — which put the alternatives for f1 in one place and the branches'
+;  version of f1 in another, with nothing on screen connecting them.
+;
+;  They are the same question. At send time the follow-up key stages exactly this
+;  list and TAB walks it (see AltVariants in core/utils.ahk), so the window is
+;  laid out to match what you will see in the chatbox: per follow-up, every way
+;  to answer it, in order — main, the alts, then each branch.
+;
+;  What is EDITABLE here is only what has nowhere else to live: the alt fields,
+;  the branch names, and each branch's fu1/fu2/fu3/ppv. "main" is the read-only
+;  echo of the box in the main panel — registering a second control under the
+;  same edCtrls key would orphan the first, and the main panel would silently
+;  stop loading and saving it.
+;
+;  A branch spans all four cells, so its NAME is edited once at the top and the
+;  row labels follow it live; a branch called "soft" reads "soft:" under FU1,
+;  FU2, FU3 and PPV. That is the connection the two windows never showed.
 
-BR_W       := 720
-BR_LABEL_X := 12
-BR_EDIT_X  := 92
-BR_EDIT_W  := BR_W - BR_EDIT_X - 30
+VAR_W       := 980
+VAR_H       := 812
+VAR_COL1_X  := 12
+VAR_COL2_X  := 498
+VAR_LABEL_W := 78
+VAR_EDIT_DX := 84                       ; edit offset from the column's left edge
+VAR_EDIT_W  := 374
+VAR_ROW1_Y  := 100
+VAR_ROW2_Y  := 420                      ; a follow-up cell is 312 tall
 
-gBranch := Gui("+Resize +MinSize420x300", "Branches (--Name)")
-gBranch.SetFont("s9", "Segoe UI")
-brTabs := gBranch.Add("Tab3", "x10 y10 w" (BR_W-20) " h800", ["M1", "M2", "M3"])
+; varBaseEcho / varBranchLbls are declared with edCtrls near the top — see there.
+
+gVar := Gui("+Resize +MinSize720x520", "Variants — alts and branches")
+gVar.BackColor := "15141C"
+gVar.SetFont("s9 cE6E4EE", "Segoe UI")
+varTabs := gVar.Add("Tab3", "x10 y10 w" (VAR_W-20) " h745", ["M1", "M2", "M3"])
 
 Loop 3 {
     mNo := A_Index
-    brTabs.UseTab(mNo)
-    y := 40
-    Loop BRANCH_MAX {
-        k := A_Index
-        gBranch.SetFont("s10 Bold", "Segoe UI")
-        gBranch.Add("Text", "x" BR_LABEL_X " y" y " w200", "BRANCH " k)
-        gBranch.SetFont("s9 Norm", "Segoe UI")
-        y += 22
+    varTabs.UseTab(mNo)
 
-        gBranch.Add("Text", "x" BR_LABEL_X " y" (y+3) " w74 Right", "name:")
-        ec := gBranch.Add("Edit", "x" BR_EDIT_X " y" y " w" BR_EDIT_W " h22")
+    ; ── branch names, once for the whole tab ──────────────────────────────────
+    gVar.SetFont("s10 Bold cB89CFF", "Segoe UI")
+    gVar.Add("Text", "x" VAR_COL1_X " y42 w300", "BRANCHES")
+    gVar.SetFont("s8 Norm c8E8AA6", "Segoe UI")
+    gVar.Add("Text", "x" (VAR_COL1_X + 90) " y44 w560",
+             "name them here — the rows below follow. Leave blank for none.")
+    gVar.SetFont("s9 Norm cE6E4EE", "Segoe UI")
+    Loop MASS_BRANCH_MAX {
+        k  := A_Index
+        bx := VAR_COL1_X + (k - 1) * 318
+        gVar.Add("Text", "x" bx " y67 w18 Right c8E8AA6", k ":")
+        ec := gVar.Add("Edit", "x" (bx + 24) " y64 w270 h22 Background201E2B")
         edCtrls["m" mNo "_br" k "_name"] := ec
-        y += 28
-
-        for _, grp in ["fu1", "fu2", "fu3"] {
-            gBranch.Add("Text", "x" BR_LABEL_X " y" (y+3) " w74 Right", grp ":")
-            ec := gBranch.Add("Edit", "x" BR_EDIT_X " y" y " w" BR_EDIT_W " h40 Multi +VScroll")
-            edCtrls["m" mNo "_br" k "_" grp] := ec
-            y += 44
-        }
-        gBranch.Add("Text", "x" BR_LABEL_X " y" (y+3) " w74 Right", "ppv:")
-        ec := gBranch.Add("Edit", "x" BR_EDIT_X " y" y " w" BR_EDIT_W " h52 Multi +VScroll")
-        edCtrls["m" mNo "_br" k "_ppv"] := ec
-        y += 64
+        ec.OnEvent("Change", VarRenameBranch.Bind(mNo, k))
     }
+
+    ; ── the four cells: FU1 FU2 / FU3 PPV ─────────────────────────────────────
+    VarBuildCell(gVar, mNo, "fu1", VAR_COL1_X, VAR_ROW1_Y)
+    VarBuildCell(gVar, mNo, "fu2", VAR_COL2_X, VAR_ROW1_Y)
+    VarBuildCell(gVar, mNo, "fu3", VAR_COL1_X, VAR_ROW2_Y)
+    VarBuildCell(gVar, mNo, "ppv", VAR_COL2_X, VAR_ROW2_Y)
 }
-brTabs.UseTab()
+varTabs.UseTab()
 
-gBranch.Add("Button", "x10 y820 w120 h28", "Save to file").OnEvent("Click", (*) => ApplyFile(MMA_ModelNames()[brTabs.Value]))
-gBranch.Add("Button", "x140 y820 w80 h28", "Close").OnEvent("Click", (*) => gBranch.Hide())
-
-; ─── Alt follow-up window (hidden; alts never show in the main panel) ─────────
-; Parsing an alt: line writes straight into these controls, so a pasted mass
-; registers its alternatives quietly. This window is the only place to see or
-; edit them.
-
-ALT_W       := 780
-ALT_LABEL_X := 12
-ALT_EDIT_X  := 92
-ALT_EDIT_W  := ALT_W - ALT_EDIT_X - 34
-
-gAlt := Gui("+Resize +MinSize560x420", "Alt follow-ups")
-gAlt.BackColor := "15141C"
-gAlt.SetFont("s9 cE6E4EE", "Segoe UI")
-altTabs := gAlt.Add("Tab3", "x10 y10 w" (ALT_W-20) " h812", ["M1", "M2", "M3"])
-altGuiChks := Map()
-
-Loop 3 {
-    mNo := A_Index
-    altTabs.UseTab(mNo)
-    y := 42
-
-    ; per-mass chooser style. Off = TAB staging in the chatbox (the default).
-    chk := gAlt.Add("Checkbox", "x" ALT_LABEL_X " y" y " w220 cE6E4EE", "alt: gui  (modal instead of TAB)")
-    altGuiChks[mNo] := chk
-    ec := gAlt.Add("Edit", "x" ALT_EDIT_X " y" y " w0 h0")     ; value holder for altGui
-    edCtrls["m" mNo "_altGui"] := ec
-    chk.OnEvent("Click", MakeAltGuiToggle(mNo))
-    y += 34
-
-    for _, grp in ALT_GROUPS {
-        gAlt.SetFont("s10 Bold cB89CFF", "Segoe UI")
-        gAlt.Add("Text", "x" ALT_LABEL_X " y" y " w200", StrUpper(grp))
-        gAlt.SetFont("s9 Norm cE6E4EE", "Segoe UI")
-        y += 22
-
-        ; the base variant, shown read-only so you can see what you are alternating
-        gAlt.Add("Text", "x" ALT_LABEL_X " y" (y+3) " w74 Right c8E8AA6", "base:")
-        ec := gAlt.Add("Edit", "x" ALT_EDIT_X " y" y " w" ALT_EDIT_W " h20 ReadOnly Background201E2B")
-        altBaseEcho[mNo "_" grp] := ec
-        y += 26
-
-        for ai, fld in AltFields(grp) {
-            gAlt.Add("Text", "x" ALT_LABEL_X " y" (y+3) " w74 Right c8E8AA6", "alt" (ai-1) ":")
-            ec := gAlt.Add("Edit", "x" ALT_EDIT_X " y" y " w" ALT_EDIT_W " h56 Multi +VScroll Background201E2B")
-            edCtrls["m" mNo "_" fld] := ec
-            y += 60
-        }
-        y += 10
-    }
-}
-altTabs.UseTab()
-
-gAlt.SetFont("s9 cE6E4EE", "Segoe UI")
-gAlt.Add("Button", "x10 y834 w120 h28", "Save to file").OnEvent("Click", SaveAltToFile)
-gAlt.Add("Button", "x140 y834 w80 h28", "Close").OnEvent("Click", (*) => gAlt.Hide())
-gAlt.Add("Text", "x240 y840 w520 c8E8AA6",
-         "An alt may span lines — each line is sent as its own message, like the base.")
-ArchiveDarkTheme(gAlt, [])
+gVar.SetFont("s9 cE6E4EE", "Segoe UI")
+gVar.Add("Button", "x10 y765 w120 h28", "Save to file")
+     .OnEvent("Click", (*) => ApplyFile(MMA_ModelNames()[varTabs.Value]))
+gVar.Add("Button", "x140 y765 w80 h28", "Close").OnEvent("Click", (*) => gVar.Hide())
+gVar.SetFont("s8 c8E8AA6", "Segoe UI")
+gVar.Add("Text", "x240 y771 w720",
+         "Any of these may span lines — each line is sent as its own message. "
+       . "The follow-up key stages them all; TAB moves, Enter sends, Esc cancels.")
+ArchiveDarkTheme(gVar, [])
 
 ; The mass engine first, and unconditionally: it carries every mass hotkey, so
 ; without it MMA looks like it does nothing. Not part of StartupScripts — that
@@ -700,11 +689,14 @@ LaunchEngine()
 ; auto-start configured startup scripts (defaults to general.ahk) if not already running
 LaunchStartupScripts()
 LaunchAutomationListener()
-if pinger
+; FEAT rather than the globals above, which are read from the same cfg keys one
+; way and would drift the moment anything wrote them without assigning back.
+; Each Launch* refuses on its own feature anyway; this only avoids the call.
+if FEAT("pinger")
     LaunchPinger()
-if autoDetect
+if FEAT("modelDetector")
     LaunchDetector()
-if statsOverlay
+if FEAT("statsOverlay")
     LaunchStatsOverlay()
 SetTimer(RefreshPingerLabel, -800)   ; after python has claimed the event
 if autoRestart
@@ -721,10 +713,15 @@ if autoRestart
 ; "_wPos has not been assigned a value" on its first poll.
 _askedNames := Map()      ; names asked about this session, so we ask once
 _unmapGui   := 0          ; the prompt window, while it is open
-if autoDetect
+if FEAT("modelDetector")
     SetTimer(CheckUnmappedModel, 4000)
 
-SetTimer(() => CheckUpdate(true), -3000)  ; silent check 3s after startup
+; Off by default — see the autoUpdate FEAT_Def in core/modes.ahk. `silent` only
+; suppresses the "already up to date" and "cannot reach the server" boxes; an
+; update that IS available prompts either way, three seconds after launch, in
+; front of whatever you were doing. The manual button in Settings is unaffected.
+if FEAT("autoUpdate")
+    SetTimer(() => CheckUpdate(true), -3000)
 
 ; ─── Resize ───────────────────────────────────────────────────────────────────
 
@@ -869,7 +866,9 @@ AutoParseFromClipboard(wParam, lParam, msg, hwnd) {
         PromptSaveTarget(detected)
     }
 }
-OnMessage(0x8010, AutoParseFromClipboard) ; 0x8010: paste clipboard into edPaste + parse (from copyDiscordMessageSeq)
+; Paste the clipboard into edPaste and parse it. Posted by copyDiscordMessageSeq
+; in sequences.ahk, and by WebImportFromClipboard below.
+OnMessage(MMA_MSG_AUTOPARSE, AutoParseFromClipboard)
 
 ; ─── One-click import from the draft/archive webgui ───────────────────────────
 ; The webgui's "Send to MMA" copies "#MMA-IMPORT#\n<mma text>" to the clipboard.
@@ -889,7 +888,7 @@ WebImportFromClipboard(dataType) {
     A_Clipboard := body                   ; leave a clean copy (re-fires handler, but no sentinel now)
     ClipWait(0.5)
     try WinActivate("ahk_id " g.Hwnd)
-    PostMessage(0x8010, 0, 0, , "ahk_id " g.Hwnd)   ; -> AutoParseFromClipboard
+    PostMessage(MMA_MSG_AUTOPARSE, 0, 0, , "ahk_id " g.Hwnd)   ; -> AutoParseFromClipboard
     _webImporting := false
 }
 OnClipboardChange(WebImportFromClipboard)
@@ -1032,7 +1031,7 @@ ParseCurrent(*) {
         if SubStr(k, 1, 3) = pfx
             c.Value := ""
     FillTab(StrSplit(raw, "`n"), mNo)
-    RefreshAltWindow()          ; alts never surface in the main panel; keep their window honest
+    VarRefresh()                ; alts and branches never surface in the main panel
     if FEAT("archive") && chkArchive.Value && Trim(raw) != "" {
         mName := mNo = 1 ? model1Name : mNo = 2 ? model2Name : model3Name
         if Trim(mName) = ""
@@ -1090,7 +1089,7 @@ LoadFile(fname) {
                 edCtrls[ck].Value := val
         }
     }
-    RefreshAltWindow()
+    VarRefresh()
     _nameMap := Map(1, model1Name, 2, model2Name, 3, model3Name)
     lblLoaded.Text := (_nameMap.Has(modelNo) ? _nameMap[modelNo] : fname) " loaded"
 }
@@ -1148,7 +1147,7 @@ ApplyFile(fname, silent := false) {
 ; nothing on the machine can send model 2 is a lie by omission — the save worked,
 ; but the thing the user is about to go and press does not exist.
 NotifyMassesChanged() {
-    try HK_Broadcast(0x8006)
+    try HK_Broadcast(MMA_MSG_MASSES_CHANGED)
     return EngineRunning()
 }
 
@@ -1272,7 +1271,7 @@ OpenHotstrings(*) {
 
 ; mass_gui.cfg is an ini, and an ini value is one line. A multi-line setting is
 ; stored with a literal `n per break — the escape the alt fields already use, and
-; the one AltPartsRT reads, so the model scripts need no new decoder.
+; the one MASS_SplitParts reads, so the model scripts need no new decoder.
 _EncodeMultiline(s) {
     return StrReplace(StrReplace(s, "`r`n", "`n"), "`n", "``n")
 }
@@ -1280,604 +1279,14 @@ _DecodeMultiline(s) {
     return StrReplace(s, "``n", "`n")
 }
 
-OpenSettings(*) {
-    global model1Name, model2Name, model3Name, modelCount, CFG_FILE, g
-    global defaultHotkeyFile, ACC_DIR, SCRIPT_DIR, mouseControl
-    global startupScripts, autoRestart, automationListener, pinger, promptAltCtrl
-
-    _dhfList := []
-    _genPath2 := MMA_CONTENT "\general.ahk"
-    if FileExist(_genPath2)
-        _dhfList.Push("general.ahk")
-    Loop Files, ACC_DIR "\*.ahk"
-        _dhfList.Push(A_LoopFileName)
-
-    sg := Gui("+Owner" g.Hwnd, "Settings")
-    sg.SetFont("s9", "Segoe UI")
-
-    ; ── Layout ─────────────────────────────────────────────────────────────────
-    ; Rows are placed with a running cursor. This used to be hand-counted offsets
-    ; ("y + 126", "_sy + 102"), which held only while every label happened to fit
-    ; on one line. Two of them outgrew their width, wrapped onto a second line and
-    ; printed over the row beneath them and over the button strip — the window in
-    ; the bug report. A cursor cannot drift: a row that needs more height takes it,
-    ; and everything after it moves down.
-    ;
-    ; Two rules keep it that way:
-    ;   • a checkbox with a status light gets LBL_W, which stops short of STAT_X
-    ;   • rows of per-script checkboxes wrap at CW instead of running off the edge
-    PAD    := 12
-    W      := 620                  ; client width
-    CW     := W - PAD * 2          ; usable content width
-    STAT_X := PAD + CW - 96        ; the "● running" column
-    LBL_W  := CW - 104             ; label width for a row that has one
-    y      := 12
-
-    ; ── Models ─────────────────────────────────────────────────────────────────
-    sg.Add("Text", "x" PAD " y" (y+4) " w96", "Active models:")
-    rdMC1 := sg.Add("Radio", "x" (PAD+100) " y" (y+2) " w36 Group", "1")
-    rdMC2 := sg.Add("Radio", "x" (PAD+140) " y" (y+2) " w36",       "2")
-    rdMC3 := sg.Add("Radio", "x" (PAD+180) " y" (y+2) " w36",       "3")
-    rdMC1.Value := modelCount = 1
-    rdMC2.Value := modelCount = 2
-    rdMC3.Value := modelCount = 3
-    y += 30
-
-    sg.Add("Text", "x" PAD        " y" (y+3) " w62 Right", "Model 1:")
-    ed1 := sg.Add("Edit", "x" (PAD+68)  " y" y " w118", model1Name)
-    sg.Add("Text", "x" (PAD+196) " y" (y+3) " w62 Right", "Model 2:")
-    ed2 := sg.Add("Edit", "x" (PAD+264) " y" y " w118", model2Name)
-    sg.Add("Text", "x" (PAD+392) " y" (y+3) " w62 Right", "Model 3:")
-    ed3 := sg.Add("Edit", "x" (PAD+460) " y" y " w118", model3Name)
-    y += 28
-
-    ; ── which platform each model lives on ────────────────────────────────────
-    ; Infloww has a tab strip the detector can read. Fansly is a different
-    ; interface with nothing calibrated for it, and no reason to expect there
-    ; ever will be for every site you work.
-    ;
-    ; Marking a model "manual" does two things: the shared keys fall back to it
-    ; whenever Infloww is not in front (so your side buttons work on the other
-    ; site), and its select key stops trying to record a tab position it does not
-    ; have. Both are why this is per model rather than one global switch — a mixed
-    ; setup is the normal case, not an edge case.
-    sg.Add("Text", "x" PAD " y" (y+3) " w62 Right", "Platform:")
-    _platItems := ["Infloww (detect)", "Manual (Fansly, …)"]
-    ddlPlat := []
-    Loop 3 {
-        _pi := A_Index
-        _dp := sg.Add("DropDownList",
-                      "x" (PAD + 68 + (_pi - 1) * 196) " y" y " w118", _platItems)
-        _dp.Value := IsManualPlatform(_pi) ? 2 : 1
-        _dp.Enabled := (_pi <= modelCount)
-        ddlPlat.Push(_dp)
-    }
-    y += 30
-
-    sg.Add("Text", "x" PAD " y" (y+3) " w62 Right", "Wait time:")
-    edWT := sg.Add("Edit", "x" (PAD+68) " y" y " w58", waitTime)
-    sg.Add("Text", "x" (PAD+132) " y" (y+3) " w24", "ms")
-    sg.Add("Text", "x" (PAD+166) " y" (y+3) " w76 Right", "Default file:")
-    ddlDef := sg.Add("DropDownList", "x" (PAD+248) " y" y " w158", _dhfList)
-    chkMC := sg.Add("Checkbox", "x" (PAD+418) " y" (y+3) " w160", "Mouse control")
-    chkMC.Value := mouseControl
-    for i, f in _dhfList
-        if f = defaultHotkeyFile {
-            ddlDef.Value := i
-            break
-        }
-    if ddlDef.Value = 0
-        ddlDef.Value := 1
-    y += 38
-
-    ; ── Hotkeys ────────────────────────────────────────────────────────────────
-    ; Every hotkey in MMA — not just the 15 model-send keys this grid used to
-    ; show — is edited in its own window now, backed by hotkeys.ini.
-    sg.Add("Text", "x" PAD " y" y " w" CW " h1 0x10")
-    y += 12
-    sg.SetFont("s9 Bold")
-    sg.Add("Text", "x" PAD " y" y " w" CW, "Hotkeys")
-    sg.SetFont("s9 Norm")
-    y += 22
-    sg.Add("Button", "x" PAD " y" y " w150 h28", "Hotkeys…").OnEvent("Click", (*) => OpenHotkeysGui())
-    sg.Add("Text", "x" (PAD+160) " y" (y+6) " w" (CW-160), "Every hotkey, grouped by feature. Applies live.")
-    y += 40
-
-    ; ── Sending ────────────────────────────────────────────────────────────────
-    sg.Add("Text", "x" PAD " y" y " w" CW " h1 0x10")
-    y += 12
-    sg.SetFont("s9 Bold")
-    sg.Add("Text", "x" PAD " y" y " w" CW, "Sending")
-    sg.SetFont("s9 Norm")
-    y += 22
-    sg.Add("Text", "x" PAD " y" (y+2) " w130", "Open new tab after:")
-    chkTabFu2 := sg.Add("Checkbox", "x" (PAD+136) " y" y " w52", "FU2")
-    chkTabFu3 := sg.Add("Checkbox", "x" (PAD+192) " y" y " w52", "FU3")
-    chkTabPpv := sg.Add("Checkbox", "x" (PAD+248) " y" y " w52", "PPV")
-    chkTabFu2.Value := openTabFu2
-    chkTabFu3.Value := openTabFu3
-    chkTabPpv.Value := openTabPpv
-    y += 26
-    chkDMM := sg.Add("Checkbox", "x" PAD " y" y " w160", "Double MM")
-    chkDMM.Value := _doubleMM
-    chkDMM.OnEvent("Click", (*) => (ToggleDoubleMM(), chkDMM.Value := _doubleMM))
-    chkWallet := sg.Add("Checkbox", "x" (PAD+176) " y" y " w180", "Wallet check FU3")
-    chkWallet.Value := walletCheckFu3
-    chkWallet.OnEvent("Click", (*) => _BroadcastWallet(chkWallet.Value ? 1 : 0))
-    y += 26
-    chkFastSave := sg.Add("Checkbox", "x" PAD " y" y " w" CW, "Fast parse+autosave (auto-saves current model, no prompts)")
-    chkFastSave.Value := fastParseAutosave
-    y += 26
-    ; On  = the plain follow-up key always sends the main branch, ctrl+key picks.
-    ; Off = the plain key prompts whenever the follow-up has alts.
-    chkPromptAlt := sg.Add("Checkbox", "x" PAD " y" y " w" CW, "Prompt for Alt-FUs using ctrl+hotkey (off = the plain key always prompts)")
-    chkPromptAlt.Value := promptAltCtrl
-    y += 28
-    sg.Add("Text", "x" PAD " y" y " w" CW, "Default FU3 — sent when the mass has no f3 at all (one message per line):")
-    y += 20
-    edDefFu3 := sg.Add("Edit", "x" PAD " y" y " w" CW " h56 Multi WantReturn",
-                       _DecodeMultiline(IniRead(CFG_FILE, "Settings", "DefaultFu3", "")))
-    y += 66
-    sg.Add("Text", "x" PAD " y" y " w" CW " cGray",
-           "Leave blank for the old behaviour: an f3 key on a mass with no f3 does nothing.")
-    y += 32
-
-    ; ── Visible scripts ────────────────────────────────────────────────────────
-    sg.Add("Text", "x" PAD " y" y " w" CW " h1 0x10")
-    y += 12
-    sg.SetFont("s9 Bold")
-    sg.Add("Text", "x" PAD " y" y " w" CW, "Visible scripts")
-    sg.SetFont("s9 Norm")
-    y += 22
-    accChks := Map()
-    ; Wraps at CW. It used to march right at a fixed 80px step with no wrap, so a
-    ; sixth acc script simply left the window.
-    xSc := PAD
-    Loop Files, ACC_DIR "\*.ahk" {
-        fname := A_LoopFileName
-        if (xSc + 96 > PAD + CW) {
-            xSc := PAD
-            y += 24
-        }
-        chk := sg.Add("Checkbox", "x" xSc " y" y " w92", StrReplace(fname, ".ahk", ""))
-        chk.Value := !hiddenScripts.Has(fname)
-        accChks[fname] := chk
-        xSc += 96
-    }
-    y += 38
-
-    ; ── Run on startup ─────────────────────────────────────────────────────────
-    sg.Add("Text", "x" PAD " y" y " w" CW " h1 0x10")
-    y += 12
-    sg.SetFont("s9 Bold")
-    sg.Add("Text", "x" PAD " y" y " w" CW, "Run on startup")
-    sg.SetFont("s9 Norm")
-    y += 22
-    startChks := Map()
-    _startSet := Map()
-    for _s in startupScripts
-        _startSet[_s] := true
-    _eligible := []
-    if FileExist(MMA_CONTENT "\general.ahk")
-        _eligible.Push("general.ahk")
-    ; sequences.ahk owns the Discord Ctrl+click import, Open Farmolijer and Select
-    ; top PPV. It was missing from this list, so those keys could only be bound by
-    ; running the file by hand — and the day that stopped, the import "broke".
-    if FileExist(MMA_SRC_SEQUENCES)
-        _eligible.Push("sequences.ahk")
-    ; The mass engine is deliberately NOT offered here. It is core, launched by
-    ; LaunchEngine(); listing it would let one unticked box silently disable every
-    ; mass hotkey, which is precisely how it went missing before.
-    Loop Files, ACC_DIR "\*.ahk"
-        _eligible.Push(A_LoopFileName)
-    _sx := PAD
-    for _, efn in _eligible {
-        if (_sx + 100 > PAD + CW) {
-            _sx := PAD
-            y += 24
-        }
-        chk := sg.Add("Checkbox", "x" _sx " y" y " w96", StrReplace(efn, ".ahk", ""))
-        chk.Value := _startSet.Has(efn)
-        startChks[efn] := chk
-        _sx += 100
-    }
-    y += 30
-
-    chkAutoRestart := sg.Add("Checkbox", "x" PAD " y" y " w" CW, "Auto-restart these if they die (watchdog, checks every 5s)")
-    chkAutoRestart.Value := autoRestart
-    y += 24
-    chkAutomation := sg.Add("Checkbox", "x" PAD " y" y " w" LBL_W, "Run the automation listener (serves the [automation] hotkeys)")
-    chkAutomation.Value := automationListener
-    y += 24
-    chkPinger := sg.Add("Checkbox", "x" PAD " y" y " w" LBL_W, "Run the pinger (beeps when an Infloww tab goes unread)")
-    chkPinger.Value := pinger
-    ; Read the live process, not the setting — they disagree whenever the pinger
-    ; was toggled from the main window, or died on its own.
-    lblPinger := sg.Add("Text", "x" STAT_X " y" y " w96", "")
-    y += 24
-    chkAutoDetect := sg.Add("Checkbox", "x" PAD " y" y " w" LBL_W, "Auto-detect the active model — one f1/f2/f3 set, follows the front tab")
-    chkAutoDetect.Value := autoDetect
-    lblDetector := sg.Add("Text", "x" STAT_X " y" y " w96", "")
-    y += 24
-
-    ; ── how the detector decides which model ──────────────────────────────────
-    ; By NAME it OCRs the pill and matches it against [ActiveMap]. That survives
-    ; you reordering your tabs, but only once the names are mapped, and the names
-    ; are the fragile part — MMA, Infloww and Discord each have their own.
-    ;
-    ; By POSITION it uses where the lit tab SITS, matched against positions you
-    ; taught it — click a tab, press that model's key, done. No OCR, no names, and
-    ; nothing assumed about tab width or how many tabs there are. Counting tabs was
-    ; tried and cannot work here: inactive tabs are drawn in the page background,
-    ; so the tabs you are not on are not visible to a colour scan at all. The cost
-    ; is that it trusts positions staying put — reorder your tabs and you re-teach.
-    ;
-    ; MANUALLY is the third option, and it reads no pixels at all: you press a
-    ; [mass.select] key, MMA remembers, done. It exists because the first two fail
-    ; the same way — not by going quiet, but by reporting the wrong tab with
-    ; total confidence, at which point every shared key sends the wrong model's
-    ; message to a real fan. When the detector cannot read your strip, this is
-    ; what keeps the shared keys usable.
-    sg.Add("Text", "x" (PAD + 18) " y" y " w120", "Decide which model by:")
-    rdName := sg.Add("Radio", "x" (PAD + 150) " y" y " Group", "name (OCR)")
-    rdPos  := sg.Add("Radio", "x" (PAD + 250) " y" y, "tab position (taught)")
-    rdMan  := sg.Add("Radio", "x" (PAD + 400) " y" y, "I pick")
-    _mm := StrLower(Trim(IniRead(CFG_FILE, "Settings", "ModelMatch", "name")))
-    if (_mm = "position")
-        rdPos.Value := true
-    else if (_mm = "manual")
-        rdMan.Value := true
-    else
-        rdName.Value := true
-    y += 26
-
-    ; Which model "I pick" currently means. Editable here as well as by key, so
-    ; the setting is never something you can only see by pressing something.
-    sg.Add("Text", "x" (PAD + 18) " y" y " w120", "I pick — active model:")
-    _manItems := []
-    Loop modelCount
-        _manItems.Push(ModelLabel(A_Index))
-    ddlManual := sg.Add("DropDownList", "x" (PAD + 150) " y" (y - 4) " w160", _manItems)
-    _manCur := ManualModelNo()
-    ddlManual.Value := (_manCur >= 1 && _manCur <= modelCount) ? _manCur : 1
-    sg.Add("Text", "x" (PAD + 320) " y" y " w200",
-           "switch with " HK_Key("mass.select.next"))
-    y += 30
-
-    ; Tab order, left to right. Only consulted when nothing has been TAUGHT (see
-    ; below) and the detector managed to separate the tabs, which on this UI it
-    ; usually cannot. Kept because it costs nothing and is right on a theme where
-    ; inactive tabs are visible.
-    sg.Add("Text", "x" (PAD + 18) " y" y " w120", "Tab order (left→right):")
-    ddlPos := []
-    _posItems := []
-    Loop modelCount
-        _posItems.Push(A_Index ": " ModelNameForSlot(A_Index))
-    Loop modelCount {
-        _p  := A_Index
-        _dd := sg.Add("DropDownList", "x" (PAD + 150 + (_p - 1) * 110) " y" (y - 4) " w104", _posItems)
-        _cur := Integer(IniRead(CFG_FILE, "Positional", "Pos" _p, _p))
-        _dd.Value := (_cur >= 1 && _cur <= modelCount) ? _cur : _p
-        ddlPos.Push(_dd)
-    }
-    y += 30
-
-    ; ── the live readout ──────────────────────────────────────────────────────
-    ; Everything above is a setting you cannot check by looking at it, which is
-    ; why the detector stayed wrong for so long without saying so: it answered
-    ; "model 1" with total confidence and nothing on screen disagreed. This line
-    ; is the disagreement. It shows the lit tab's x, which TAB INDEX that works
-    ; out to, and which model the order above maps that index to.
-    ;
-    ; Read it in that order when something is off. "no lit tab" is a colour or
-    ; region problem and no amount of reordering helps. A wrong tab NUMBER is
-    ; TabOrigin/TabPitch. A right tab number pointing at the wrong model is the
-    ; order — fix it in the dropdowns above, or by pointing at it with the keys.
-    sg.Add("Text", "x" (PAD + 18) " y" y " w120", "Detector sees:")
-    lblDetLive := sg.Add("Text", "x" (PAD + 150) " y" y " w" (CW - PAD - 160), "")
-    y += 22
-    sg.Add("Text", "x" (PAD + 18) " y" y " w" (CW - PAD - 30) " cGray",
-           "Set the order by pointing: click a model's tab in Infloww, press that "
-         . "model's key (" HK_Key("mass.select.m1") " / " HK_Key("mass.select.m2")
-         . "). High beep = set, low beep = refused, tooltip says why.")
-    y += 32
-
-    ; The HWND as a plain INTEGER, captured while the window is alive.
-    ;
-    ; The guard below cannot ask `sg` whether `sg` still exists: Save, Wipe Temp
-    ; and Mode… all call sg.Destroy() WITHOUT firing Close, and touching a
-    ; destroyed Gui object throws. So the timer would fire 400ms after you saved
-    ; Settings and keep throwing, once per tick. PaintPingerStatus beside this one
-    ; already carries a comment about exactly that trap; this is it again.
-    ;
-    ; A number survives the window it came from, so WinExist can answer honestly.
-    _detHwnd := sg.Hwnd
-    PaintDetectorLive()
-    SetTimer(PaintDetectorLive, 400)
-
-    ; Scans the strip ITSELF, and deliberately does NOT require Infloww to be the
-    ; active window — because reading this line means MMA is the active window, so
-    ; a focus-gated readout can only ever say "nothing on screen". That is exactly
-    ; what the first version did, which made the one diagnostic useless.
-    ;
-    ; Safe to skip the gate here precisely because it only DISPLAYS. The resolver
-    ; keeps the gate, since it acts on the answer.
-    PaintDetectorLive() {
-        if !WinExist("ahk_id " _detHwnd) {
-            SetTimer(PaintDetectorLive, 0)
-            return
-        }
-        ; Belt as well as braces: the window can be destroyed BETWEEN the check
-        ; above and the control write below, and a throw on a timer thread is a
-        ; dialog every 400ms rather than one. Same shape as PaintPingerStatus.
-        try {
-            ; The same cheap slot sampling the hotkeys use, NOT a full band sweep —
-            ; a sweep is ~1000 GDI GetPixel calls and would make this 400ms timer
-            ; stutter the whole Settings window. It also means what you read here
-            ; is literally what the keys will decide, not a second opinion.
-            cfg  := DetectorCfg()
-            t    := TabLitIndex(cfg)
-            slot := (t.index >= 1) ? TabModel(t.index) : 0
-
-            px := ""
-            for i, c in t.counts
-                px .= (px = "" ? "" : "  ") "tab" i ":" c
-
-            ; Two different facts, and conflating them is what made this line read
-            ; as a contradiction ("tab 2 → Rama (Infloww not in front)"):
-            ;
-            ;   what the STRIP shows  — this readout ignores focus deliberately,
-            ;                           or you could never read it: looking at
-            ;                           Settings means Infloww is not focused.
-            ;   what the KEYS will do — asked of the resolver itself, so it
-            ;                           accounts for the focus gate AND the
-            ;                           mixed-platform fallback. Nothing here
-            ;                           re-derives that; a second opinion is how
-            ;                           a readout starts disagreeing with reality.
-            st := ActiveModelStatus()
-            lblDetLive.Value := px
-                              . "   |   " (t.index < 1 ? "no tab lit" : "tab " t.index)
-                              . "   |   " (slot ? "→ " ModelLabel(slot) : "→ no answer")
-                              . "   |   keys → "
-                              . (st.no
-                                 ? ModelLabel(st.no)
-                                     (DetectorWindowUp(cfg) ? "" : "  (manual)")
-                                 : "nothing"
-                                     (DetectorWindowUp(cfg) ? "" : "  — Infloww not focused"))
-        } catch {
-            SetTimer(PaintDetectorLive, 0)
-        }
-    }
-    ; The key, not the hotkey id: "gui.toggleStats" told you nothing about which
-    ; keys to press, and it was the longer of the two labels that wrapped.
-    chkStats := sg.Add("Checkbox", "x" PAD " y" y " w" LBL_W,
-                       "Stats overlay (OCR of Infloww stats) — toggle: " HK_Key("gui.toggleStats"))
-    chkStats.Value := statsOverlay
-    lblStats := sg.Add("Text", "x" STAT_X " y" y " w96", "")
-    y += 36
-
-    PaintPingerStatus()
-    sg.OnEvent("Close", StopSettingsTimers)
-    SetTimer(PaintPingerStatus, 1500)
-
-    ; ── Buttons ────────────────────────────────────────────────────────────────
-    sg.Add("Text", "x" PAD " y" y " w" CW " h1 0x10")
-    y += 12
-    _bx := PAD
-    sg.Add("Button", "x" _bx " y" y " w88 h28", "Save").OnEvent("Click", SaveCfg)
-    _bx += 96
-    sg.Add("Button", "x" _bx " y" y " w88 h28", "Reset").OnEvent("Click", ResetCfg)
-    _bx += 96
-    sg.Add("Button", "x" _bx " y" y " w96 h28", "Wipe Temp").OnEvent("Click", (*) => (WipeTemp(), sg.Destroy()))
-    _bx += 104
-    sg.Add("Button", "x" _bx " y" y " w88 h28", "Mode…").OnEvent("Click", (*) => (sg.Destroy(), OpenModesWindow()))
-    _bx += 96
-    sg.Add("Button", "x" _bx " y" y " w104 h28", "Check Update").OnEvent("Click", (*) => CheckUpdate())
-    y += 40
-
-    sg.Show("w" W " h" y)
-
-    ; The sign that it is actually up. Polls the named event the pinger holds, so
-    ; it stays honest if the process dies or is toggled from the main window.
-    PaintPingerStatus(*) {
-        ; "Wipe Temp" destroys the window without firing Close, so the timer can
-        ; outlive the control. Touching a destroyed control throws — stop instead.
-        try {
-            if PingerRunning() {
-                lblPinger.SetFont("cGreen")
-                lblPinger.Text := "● running"
-            } else {
-                lblPinger.SetFont("cGray")
-                lblPinger.Text := "○ not running"
-            }
-            if DetectorRunning() {
-                lblDetector.SetFont("cGreen")
-                lblDetector.Text := "● running"
-            } else {
-                lblDetector.SetFont("cGray")
-                lblDetector.Text := "○ not running"
-            }
-            if StatsOverlayRunning() {
-                lblStats.SetFont("cGreen")
-                lblStats.Text := "● running"
-            } else {
-                lblStats.SetFont("cGray")
-                lblStats.Text := "○ not running"
-            }
-        } catch {
-            SetTimer(PaintPingerStatus, 0)
-        }
-    }
-
-    ; Both of Settings' repeating timers. Every path that closes this window has
-    ; to stop every timer it started, and "every" is why this is one function
-    ; rather than a line per timer at each call site — the detector readout was
-    ; added with its own stop wired only to Close, which Save and Wipe Temp do not
-    ; fire.
-    StopSettingsTimers(*) {
-        SetTimer(PaintPingerStatus, 0)
-        SetTimer(PaintDetectorLive, 0)
-    }
-
-    SaveCfg(*) {
-        global model1Name, model2Name, model3Name, modelCount, CFG_FILE
-        global defaultHotkeyFile, mouseControl, fastParseAutosave
-        global startupScripts, autoRestart, automationListener, pinger, promptAltCtrl, autoDetect, statsOverlay
-
-        newCount          := rdMC1.Value ? 1 : rdMC2.Value ? 2 : 3
-        model1Name        := ed1.Value
-        model2Name        := ed2.Value
-        model3Name        := ed3.Value
-        waitTime          := Max(50, Integer(edWT.Value))
-        defaultHotkeyFile := ddlDef.Text
-        IniWrite(newCount,          CFG_FILE, "Settings", "ModelCount")
-        IniWrite(model1Name,        CFG_FILE, "Settings", "Model1")
-        IniWrite(model2Name,        CFG_FILE, "Settings", "Model2")
-        IniWrite(model3Name,        CFG_FILE, "Settings", "Model3")
-        for _i, _dp in ddlPlat
-            SetModelPlatform(_i, _dp.Value = 2 ? "manual" : "infloww")
-        IniWrite(defaultHotkeyFile, CFG_FILE, "Settings", "DefaultHotkeyFile")
-        _uPath := MMA_SRC_UTILS
-        _uContent := FileRead(_uPath, "UTF-8")
-        _uContent := RegExReplace(_uContent, "\bwaitTime\b\s*:=\s*\d+", "waitTime     := " waitTime)
-        _f := FileOpen(_uPath, "w", "UTF-8")
-        _f.Write(_uContent)
-        _f.Close()
-        UpdateModelButtons()
-
-        newMC := chkMC.Value ? 1 : 0
-        mcChanged := (newMC != mouseControl)
-        mouseControl := newMC
-        IniWrite(mouseControl,         CFG_FILE, "Settings", "MouseControl")
-        openTabFu2 := chkTabFu2.Value ? 1 : 0
-        openTabFu3 := chkTabFu3.Value ? 1 : 0
-        openTabPpv := chkTabPpv.Value ? 1 : 0
-        IniWrite(openTabFu2, CFG_FILE, "Settings", "OpenTabFu2")
-        IniWrite(openTabFu3, CFG_FILE, "Settings", "OpenTabFu3")
-        IniWrite(openTabPpv, CFG_FILE, "Settings", "OpenTabPpv")
-        walletCheckFu3 := chkWallet.Value ? 1 : 0
-        IniWrite(walletCheckFu3, CFG_FILE, "Settings", "WalletCheckFu3")
-        fastParseAutosave := chkFastSave.Value ? 1 : 0
-        IniWrite(fastParseAutosave, CFG_FILE, "Settings", "FastParseAutosave")
-        promptAltCtrl := chkPromptAlt.Value ? 1 : 0
-        IniWrite(promptAltCtrl, CFG_FILE, "Settings", "PromptAltCtrl")
-        ; The model scripts re-read this on every f3 press, so no broadcast and no
-        ; restart — saving is enough.
-        IniWrite(_EncodeMultiline(edDefFu3.Value), CFG_FILE, "Settings", "DefaultFu3")
-        _hiddenList := ""
-        for fname, chk in accChks
-            if !chk.Value
-                _hiddenList .= (_hiddenList != "" ? "," : "") fname
-        hiddenScripts := Map()
-        for _h in StrSplit(_hiddenList, ",")
-            if Trim(_h) != ""
-                hiddenScripts[Trim(_h)] := true
-        IniWrite(_hiddenList, CFG_FILE, "Settings", "HiddenScripts")
-
-        _startupCsv := ""
-        for efn, chk in startChks
-            if chk.Value
-                _startupCsv .= (_startupCsv != "" ? "," : "") efn
-        IniWrite(_startupCsv, CFG_FILE, "Settings", "StartupScripts")
-        autoRestart := chkAutoRestart.Value ? 1 : 0
-        IniWrite(autoRestart, CFG_FILE, "Settings", "AutoRestart")
-        automationListener := chkAutomation.Value ? 1 : 0
-        IniWrite(automationListener, CFG_FILE, "Settings", "AutomationListener")
-        startupScripts := []
-        for _s in StrSplit(_startupCsv, ",")
-            if Trim(_s) != ""
-                startupScripts.Push(Trim(_s))
-        SetTimer(WatchdogTick, autoRestart ? 5000 : 0)
-        LaunchStartupScripts()
-        ; apply the toggle now, both ways - unticking it should stop the running one.
-        ; announce := true so ticking it on a machine with no Python explains itself
-        ; instead of silently doing nothing.
-        if automationListener
-            LaunchAutomationListener(true)
-        else
-            StopAutomationListener()
-
-        pinger := chkPinger.Value ? 1 : 0
-        IniWrite(pinger, CFG_FILE, "Settings", "Pinger")
-        if pinger
-            LaunchPinger(true)
-        else
-            StopPinger()
-        SetTimer(RefreshPingerLabel, -600)
-
-        autoDetect := chkAutoDetect.Value ? 1 : 0
-        IniWrite(autoDetect, CFG_FILE, "Settings", "AutoDetectModel")
-        if autoDetect
-            LaunchDetector()
-        else
-            StopDetector()
-
-        IniWrite(rdPos.Value ? "position" : rdMan.Value ? "manual" : "name",
-                 CFG_FILE, "Settings", "ModelMatch")
-        for _i, _dd in ddlPos
-            IniWrite(_dd.Value ? _dd.Value : _i, CFG_FILE, "Positional", "Pos" _i)
-        if ddlManual.Value
-            SetManualModel(ddlManual.Value)
-
-        statsOverlay := chkStats.Value ? 1 : 0
-        IniWrite(statsOverlay, CFG_FILE, "Settings", "StatsOverlay")
-        if statsOverlay
-            LaunchStatsOverlay()
-        else
-            StopStatsOverlay()
-
-        StopSettingsTimers()
-        sg.Destroy()
-
-        if newCount != modelCount {
-            modelCount := newCount
-            Reload
-            return
-        }
-
-        ; Mouse control is read once at load, so the model scripts must restart to
-        ; see it change. Hotkeys no longer need this — they reload live from
-        ; hotkeys.ini via HK_Reload().
-        if mcChanged
-            RestartMassScripts()
-    }
-
-    ; Hotkeys are not reset here — the Hotkeys window has its own per-row and
-    ; "Reset all" controls, backed by hotkeys.default.ini.
-    ResetCfg(*) {
-        ed1.Value := "Model 1"
-        ed2.Value := "Model 2"
-        ed3.Value := "Model 3"
-        edWT.Value := "350"
-        rdMC2.Value := true
-    }
-}
-
-; Restart the running model scripts (used when a load-time setting changes).
-RestartMassScripts() {
-    global SCRIPT_DIR, modelCount
-    ; Mouse-control is applied at BIND time (MassBindModel switches the mFu keys
-    ; Off), so it is the one setting that still needs a restart rather than a
-    ; broadcast. One engine to restart now, not three model scripts.
-    if MsgBox("Mouse control changed.`nRestart the mass engine now?", "Done", 0x24) != "Yes"
-        return
-    eng := MMA_SRC "\mass\engine.ahk"
-    if WinExist(eng " ahk_class AutoHotkey") {
-        ProcessClose WinGetPID(eng " ahk_class AutoHotkey")
-        Sleep 150
-    }
-    Run eng
-}
-
-OpenHotkeysGui(*) {
-    global SCRIPT_DIR
-    p := MMA_SRC "\ui\hotkeys_window.ahk"
-    if !FileExist(p) {
-        MsgBox "hotkeys_window.ahk is missing.",, 0x10
-        return
-    }
-    Run p
-}
+; ─── Settings ─────────────────────────────────────────────────────────────────
+; OpenSettings used to be here: 570 lines building one tall 620px column, plus
+; OpenHotkeysGui() to Run() the hotkey editor as its own process, plus
+; RestartMassScripts() for the one setting that needed a restart.
+;
+; All three are src/ui/settings_window.ahk now — five tabs in one window. The
+; restart is ApplyModeToRunning() in features_panel.ahk, which the mode switch
+; already used and which handles every service rather than just the mass engine.
 
 FetchURL(url) {
     xhr := ComObject("MSXML2.XMLHTTP.6.0")
@@ -2111,7 +1520,10 @@ ToggleEditFuCell(f, ctrl) {
 ; One engine now, so these are one broadcast rather than a loop that poked three
 ; model processes by window title. HK_Broadcast already finds every MMA script.
 _BroadcastEditableFu(f, val) {
-    HK_Broadcast(0x8002 + f, val)
+    ; Was `0x8002 + f` — arithmetic on a literal, correct only because the three
+    ; EditableFu messages happen to sit directly above the wallet one. The name
+    ; does the same sum in messages.ahk, where the numbers are.
+    HK_Broadcast(MMA_MSG_EditableFu(f), val)
 }
 
 WipeTemp(*) {
@@ -2219,7 +1631,7 @@ _doubleMM := false
 ToggleDoubleMM() {
     global _doubleMM
     _doubleMM := !_doubleMM
-    HK_Broadcast(0x8001)
+    HK_Broadcast(MMA_MSG_DOUBLE_MM)
     ToolTip("Double MM: " (_doubleMM ? "ON" : "OFF"))
     SetTimer(() => ToolTip(), -1500)
 }
@@ -2227,7 +1639,7 @@ ToggleDoubleMM() {
 _BroadcastWallet(val) {
     global walletCheckFu3
     walletCheckFu3 := val
-    HK_Broadcast(0x8002, val)
+    HK_Broadcast(MMA_MSG_WALLET_FU3, val)
 }
 
 ; ─── Hotkeys ──────────────────────────────────────────────────────────────────

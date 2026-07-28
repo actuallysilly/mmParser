@@ -38,9 +38,12 @@ global HK_DIR         := MMA_ROOT
 global HK_INI         := MMA_HK_INI
 global HK_INI_DEFAULT := MMA_HK_DEFAULT
 
-global HK_MSG_RELOAD  := 0x8020              ; broadcast → every script re-reads the ini
-global HK_MSG_SUSPEND := 0x8021              ; broadcast → hold fire while a key is captured
-global HK_MSG_FIRE    := 0x8022              ; broadcast → whoever owns this action runs it
+; HK_MSG_RELOAD / _SUSPEND / _FIRE were declared here. They are three of the ten
+; messages MMA's processes send each other, and the other seven were spread over
+; runtime.ahk, engine.ahk and sequences.ahk — so they all live in messages.ahk
+; now. Included here because every script that binds a key already includes this
+; file, which makes this the one place that reaches every sender and receiver.
+#Include "messages.ahk"
 global HK_SCHEMA := 2
 
 global HK_META  := Map()      ; id -> {id, label, when, owner}
@@ -118,12 +121,19 @@ HK_Section("mass.1", "Mass — model 1")
 HK_Def("mass.1.fu1",      "Follow-up 1",                  , "engine.ahk")
 HK_Def("mass.1.fu2",      "Follow-up 2",                  , "engine.ahk")
 HK_Def("mass.1.fu3",      "Follow-up 3",                  , "engine.ahk")
-HK_Def("mass.1.altFu1",   "Follow-up 1 — pick alt",       , "engine.ahk")
-HK_Def("mass.1.altFu2",   "Follow-up 2 — pick alt",       , "engine.ahk")
-HK_Def("mass.1.altFu3",   "Follow-up 3 — pick alt",       , "engine.ahk")
-HK_Def("mass.1.fu1short", "Follow-up 1 (alt key)",        , "engine.ahk")
-HK_Def("mass.1.fu2short", "Follow-up 2 (alt key)",        , "engine.ahk")
-HK_Def("mass.1.fu3short", "Follow-up 3 (alt key)",        , "engine.ahk")
+; Third key for fu1-3, kept so an existing ^F1 binding does not go dead. They no
+; longer mean anything of their own: the plain follow-up key stages every alt AND
+; every branch, so "pick alt" is what fu1 does.
+HK_Def("mass.1.altFu1",   "Follow-up 1 (third key)",      , "engine.ahk")
+HK_Def("mass.1.altFu2",   "Follow-up 2 (third key)",      , "engine.ahk")
+HK_Def("mass.1.altFu3",   "Follow-up 3 (third key)",      , "engine.ahk")
+; "second key", not "alt key": another binding for the plain follow-up. Labelled
+; "(alt key)" they sat three rows under "Follow-up 1 — pick alt", where the same
+; word meant two different things — and now that alts and branches are both on
+; the plain key, all three of these rows are just extra keys for one action.
+HK_Def("mass.1.fu1short", "Follow-up 1 (second key)",     , "engine.ahk")
+HK_Def("mass.1.fu2short", "Follow-up 2 (second key)",     , "engine.ahk")
+HK_Def("mass.1.fu3short", "Follow-up 3 (second key)",     , "engine.ahk")
 ; mass.1.mFu1-3 lived here — the mouse-button follow-ups, declared under MODEL 1
 ; and therefore hard-wired to model 1 forever. They are the same three physical
 ; buttons whichever model you are looking at, so binding them to one model meant
@@ -132,41 +142,39 @@ HK_Def("mass.1.fu3short", "Follow-up 3 (alt key)",        , "engine.ahk")
 HK_Def("mass.1.nextFu",   "Next follow-up (reads the chat)", , "engine.ahk")
 HK_Def("mass.1.ppv",      "PPV base",                     , "engine.ahk")
 HK_Def("mass.1.ppvFus",   "PPV follow-ups",               , "engine.ahk")
-HK_Def("mass.1.b1Ppv",    "PPV follow-ups (alt key)",     , "engine.ahk")
-HK_Def("mass.1.brPick",   "Branch — pick + send fu1",     , "engine.ahk")
-HK_Def("mass.1.brFu2",    "Branch — follow-up 2",         , "engine.ahk")
-HK_Def("mass.1.brFu3",    "Branch — follow-up 3",         , "engine.ahk")
-HK_Def("mass.1.brPpv",    "Branch — PPV",                 , "engine.ahk")
+HK_Def("mass.1.b1Ppv",    "PPV follow-ups (second key)",  , "engine.ahk")
+; mass.<n>.brPick / brFu2 / brFu3 / brPpv are GONE from all four sections.
+;
+; A branch is one more way to answer a follow-up, so its variants are staged by
+; the follow-up key itself and TAB reaches them — four keys and a second picker
+; window existed to ask a question the alt key was already asking.
+;
+; This also un-breaks model 3. brPick/brFu2/brFu3/brPpv defaulted to F6/F7/F8/!F8,
+; which are model 3's fu3/fu1/ppv/ppvFus — and with one engine binding both, those
+; four keys each had two meanings. Pressing F7 in front of model 3 could send
+; model 1's branch. The ini keys are left in place and simply unclaimed now.
 
 HK_Section("mass.2", "Mass — model 2")
 HK_Def("mass.2.fu1",   "Follow-up 1",       , "engine.ahk")
 HK_Def("mass.2.fu2",   "Follow-up 2",       , "engine.ahk")
 HK_Def("mass.2.fu3",   "Follow-up 3",       , "engine.ahk")
-HK_Def("mass.2.altFu1",   "Follow-up 1 — pick alt",       , "engine.ahk")
-HK_Def("mass.2.altFu2",   "Follow-up 2 — pick alt",       , "engine.ahk")
-HK_Def("mass.2.altFu3",   "Follow-up 3 — pick alt",       , "engine.ahk")
+HK_Def("mass.2.altFu1",   "Follow-up 1 (third key)",      , "engine.ahk")
+HK_Def("mass.2.altFu2",   "Follow-up 2 (third key)",      , "engine.ahk")
+HK_Def("mass.2.altFu3",   "Follow-up 3 (third key)",      , "engine.ahk")
 HK_Def("mass.2.nextFu",   "Next follow-up (reads the chat)", , "engine.ahk")
 HK_Def("mass.2.ppv",    "PPV base",         , "engine.ahk")
 HK_Def("mass.2.ppvFus", "PPV follow-ups",   , "engine.ahk")
-HK_Def("mass.2.brPick", "Branch — pick + send fu1", , "engine.ahk")
-HK_Def("mass.2.brFu2",  "Branch — follow-up 2",     , "engine.ahk")
-HK_Def("mass.2.brFu3",  "Branch — follow-up 3",     , "engine.ahk")
-HK_Def("mass.2.brPpv",  "Branch — PPV",             , "engine.ahk")
 
 HK_Section("mass.3", "Mass — model 3")
 HK_Def("mass.3.fu1",   "Follow-up 1",       , "engine.ahk")
 HK_Def("mass.3.fu2",   "Follow-up 2",       , "engine.ahk")
 HK_Def("mass.3.fu3",   "Follow-up 3",       , "engine.ahk")
-HK_Def("mass.3.altFu1",   "Follow-up 1 — pick alt",       , "engine.ahk")
-HK_Def("mass.3.altFu2",   "Follow-up 2 — pick alt",       , "engine.ahk")
-HK_Def("mass.3.altFu3",   "Follow-up 3 — pick alt",       , "engine.ahk")
+HK_Def("mass.3.altFu1",   "Follow-up 1 (third key)",      , "engine.ahk")
+HK_Def("mass.3.altFu2",   "Follow-up 2 (third key)",      , "engine.ahk")
+HK_Def("mass.3.altFu3",   "Follow-up 3 (third key)",      , "engine.ahk")
 HK_Def("mass.3.nextFu",   "Next follow-up (reads the chat)", , "engine.ahk")
 HK_Def("mass.3.ppv",    "PPV base",         , "engine.ahk")
 HK_Def("mass.3.ppvFus", "PPV follow-ups",   , "engine.ahk")
-HK_Def("mass.3.brPick", "Branch — pick + send fu1", , "engine.ahk")
-HK_Def("mass.3.brFu2",  "Branch — follow-up 2",     , "engine.ahk")
-HK_Def("mass.3.brFu3",  "Branch — follow-up 3",     , "engine.ahk")
-HK_Def("mass.3.brPpv",  "Branch — PPV",             , "engine.ahk")
 
 ; --- Mass: the ACTIVE model (shared keys that follow the screen detector) -----
 ;  ONE key set, resolved at fire time to whichever model the detector says is on
@@ -192,7 +200,8 @@ HK_Section("mass.active", "Mass — active model (shared keys)")
 ;  belonged to the model in front, which is the exact problem this solves.
 ;
 ;  mFu1-3 / mPpv / mPpvFus are the MOUSE overload — a second key for the same
-;  action, the same trick fu1short and b1Ppv play in [mass.1]. They are here and
+;  action, the same trick fu1short and b1Ppv play in [mass.1] (which is what
+;  "second key" in their labels means; it is NOT the alt wordings). They are here and
 ;  not under a model because a mouse button cannot be per-model: there is one
 ;  XButton1 and it is under your thumb whichever tab is open.
 HK_Def("mass.active.fu1",    "Follow-up 1 — active model",  , "engine.ahk")
@@ -201,19 +210,15 @@ HK_Def("mass.active.fu3",    "Follow-up 3 — active model",  , "engine.ahk")
 HK_Def("mass.active.mFu1",   "Follow-up 1 — active model (mouse)", , "engine.ahk")
 HK_Def("mass.active.mFu2",   "Follow-up 2 — active model (mouse)", , "engine.ahk")
 HK_Def("mass.active.mFu3",   "Follow-up 3 — active model (mouse)", , "engine.ahk")
-HK_Def("mass.active.altFu1", "Follow-up 1 — active model, pick alt", , "engine.ahk")
-HK_Def("mass.active.altFu2", "Follow-up 2 — active model, pick alt", , "engine.ahk")
-HK_Def("mass.active.altFu3", "Follow-up 3 — active model, pick alt", , "engine.ahk")
+HK_Def("mass.active.altFu1", "Follow-up 1 — active model (second key)", , "engine.ahk")
+HK_Def("mass.active.altFu2", "Follow-up 2 — active model (second key)", , "engine.ahk")
+HK_Def("mass.active.altFu3", "Follow-up 3 — active model (second key)", , "engine.ahk")
 HK_Def("mass.active.ppv",    "PPV base — active model",     , "engine.ahk")
 HK_Def("mass.active.ppvFus", "PPV follow-ups — active model", , "engine.ahk")
 HK_Def("mass.active.mPpv",    "PPV base — active model (mouse)", , "engine.ahk")
 HK_Def("mass.active.mPpvFus", "PPV follow-ups — active model (mouse)", , "engine.ahk")
 HK_Def("mass.active.mass",   "Paste the mass — active model", , "engine.ahk")
 HK_Def("mass.active.nextFu", "Next follow-up — reads the chat, sends f1/f2/f3", , "engine.ahk")
-HK_Def("mass.active.brPick", "Branch — pick + send fu1, active model", , "engine.ahk")
-HK_Def("mass.active.brFu2",  "Branch — follow-up 2, active model", , "engine.ahk")
-HK_Def("mass.active.brFu3",  "Branch — follow-up 3, active model", , "engine.ahk")
-HK_Def("mass.active.brPpv",  "Branch — PPV, active model",  , "engine.ahk")
 
 ; --- Which model the [mass.active] keys mean, when you say so yourself ---------
 ;  Manual mode (Settings ▸ "Decide which model by: I pick). The detector reads
@@ -250,7 +255,7 @@ HK_Def("util.debugGrey",       "Debug grey search",          , "engine.ahk")
 
 HK_Section("gui", "GUI")
 HK_Def("gui.addHotkeyGrab",  "Grab selection → Add Hotkey",  ,              "main_window.ahk")
-HK_Def("gui.ocrGrab",        "OCR screen region → Add Hotkey", ,            "main_window.ahk")
+HK_Def("gui.ocrGrab",        "Add hotstring with OCR",       ,              "main_window.ahk")
 HK_Def("gui.toggleDoubleMM", "Toggle double-MM",             "mouseControl", "main_window.ahk")
 HK_Def("gui.toggleStats",    "Toggle stats overlay",         ,              "stats_overlay.ahk")
 HK_Def("gui.actions",        "Actions menu (what can I do?)", ,             "actions_menu.ahk")

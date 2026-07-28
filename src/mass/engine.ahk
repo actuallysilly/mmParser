@@ -39,9 +39,9 @@
 ; next keypress with no reload and no restart. This is the whole reason the GUI
 ; and the engine can be separate processes at all: they share a file, not memory.
 ;
-; 0x8006 continues the 0x8001-0x8005 settings series in runtime.ahk — same
-; contract, same file to check when adding another.
-global MMA_MSG_MASSES_CHANGED := 0x8006
+; MMA_MSG_MASSES_CHANGED is declared in core/messages.ahk, with the rest of the
+; contract. It was `:= 0x8006` here, under a comment pointing at runtime.ahk for
+; the neighbouring numbers — which is exactly the split that file now closes.
 ReloadMasses(*) {
     global MASS_DOC := MASS_Load()
 }

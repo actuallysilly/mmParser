@@ -84,6 +84,25 @@ MASS_FieldIsMultiline(field) {
     return RegExMatch(field, "^br\d+_(fu\d|ppv)$") > 0
 }
 
+; A multiline field's stored value, split back into the parts it was joined from.
+;
+; This is the other half of MASS_FieldIsMultiline: that says WHICH fields carry
+; several messages in one field, and this says how to read one back out. Both
+; are the record format, so both belong here.
+;
+; It existed twice — AltParts() in main_window.ahk and AltPartsRT() in utils.ahk,
+; identical character for character — because the GUI deliberately does not
+; include utils.ahk and so had no way to reach it. The "RT" suffix was only ever
+; there to stop the two names colliding. Both files already reach store.ahk, so
+; one copy is enough and neither needs a suffix.
+MASS_SplitParts(stored) {
+    parts := []
+    for _, p in StrSplit(StrReplace(StrReplace(stored, "`r`n", "`n"), "``n", "`n"), "`n")
+        if Trim(p) != ""
+            parts.Push(Trim(p))
+    return parts
+}
+
 ; A mass with every field present and empty. Every reader can then assume the
 ; key exists, which is what lets the rest of the code drop its Has() guards.
 MASS_Blank() {

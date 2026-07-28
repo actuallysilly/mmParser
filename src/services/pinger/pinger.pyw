@@ -126,8 +126,17 @@ MUTEX_NAME      = "Global\\MMA.pinger.mutex"
 STOP_EVENT_NAME = "Global\\MMA.pinger.stop"
 ERROR_ALREADY_EXISTS = 183
 
-LOG_FILE = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
-                        "error_log.txt")
+# <root>\src\services\pinger\pinger.pyw -> four levels up is <root>.
+#
+# This climbed only TWO levels and so wrote src\services\error_log.txt — its own
+# file, next to the source, which nothing else reads and nobody thinks to look in.
+# "MMA's error_log.txt" is what the docstring and --headless help both promise;
+# now it is that file. See paths.ahk MMA_DEBUGLOGS.
+_MMA_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(
+    os.path.dirname(os.path.abspath(__file__)))))
+_MMA_DEBUGLOGS = os.path.join(_MMA_ROOT, "debuglogs")
+os.makedirs(_MMA_DEBUGLOGS, exist_ok=True)
+LOG_FILE = os.path.join(_MMA_DEBUGLOGS, "error_log.txt")
 
 
 _mutex = None            # module-level: the handle must outlive the function

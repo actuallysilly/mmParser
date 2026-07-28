@@ -38,9 +38,19 @@ src/services/automation/debug/
 # The packaged installer — a build output, rebuilt by tools/installer/build.bat.
 tools/installer/dist/
 
-# A log that should never have existed. automation.py resolved MMA_LOG one folder
-# short of the repo root, so instead of appending to userdata/error_log.txt like
-# everything else it created a second log HERE — and that one was tracked, so
-# every run of the listener showed up as a commit-able change. The path is fixed;
-# this entry is in case an old copy of the script is still running somewhere.
+# ─── debuglogs\ — diagnostics ─────────────────────────────────────────────────
+# Crash traces and probe dumps. Throwaway by nature, and they contain live UI
+# text: the next-follow-up probe writes back the whole conversation it OCR'd, so
+# this is fan messages on disk and must never reach a public remote. paths.ahk
+# recreates the folder on demand, so nothing here needs tracking.
+debuglogs/
+
+# A log that should never have existed, twice. automation.py resolved MMA_LOG one
+# folder short of the repo root, so instead of appending to the shared log it
+# created a second one HERE — and that one was tracked, so every run of the
+# listener showed up as a commit-able change. That was fixed, but the file kept
+# coming back, because pinger.pyw had the SAME bug and nobody had looked at it:
+# it climbed two levels instead of four while its own docstring promised "MMA's
+# error_log.txt". Both now write to debuglogs\. This entry stays in case an old
+# copy of either script is still running somewhere.
 src/services/error_log.txt

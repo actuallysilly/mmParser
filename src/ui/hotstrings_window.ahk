@@ -34,13 +34,21 @@ gShown     := 0
 gOverloads := OL_Load()        ; trigger -> {file, options, variants}; refreshed on save/rescan
 
 ; adjustable text size for the list + showcase, remembered across runs in mass_gui.cfg
+;
+; MMA_CFG, not `HSI_DIR "\mass_gui.cfg"`. HSI_DIR is content\ — right for finding
+; the hotstring SOURCE files it indexes, wrong for the config, which lives in
+; userdata\. Built that way, this window read and wrote a whole second file named
+; mass_gui.cfg inside content\, which it CREATED on the first font-size change:
+; the setting appeared to stick (it read back its own file) while being invisible
+; to every other part of MMA, and sat one folder away from the real config under
+; the same name.
 gSizes    := ["9", "10", "11", "12", "13", "14", "16", "18", "20", "22", "24"]
-gFontSize := Integer(IniRead(HSI_DIR "\mass_gui.cfg", "Hotstrings", "FontSize", "11"))
+gFontSize := Integer(IniRead(MMA_CFG, "Hotstrings", "FontSize", "11"))
 
 ; sort order, remembered across runs. "File order" is how the library reads on
 ; disk and stays the default; the date orders answer "what did I write lately?"
 gSortModes := ["File order", "Newest first", "Oldest first", "Trigger A-Z"]
-gSortMode  := Integer(IniRead(HSI_DIR "\mass_gui.cfg", "Hotstrings", "Sort", "1"))
+gSortMode  := Integer(IniRead(MMA_CFG, "Hotstrings", "Sort", "1"))
 if (gSortMode < 1 || gSortMode > gSortModes.Length)
     gSortMode := 1
 
@@ -221,7 +229,7 @@ AddedCell(added) {
 OnSortMode(ctrl, *) {
     global gSortMode, searchEd
     gSortMode := ctrl.Value
-    try IniWrite(gSortMode, HSI_DIR "\mass_gui.cfg", "Hotstrings", "Sort")
+    try IniWrite(gSortMode, MMA_CFG, "Hotstrings", "Sort")
     PopulateList(searchEd.Value)
 }
 
@@ -636,7 +644,7 @@ ApplyContentFont(sz) {
 
 SaveFontSize(sz) {
     global HSI_DIR
-    try IniWrite(sz, HSI_DIR "\mass_gui.cfg", "Hotstrings", "FontSize")
+    try IniWrite(sz, MMA_CFG, "Hotstrings", "FontSize")
 }
 
 ; ── native helpers ──

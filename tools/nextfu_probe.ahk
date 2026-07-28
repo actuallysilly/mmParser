@@ -13,27 +13,67 @@
 ;
 ;  This shows both, plus which group it would pick and why. Nothing is sent.
 ;
-;  USAGE: open a chat that already has a follow-up in it, then press F10.
-;  Output goes to userdata\nextfu_probe.txt and opens in Notepad.
+;  USAGE: open a chat that already has a follow-up in it, then press Ctrl+Alt+F10.
+;  Ctrl+Alt+F12 quits. Output goes to debuglogs\nextfu_probe.txt, and opens in
+;  Notepad.
+;
+;  Modified keys, never a bare F10 or Esc. This probe is MEANT to be run while you
+;  are working in Infloww, and a bare hotkey is swallowed globally — binding Esc
+;  would mean Esc stopped closing Infloww's own dialogs for as long as the probe
+;  was up, and the F-keys are spoken for. A probe must not cost you a key.
 ; ═══════════════════════════════════════════════════════════════════════════════
 
 #Include "../src/mass/runtime.ahk"
 
-OUT := MMA_USERDATA "\nextfu_probe.txt"
+OUT := MMA_PROBE_NEXTFU
 
 Say(s := "") {
     global OUT
     try FileAppend(s "`n", OUT, "UTF-8")
 }
 
-ToolTip("Next-follow-up probe.`nOpen a chat, then press F10.`nEsc quits.")
-SetTimer(() => ToolTip(), -4000)
+; ── the "I am running" badge ──────────────────────────────────────────────────
+;  This used to be a ToolTip on a 4-second timer, and that is a bad way to say
+;  "a hotkey now exists". The probe is a SEPARATE SCRIPT: Ctrl+Alt+F10 does
+;  nothing at all unless this file is running. Four seconds later the tooltip is
+;  gone, you have switched to a chat, and the screen looks identical whether the
+;  probe is up or was never started — so a key that does nothing is impossible to
+;  tell from a key that is not bound. That is a real support question already.
+;
+;  A small window instead: it stays, it says which keys, and it doubles as the
+;  result readout. NoActivate so it never takes focus from the chat you are about
+;  to sample, AlwaysOnTop so Infloww cannot bury it, and -Caption +ToolWindow so
+;  it stays out of the taskbar and the alt-tab order.
+;
+;  It also keeps the script alive on its own — a visible Gui counts, where an
+;  OnMessage handler or a hidden Gui would not.
+;  badgeGui, not badge: a variable and a function whose names differ only by case
+;  are THE SAME NAME to AHK, and the script then fails to load outright rather
+;  than shadowing one with the other. Badge() below is the function.
+badgeGui := Gui("+AlwaysOnTop -Caption +ToolWindow +E0x08000000")  ; WS_EX_NOACTIVATE
+badgeGui.BackColor := "1E1E1E"
+badgeGui.SetFont("s10 Bold cWhite", "Segoe UI")
+badgeGui.Add("Text", "x12 y10 w300", "Next-follow-up probe — running")
+badgeGui.SetFont("s9 Norm c9A9A9A")
+lblBadge := badgeGui.Add("Text", "x12 y34 w300",
+                         "Ctrl+Alt+F10   sample the chat in front`n"
+                       . "Ctrl+Alt+F12   quit")
+badgeGui.Show("x" (A_ScreenWidth - 344) " y24 w324 h74 NoActivate")
 
-F10::Probe()
-Esc::ExitApp()
+Badge(s) {
+    global lblBadge
+    try lblBadge.Value := s
+}
+
+^!F10::Probe()
+^!F12::ExitApp()
 
 Probe() {
     global OUT
+    ; Say so on screen BEFORE the slow part. The OCR plus opening Notepad is a
+    ; second or two, and without this the key looks dead for exactly as long as it
+    ; takes to wonder whether it worked.
+    Badge("sampling the window in front…")
     try FileDelete(OUT)
     cfg := NFU_Cfg()
 
@@ -72,6 +112,8 @@ Probe() {
                                         . " shrink the region or drop Scale." : ""))
     if (text = "") {
         Say("OCR returned NOTHING. The region is almost certainly wrong.")
+        Badge("read NOTHING — the region is almost certainly wrong.`n"
+            . "Ctrl+Alt+F10 retry     Ctrl+Alt+F12 quit")
         Run('notepad.exe "' OUT '"')
         return
     }
@@ -91,12 +133,41 @@ Probe() {
         Say("f" g ": " (r.hits[g] ? "found at position " r.hits[g] : "not found"))
     }
     Say("")
-    if r.group {
-        Say("last sent  : f" r.group)
-        Say("would send : " (r.group >= 3 ? "NOTHING (f3 is the last one)" : "f" (r.group + 1)))
+    ; Ask the SAME functions the key asks, in the same order, so this can never
+    ; report a decision the key would not make.
+    next := NFU_NextWithContent(m, r.group)
+    if !r.group {
+        seen := NFU_MassPresence(m, hay, cfg)
+        Say("mass on screen : " seen)
+        if (seen != "seen") {
+            Say("last sent  : none found")
+            Say("would send : NOTHING — f1 is gated on the mass being visible")
+            Say((seen = "absent")
+                ? "  The mass is not in what was read. Either the pane is scrolled"
+                . "`n  away from a thread already underway, or this chat never got"
+                . "`n  the mass. f1 is wrong in both, so it waits for you."
+                : "  No mass text is stored for this model, so there is nothing to"
+                . "`n  check against.")
+            Badge("no follow-up AND no mass visible  →  would send NOTHING`n"
+                . "Ctrl+Alt+F10 again     Ctrl+Alt+F12 quit")
+            Run('notepad.exe "' OUT '"')
+            return
+        }
+    }
+    if !next {
+        Say("last sent  : " (r.group ? "f" r.group : "none found"))
+        Say("would send : NOTHING — " (r.group
+            ? "f" r.group " is the last follow-up this mass has"
+            : "this mass has no follow-ups at all"))
+        Badge("would send NOTHING — nothing left to walk`n"
+            . "Ctrl+Alt+F10 again     Ctrl+Alt+F12 quit")
     } else {
-        Say("last sent  : none found")
-        Say("would send : f1")
+        gap := (next > r.group + 1) ? "   (no f" (r.group + 1) " in this mass)" : ""
+        Say("last sent  : " (r.group ? "f" r.group : "none found, and the mass IS visible"))
+        Say("would send : f" next gap)
+        Badge((r.group ? "last sent f" r.group : "mass visible, no follow-up yet")
+            . "  →  would send f" next gap "`n"
+            . "Ctrl+Alt+F10 again     Ctrl+Alt+F12 quit")
     }
     Say("")
     Say("If 'what it read' is not this conversation, fix [NextFu] Region* in")

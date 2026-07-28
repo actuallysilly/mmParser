@@ -45,10 +45,26 @@ try {
 ; Files that belong to the USER, not to the release. Downloading these would hand
 ; someone the maintainer's copy and silently destroy their own — which is exactly
 ; what used to happen to hotkeys.ini on every single update: custom keys replaced
-; by whatever was in the repo. hotkeys.default.ini still ships, and HK_Init merges
-; anything new out of it without touching a key that already has a value.
-skipExact  := Map("mass_gui.cfg", 1, "general.ahk", 1, "hotkeys.ini", 1)
-skipPfx    := ["acc/", ".git"]
+; by whatever was in the repo. hotkeys.default.ini still ships (it is NOT skipped),
+; and HK_Init merges anything new out of it without touching a key that already
+; has a value.
+;
+; These are REPO-RELATIVE PATHS, matched against the GitHub tree — and they had
+; gone stale against the v2 layout, which made this list a liability rather than a
+; guard. "general.ahk" cannot match "content/general.ahk", and the account files
+; moved from "acc/" to "content/accounts/", so an update would have overwritten
+; ALIW.ahk, BRI.ahk, TEMP.ahk, UND.ahk and general.ahk with the maintainer's
+; copies: every hotstring the user has ever written, gone, with a progress bar
+; ticking past it.
+;
+; content/ is skipped WHOLE. Everything in it is hand-written message text; the
+; copies in the repo are the maintainer's, and there is no file under it that a
+; release needs to push. Anyone installing fresh clones or runs install.bat —
+; this path only ever runs against an install that already exists.
+skipExact  := Map("userdata/mass_gui.cfg", 1,
+                  "userdata/hotkeys.ini",  1,
+                  "userdata/masses.json",  1)
+skipPfx    := ["content/", "userdata/detector_status", "debuglogs/", ".git"]
 binaryExts := Map("ico", 1, "exe", 1, "png", 1, "jpg", 1, "gif", 1)
 
 updatePaths := []

@@ -252,6 +252,12 @@ VK_ESCAPE = 0x1B
 #   src/services/automation/automation.py  ->  parents[3] is the repo root
 MMA_ROOT = Path(__file__).resolve().parents[3]
 MMA_USERDATA = MMA_ROOT / "userdata"
+# Diagnostics live apart from settings and messages - see paths.ahk MMA_DEBUGLOGS.
+# mkdir here for the same reason paths.ahk does it: the log writer is wrapped so
+# it can never take the listener down with it, which also means a missing folder
+# would silently produce no log at all.
+MMA_DEBUGLOGS = MMA_ROOT / "debuglogs"
+MMA_DEBUGLOGS.mkdir(exist_ok=True)
 
 # Hotkeys live in MMA's one ini, same as every AHK key — never in this file.
 # See hotkeys.ahk: the [automation] ids are DECLARED there (so the Hotkeys GUI
@@ -262,7 +268,7 @@ HOTKEY_SECTION = "automation"
 POLL_S = 0.03
 
 # Background listener plumbing. MMA's own log, format and single-instance rule.
-MMA_LOG = MMA_USERDATA / "error_log.txt"
+MMA_LOG = MMA_DEBUGLOGS / "error_log.txt"
 LOG_TAG = "automation.py"
 MUTEX_NAME = "Global\\MMA.automation.listener"
 STOP_EVENT_NAME = "Global\\MMA.automation.listener.stop"

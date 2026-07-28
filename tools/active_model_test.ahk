@@ -33,6 +33,19 @@ Ck(name, got, want) {
     }
 }
 
+; ── what this test is about to overwrite in the LIVE config ──────────────────
+; Both of these are real user settings and this file rewrites both: ModelMatch to
+; force manual resolution, CurrentModel to prove garbage and absence both fall
+; back to 1. Snapshot them now and put them back at the end.
+;
+; The "restore" at the bottom used to hardcode ModelMatch = "manual", which is not
+; a restore at all — it is a third write. Running the tests therefore left MMA in
+; "I pick" mode no matter what the user had chosen, and manual mode always answers
+; CurrentModel. That is the whole of "auto-detection is broken, it just sends
+; model 1's mass": the detector was fine, the tests had switched it off.
+_savedMatch   := IniRead(MMA_CFG, "Settings", "ModelMatch", "name")
+_savedCurrent := IniRead(MMA_CFG, "Settings", "CurrentModel", "1")
+
 ; ── manual mode resolves without reading a single pixel ──────────────────────
 IniWrite("manual", MMA_CFG, "Settings", "ModelMatch")
 Loop MASS_MODELS {
@@ -74,8 +87,11 @@ Ck("feat mass.select.next",   FEAT_ForHotkey("mass.select.next"),   "")
 Ck("feat mass.select.m2",     FEAT_ForHotkey("mass.select.m2"),     "")
 
 ; ── restore the user's real settings ─────────────────────────────────────────
-IniWrite("manual", MMA_CFG, "Settings", "ModelMatch")
-SetManualModel(1)
+; The values that were there when this started, not a guess at them. Written
+; directly rather than via SetManualModel, which validates and would silently
+; substitute 1 for a value this test deliberately corrupted mid-run.
+IniWrite(_savedCurrent, MMA_CFG, "Settings", "CurrentModel")
+IniWrite(_savedMatch,   MMA_CFG, "Settings", "ModelMatch")
 
 Out(pass " passed, " fail " failed")
 ExitApp(fail ? 1 : 0)

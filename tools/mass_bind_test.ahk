@@ -49,9 +49,19 @@ BoundKey(id) {
 Ck("mass.1.mFu1 gone",  BoundKey("mass.1.mFu1"),  "«not bound»")
 Ck("mass.1.mFu2 gone",  BoundKey("mass.1.mFu2"),  "«not bound»")
 Ck("mass.1.mFu3 gone",  BoundKey("mass.1.mFu3"),  "«not bound»")
-Ck("active mFu1", BoundKey("mass.active.mFu1"), "XButton2")
-Ck("active mFu2", BoundKey("mass.active.mFu2"), "XButton1")
-Ck("active mFu3", BoundKey("mass.active.mFu3"), "^MButton")
+; ...and must be bound under the SHARED set instead — but only when mouse control
+; is actually switched on. These three used to assert literal keys unconditionally,
+; which made the whole suite fail in Easy mode: Easy switches every feature off, so
+; the mFu keys correctly do not register and the test called that a regression.
+; That is the same "assert the invariant, not the user's key" point the loop below
+; is written around, so they are asserted the same way.
+for _, id in ["mass.active.mFu1", "mass.active.mFu2", "mass.active.mFu3"] {
+    if !FEAT_HotkeyAllowed(id) {
+        Ck("mouse control off, so " id " is unbound", BoundKey(id), "«not bound»")
+        continue
+    }
+    Ck("shared " id, BoundKey(id), HK_Key(id))
+}
 
 ; Every declared mass key must be registered with EXACTLY what the ini says.
 ;
@@ -74,6 +84,19 @@ for id in HK_ORDER {
     Ck("faithful: " id, got, want)
 }
 
+; ── feature ownership of the mass slots ──────────────────────────────────────
+; The invariant above SKIPS anything a switched-off feature owns, so a typo in
+; FEAT_HOTKEY_MAP cannot fail it: an unowned key is simply never skipped and binds
+; as normal. These name the ownership directly.
+;
+; The prefix match runs against the SLOT for mass.<n>.<slot> ids, which is what
+; lets one map entry cover model 1, 2, 3 and the shared set at once.
+Ck("nextFu is owned by its feature", FEAT_ForHotkey("mass.active.nextFu"), "nextFu")
+Ck("...for numbered models too",     FEAT_ForHotkey("mass.2.nextFu"),      "nextFu")
+; And it must not swallow its neighbours: a plain follow-up key belongs to no
+; feature and has to stay bound whatever is switched off.
+Ck("plain fu1 is owned by nothing",  FEAT_ForHotkey("mass.1.fu1"),         "")
+
 ; And the shared set must actually carry keys — an empty [mass.active] would pass
 ; the invariant above while leaving every mouse button dead.
 liveShared := 0
@@ -87,6 +110,28 @@ for id in ["mass.select.next", "mass.select.m1", "mass.select.m2"]
     Ck("bound " id, BoundKey(id) != "«not bound»", 1)
 
 ; ── resolution: a shared key must follow the SELECTED model, not model 1 ─────
+; Everything below calls SelectModel, which is a REAL user action with REAL side
+; effects on the live mass_gui.cfg. Two of them, and both have bitten:
+;
+;   ModelMatch    forced to "manual" here so the resolver has a deterministic
+;                 answer. Left unrestored, it silently converts a user set to
+;                 "tab position" over to "I pick".
+;
+;   [Positional]  far worse. In POSITION mode SelectModel calls TeachPosition,
+;                 which reads whichever Infloww tab is lit RIGHT NOW and files the
+;                 named model under it. Run this with Infloww open on tab 2 and it
+;                 writes Pos2=1 — after which tab 2 sends model 1's messages, and
+;                 the detector looks broken while being perfectly correct.
+;                 That is not hypothetical; it happened, because the ModelMatch
+;                 restore was once placed BEFORE the final SelectModel(1) and so
+;                 handed a teaching-capable mode to a call that then taught.
+;
+; Hence: snapshot both, and restore both at the very END, after the last
+; SelectModel in the file. Order is the whole safety property here.
+_savedMatch := IniRead(MMA_CFG, "Settings", "ModelMatch", "name")
+_savedPos := []
+Loop MASS_MODELS
+    _savedPos.Push(IniRead(MMA_CFG, "Positional", "Pos" A_Index, A_Index))
 IniWrite("manual", MMA_CFG, "Settings", "ModelMatch")
 noop := (*) => 0
 Loop MASS_MODELS {
@@ -128,8 +173,14 @@ Ck("select is not a send", _HK_IsSend("mass.select.m2"), 0)
 Ck("shared fu IS a send",  _HK_IsSend("mass.active.fu1"), 1)
 Ck("mouse fu IS a send",   _HK_IsSend("mass.active.mFu1"), 1)
 
-; restore
+; ── restore ──────────────────────────────────────────────────────────────────
+; SelectModel FIRST, while ModelMatch is still "manual" — it cannot teach a
+; position in that mode. Only then put the real settings back. Reversing these two
+; lines is what wrote Pos2=1 into a live config; see the note above.
 IniWrite(2, MMA_CFG, "Settings", "ModelCount")
 SelectModel(1)
+IniWrite(_savedMatch, MMA_CFG, "Settings", "ModelMatch")
+for _i, _p in _savedPos
+    IniWrite(_p, MMA_CFG, "Positional", "Pos" _i)
 Out(pass " passed, " fail " failed")
 ExitApp(fail ? 1 : 0)

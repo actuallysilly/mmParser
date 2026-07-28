@@ -65,31 +65,45 @@ Sendt(arg,time){
 ; Whichever variant is chosen is sent through sndFu(), so alts obey the existing
 ; per-group rules (FuSingle, editable) exactly like the base does.
 
-ALT_MAX_RT := 3          ; must match ALT_MAX in main_window.ahk
-BRANCH_MAX_RT := 3       ; must match BRANCH_MAX in main_window.ahk
+; The counts come from store.ahk (reached via active_model.ahk above), which owns
+; the record shape. They used to be ALT_MAX_RT / BRANCH_MAX_RT here, under a
+; comment reading "must match ALT_MAX in main_window.ahk" — one number written
+; down three times, with nothing but that comment keeping them in step.
 _activeBranch := Map()   ; massNo -> chosen branch index, per model process
 
 _altStaged  := 0         ; index of the variant currently staged in the chatbox
-_altVariants := []       ; [[part, ...], ...] while staging; empty when idle
-_altGroup   := 0
+_altVariants := []       ; [{parts, label, branch}, ...] while staging; [] when idle
+_altGroup   := 0         ; 1/2/3, or 0 for the PPV (which pastes, never sends)
 _altEditable := false
 _altWin     := 0         ; window staging began in; the hotkeys are scoped to it
-_altChooserHwnd := 0     ; the GUI chooser, while open; scopes its number keys
 _altHotkeysOn := false
 
-; Split a stored alt field back into its parts.
-AltPartsRT(stored) {
-    parts := []
-    for _, p in StrSplit(StrReplace(StrReplace(stored, "`r`n", "`n"), "``n", "`n"), "`n")
-        if Trim(p) != ""
-            parts.Push(Trim(p))
-    return parts
-}
+; Called with the chosen variant's branch number the moment a staged choice is
+; committed. mass/runtime.ahk installs the real one; anything that includes
+; utils.ahk without the engine (content\general.ahk, the account files) leaves it
+; blank and the commit simply skips it. See AltStageCommit.
+global ALT_ON_PICK := ""
 
-; All variants for one follow-up: variant 1 is the base, then each non-empty alt.
-; `m` is the mass object, group is 1..3.
+; Splitting a stored alt field back into its parts is MASS_SplitParts() in
+; store.ahk now — it is the record format, not a send-path detail.
+
+; ── One list of ways to answer this follow-up ─────────────────────────────────
+;  Alts and branches were two features with two keys and two pickers. They are one
+;  question — "which wording goes out for f<N>?" — so they are one list and one
+;  key now, and TAB walks the whole thing.
+;
+;  What actually differed was never worth a second button: an ALT is a different
+;  wording of this one follow-up, a BRANCH is a different wording of this one
+;  follow-up that also implies the next two. So the only thing the merge has to
+;  keep is the implication, and that is what `branch` on each variant carries —
+;  pick a branch variant at f1 and f2/f3/ppv start on that same branch.
+;
+;  Each variant is { parts, label, branch }:
+;      parts   the messages to send, in order
+;      label   what the staged list calls it ("main", "alt 1", or the --Name)
+;      branch  0 for the trunk, else which branch it commits you to
 AltVariants(m, group) {
-    global ALT_MAX_RT
+    global MASS_ALT_MAX
     out := []
     base := []
     for _, sfx in ["", "_5", "_7"] {
@@ -98,20 +112,37 @@ AltVariants(m, group) {
             base.Push(Trim(m.%key%))
     }
     if base.Length
-        out.Push(base)
-    Loop ALT_MAX_RT {
+        out.Push({ parts: base, label: "main", branch: 0 })
+    Loop MASS_ALT_MAX {
         key := "fu" group "_alt" (A_Index - 1)
         if !m.HasOwnProp(key)
             continue
-        parts := AltPartsRT(m.%key%)
+        parts := MASS_SplitParts(m.%key%)
         if parts.Length
-            out.Push(parts)
+            out.Push({ parts: parts, label: "alt " A_Index, branch: 0 })
+    }
+    ; The branches, as more variants of the same question. A branch with nothing
+    ; in THIS group is skipped rather than shown empty — branches are commonly
+    ; f1-only, and an empty row you can TAB onto and send is a way to send silence.
+    for bi, b in BranchList(m) {
+        if !b.fu[group].Length
+            continue
+        out.Push({ parts: b.fu[group], label: b.name, branch: bi })
     }
     return out
 }
 
-MassUsesAltGui(m) {
-    return m.HasOwnProp("altGui") && Trim(m.altGui) = "1"
+; The same question for the PPV: the trunk's ppv, then each branch's.
+AltPpvVariants(m) {
+    out := []
+    if m.HasOwnProp("ppv_base") && Trim(m.ppv_base) != ""
+        out.Push({ parts: [Trim(m.ppv_base)], label: "main", branch: 0 })
+    for bi, b in BranchList(m) {
+        if Trim(b.ppv) = ""
+            continue
+        out.Push({ parts: [Trim(b.ppv)], label: b.name, branch: bi })
+    }
+    return out
 }
 
 ; ── Named branches (--Name) ───────────────────────────────────────────────────
@@ -121,7 +152,7 @@ MassUsesAltGui(m) {
 
 ; Non-empty branches on a mass: [{name, fu:[[p..],[p..],[p..]], ppv}].
 BranchList(m) {
-    global BRANCH_MAX_RT
+    global MASS_BRANCH_MAX
     out := []
     ; No branches means every branch key and window finds nothing to do, which is
     ; the pre-branch behaviour. Gating here rather than at each of the six call
@@ -129,7 +160,7 @@ BranchList(m) {
     ; --Name blocks are still there.
     if !FEAT("altFollowups")
         return out
-    Loop BRANCH_MAX_RT {
+    Loop MASS_BRANCH_MAX {
         k  := A_Index
         f1 := "br" k "_fu1", f2 := "br" k "_fu2", f3 := "br" k "_fu3", pk := "br" k "_ppv"
         got := false
@@ -147,29 +178,23 @@ BranchList(m) {
     return out
 }
 BranchParts(m, key) {
-    return m.HasOwnProp(key) ? AltPartsRT(m.%key%) : []
+    return m.HasOwnProp(key) ? MASS_SplitParts(m.%key%) : []
 }
 
-; Send one branch follow-up group: each part is its own back-to-back message.
-BranchSendGroup(parts) {
-    for p in parts
-        if Trim(p) != ""
-            snd(p)
-}
-
-; Paste a branch's ppv base (review-before-send, like DoF4's ppv behaviour).
-BranchSendPpv(ppv) {
-    if Trim(ppv) = ""
-        return
-    A_Clipboard := ppv
-    ClipWait(0.1)
-    Send "^v"
-}
+; BranchSendGroup() and BranchSendPpv() stood here — the send half of the four
+; branch keys. A branch variant goes out through SendAltVariant() like every other
+; variant now, which is the point of the merge: one list, one picker, one path to
+; the chatbox, so FuSingle and the editable toggles apply to a branch exactly as
+; they always did to an alt.
 
 ; Send one already-chosen variant. Routed through the same two paths the base
 ; variant uses, so FuSingle / editable apply to alts identically.
+;
+; group 0 is the PPV, which has never had an Enter pressed for it — DoPpv pasted
+; and left it to you. So 0 takes the paste path regardless of `editable`, or a
+; staged PPV choice would send itself the moment you picked it.
 SendAltVariant(group, parts, editable := false) {
-    if !editable {
+    if (!editable && group > 0) {
         sndFu(group, parts*)
         return
     }
@@ -232,12 +257,16 @@ AltStageText() {
     Loop StrLen(mk) + 1
         pad .= " "
     out := ""
-    for i, parts in _altVariants {
+    for i, v in _altVariants {
         mark := (i = _altStaged) ? mk " " : pad
         body := ""
-        for _, p in parts
+        for _, p in v.parts
             body .= (body != "" ? psep : "") p
-        out .= (out != "" ? vsep : "") mark body
+        ; The label earns its place now that branches are in this list: "main" and
+        ; "alt 2" are obvious from position, but which --Name you are about to
+        ; commit to is not, and committing to the wrong one silently redirects the
+        ; next two follow-ups.
+        out .= (out != "" ? vsep : "") mark (v.branch ? "[" v.label "] " : "") body
     }
     return out
 }
@@ -260,21 +289,20 @@ ALT_STAGE_TIMEOUT_MS := 45000
 ; The (*) is required, not stylistic: HotIf calls its criterion with the hotkey
 ; name, and a zero-parameter function is rejected with "Invalid callback function."
 ; That is why hotkeys.ahk declares every context as (*) => ... too.
-AltChooserActive(*) {
-    global _altChooserHwnd
-    return _altChooserHwnd && WinActive("ahk_id " _altChooserHwnd)
-}
-
 AltStageActive(*) {
     global _altVariants, _altWin
     return _altVariants.Length > 0 && _altWin && WinActive("ahk_id " _altWin)
 }
 
-AltStageBegin(group, variants, editable := false) {
+; `startAt` is which variant the marker opens on. Not always 1: once you have
+; picked a branch at f1, f2 opens on THAT branch, so walking a branch is press-
+; Enter, press-Enter, press-Enter rather than TAB-hunting for the same --Name
+; three times. TAB still reaches every other variant, so nothing is locked in.
+AltStageBegin(group, variants, editable := false, startAt := 1) {
     global _altVariants, _altStaged, _altGroup, _altEditable, _altHotkeysOn
     global _altWin, ALT_STAGE_TIMEOUT_MS
     _altVariants := variants
-    _altStaged   := 1
+    _altStaged   := (startAt >= 1 && startAt <= variants.Length) ? startAt : 1
     _altGroup    := group
     _altEditable := editable
     _altWin      := WinExist("A")
@@ -326,12 +354,12 @@ AltStageNext(*) {
 }
 
 AltStageCommit(*) {
-    global _altVariants, _altStaged, _altGroup, _altEditable
+    global _altVariants, _altStaged, _altGroup, _altEditable, ALT_ON_PICK
     if !_altVariants.Length {
         AltStageEnd()
         return
     }
-    parts := _altVariants[_altStaged]
+    v     := _altVariants[_altStaged]
     grp   := _altGroup
     edit  := _altEditable
     ; clear the staged preview before sending, or the variants would be sent too
@@ -339,7 +367,16 @@ AltStageCommit(*) {
     Sleep 20
     Send "{Delete}"
     AltStageEnd()
-    SendAltVariant(grp, parts, edit)
+    ; Tell the engine which branch this commits to, BEFORE sending — so if the send
+    ; throws, the next follow-up still knows where the conversation went.
+    ;
+    ; A callback rather than a direct call: remembering a branch needs the mass
+    ; document and the active model, which live in mass/runtime.ahk, and utils.ahk
+    ; is also included by content\general.ahk and the account files, which never
+    ; load the engine. Calling _BranchKey() from here would throw in those.
+    if ALT_ON_PICK
+        try ALT_ON_PICK.Call(v.branch)
+    SendAltVariant(grp, v.parts, edit)
 }
 
 AltStageCancel(*) {
@@ -349,132 +386,63 @@ AltStageCancel(*) {
     AltStageEnd()
 }
 
-; ── GUI chooser ───────────────────────────────────────────────────────────────
-; Per-mass opt-in (the "alt: gui" toggle). Modal, word-wrapped so long variants
-; stay readable; 1..9 / click / Enter pick, Esc cancels.
-
-AltChooseGui(group, variants, editable := false) {
-    global _altChooserHwnd
-    static BG := "15141C", SURFACE := "201E2B", TXT := "E6E4EE"
-    static MUTED := "8E8AA6", ACCENT := "B89CFF"
-
-    chosen := 0
-    cg := Gui("+AlwaysOnTop +ToolWindow", "Choose follow-up")
-    cg.BackColor := BG
-    cg.MarginX := 0
-    cg.MarginY := 0
-
-    cg.SetFont("s13 Bold c" ACCENT, "Segoe UI")
-    cg.Add("Text", "x18 y14 w520", Chr(0x2726) "  FU" group " — pick a variant")
-    cg.SetFont("s9 Norm c" MUTED, "Segoe UI")
-    cg.Add("Text", "x18 y42 w520", "Click one, or press its number. Esc cancels.")
-
-    y := 70
-    for i, parts in variants {
-        body := ""
-        for _, p in parts
-            body .= (body != "" ? "`r`n" : "") p
-        label := (i = 1) ? "main" : "alt" (i - 2)
-
-        ; height grows with the text so nothing is clipped; wraps rather than scrolls
-        lines := 0
-        for _, p in parts
-            lines += Max(1, Ceil(StrLen(p) / 58))
-        h := Max(30, lines * 19 + 8)
-
-        ; A button is what picks. The text sits in a ReadOnly Edit purely so it
-        ; wraps — an Edit must NOT drive the choice: it fires Focus as soon as the
-        ; window opens, which auto-picked the first variant and sent it instantly.
-        cg.SetFont("s9 Bold c" TXT, "Segoe UI")
-        btn := cg.Add("Button", "x18 y" y " w30 h26", i)
-        btn.OnEvent("Click", MakePick(i))
-        cg.SetFont("s8 Norm c" MUTED, "Segoe UI")
-        cg.Add("Text", "x52 y" (y + 6) " w46", label)
-        cg.SetFont("s10 Norm c" TXT, "Segoe UI")
-        cg.Add("Edit", "x104 y" y " w432 h" h " ReadOnly -VScroll Multi Background" SURFACE, body)
-
-        y += Max(h, 30) + 10
-    }
-
-    cg.SetFont("s9 c" TXT, "Segoe UI")
-    cg.Add("Button", "x18 y" (y + 4) " w90 h28", "Cancel").OnEvent("Click", DoCancel)
-    ArchiveDarkThemeRT(cg)
-
-    ; Esc and the window's X are Gui events, so they need no global hotkey at all.
-    cg.OnEvent("Escape", DoCancel)
-    cg.OnEvent("Close",  DoCancel)
-
-    ; The number keys DO need real hotkeys — scoped to this window, or 1-9 would
-    ; be swallowed in every application for as long as the chooser is open.
-    _altChooserHwnd := cg.Hwnd
-    HotIf AltChooserActive
-    Loop variants.Length
-        Hotkey "*" A_Index, MakePick(A_Index), "On"
-    HotIf
-
-    cg.Show("w560 h" (y + 46))
-    WinWaitClose("ahk_id " cg.Hwnd)
-
-    HotIf AltChooserActive
-    Loop variants.Length
-        Hotkey "*" A_Index, "Off"
-    HotIf
-    _altChooserHwnd := 0
-
-    if chosen
-        SendAltVariant(group, variants[chosen], editable)
-    return
-
-    MakePick(i) {
-        return Pick.Bind(i)
-    }
-    Pick(i, *) {
-        chosen := i
-        cg.Destroy()
-    }
-    DoCancel(*) {
-        chosen := 0
-        cg.Destroy()
-    }
-}
-
-; Local copy of the dark-theme call (main_window.ahk has its own; the mass scripts
-; do not include that file).
-ArchiveDarkThemeRT(guiObj) {
-    for attr in [20, 19]
-        try DllCall("dwmapi\DwmSetWindowAttribute", "ptr", guiObj.Hwnd, "int", attr, "int*", 1, "int", 4)
-}
+; AltChooseGui() stood here — a modal window listing the variants, opened when a
+; mass had "alt: gui" ticked, plus ArchiveDarkThemeRT() to theme it and
+; AltChooserActive()/_altChooserHwnd to scope its 1-9 keys. It was the second way
+; to answer the same question, and TAB staging is the one that got used: you read
+; the variants in the chatbox, in the font and width they will actually send at,
+; without a window taking focus off the chat. All of it is gone.
+;
+; The `altGui` field survives in the record (store.ahk) and its checkbox survives
+; in the alt window; both are now inert. Left rather than migrated away because
+; dropping a field rewrites every mass on next save, and this is not worth that.
 
 ; ── entry point used by the mass scripts ──────────────────────────────────────
-; Returns true if the chooser took over the send, false to fall through to the
-; normal base-variant send.
+; Returns true if the staging took over the send, false to fall through to the
+; plain send.
 ;
-;   viaCtrl=false  the plain follow-up key (F1). Only intercepts when the
-;                  "prompt using ctrl+hotkey" setting is OFF.
-;   viaCtrl=true   the ctrl+follow-up key. Always offers the choice; the caller
-;                  falls back to a normal send when there is nothing to choose.
+; ONE KEY. There is no ctrl-variant to press and no "prompt using ctrl+hotkey"
+; setting any more: if this follow-up can be answered more than one way, the key
+; stages the choices and TAB walks them. If it cannot — no alts, no branches —
+; the key sends, exactly as it always did, and the staging never appears.
 ;
-; Read per call like sndFu reads FuSingle, so toggling the setting applies
-; immediately without restarting the mass scripts.
-AltIntercept(m, group, viaCtrl := false, editable := false) {
+; `activeBranch` is which branch an earlier follow-up in this conversation
+; committed to, or 0. It only picks where the marker STARTS.
+AltIntercept(m, group, editable := false, activeBranch := 0) {
     ; One gate for every caller. Returning false means "nothing intercepted", so
     ; the plain send runs exactly as it did before alts existed — which is what
     ; Easy mode is: a follow-up key that sends the follow-up, full stop.
     if !FEAT("altFollowups")
         return false
-    if !viaCtrl {
-        promptCtrl := IniRead(MMA_CFG, "Settings", "PromptAltCtrl", "1") = "1"
-        if promptCtrl
-            return false
-    }
     variants := AltVariants(m, group)
     if variants.Length <= 1
         return false
-    if MassUsesAltGui(m)
-        AltChooseGui(group, variants, editable)
-    else
-        AltStageBegin(group, variants, editable)
+    AltStageBegin(group, variants, editable, AltStartIndex(variants, activeBranch))
     return true
+}
+
+; The same, for the PPV. Separate entry point only because the PPV has no group
+; number and pastes rather than sends; the list and the walk are identical.
+AltInterceptPpv(m, editable := true, activeBranch := 0) {
+    if !FEAT("altFollowups")
+        return false
+    variants := AltPpvVariants(m)
+    if variants.Length <= 1
+        return false
+    AltStageBegin(0, variants, editable, AltStartIndex(variants, activeBranch))
+    return true
+}
+
+; Which variant to open on: the one belonging to the branch already in play, or
+; the first. Falls back to 1 when that branch has nothing in this group, which is
+; the normal case for an f1-only branch reaching f2.
+AltStartIndex(variants, activeBranch) {
+    if !activeBranch
+        return 1
+    for i, v in variants
+        if (v.branch = activeBranch)
+            return i
+    return 1
 }
 
 sndFu(group, parts*) {
@@ -517,9 +485,13 @@ sndFu(group, parts*) {
 ; — the same shape the manager reads from source (fn "snd" = sends + Enter,
 ; "SendText" = pastes only). See the hotstring-manager notes.
 
+; MMA_CFG, not `HK_DIR "\mass_gui.cfg"`. HK_DIR is the REPO ROOT (hotkeys.ahk
+; sets it there so HK_Broadcast can recognise our scripts by title), and no cfg
+; has ever lived in the root — so this read every setting out of a file that does
+; not exist and returned the default "ask" forever, exactly the silent revert
+; paths.ahk was written to stop.
 Overload_Mode() {
-    global HK_DIR
-    return StrLower(Trim(IniRead(HK_DIR "\mass_gui.cfg", "Hotstrings", "OverloadMode", "ask")))
+    return StrLower(Trim(IniRead(MMA_CFG, "Hotstrings", "OverloadMode", "ask")))
 }
 
 ; Entry point an overloaded hotstring calls. `mode` is that trigger's own "ask" or

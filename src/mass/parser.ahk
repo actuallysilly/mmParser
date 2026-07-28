@@ -168,7 +168,7 @@ SetBranchField(mNo, k, grp, val) {
 }
 
 ; Join follow-up parts into one field, `r`n between them (round-trips through
-; MassPropIsMultiline as `n; AltPartsRT splits them back at send time).
+; MassPropIsMultiline as `n; MASS_SplitParts splits them back at send time).
 JoinRN(parts) {
     out := ""
     for _, p in parts
@@ -227,7 +227,7 @@ FillTab(lines, mNo) {
         else
             branches[curBr].lines.Push(rawLn)
     }
-    Loop Min(branches.Length, BRANCH_MAX) {
+    Loop Min(branches.Length, MASS_BRANCH_MAX) {
         k := A_Index
         FillBranch(branches[k].lines, mNo, k, branches[k].name)
     }
@@ -422,7 +422,7 @@ FillTab(lines, mNo) {
 
         altFlds := AltFields(ALT_GROUPS[fIdx])
         for ai, parts in split.alts {
-            if ai > altFlds.Length          ; more alts than slots — keep the first ALT_MAX
+            if ai > altFlds.Length          ; more alts than slots — keep the first MASS_ALT_MAX
                 break
             ck := "m" mNo "_" altFlds[ai]
             if !edCtrls.Has(ck)

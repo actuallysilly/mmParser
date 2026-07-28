@@ -116,6 +116,12 @@ FEAT_Def("editableFu",   "EditableFuAny",  "Editable follow-ups / wallet check",
 ; mainly to Easy mode — v1.4.0 sent nothing when a mass had no f3, and Easy has
 ; to keep doing that.
 FEAT_Def("defaultFu3",   "DefaultFu3On",   "Default FU3 when the mass has none",      "1", "Sending")
+; Reads the chat and sends whichever follow-up comes next. Off by default is
+; wrong here — it is bound and working — but it is the one send key that decides
+; WHAT to send by looking at the screen, so it is also the one whose failure mode
+; is "sent the wrong follow-up" rather than "did nothing". Being able to switch it
+; off without unbinding the key is worth a checkbox of its own.
+FEAT_Def("nextFu",       "NextFu",         "Next follow-up (reads the chat)",          "1", "Sending")
 FEAT_Def("openTab",      "OpenTabAny",     "Open in new tab after a send",             "1", "Sending")
 FEAT_Def("doubleMM",     "DoubleMM",       "Double-MM (send two models at once)",      "1", "Sending")
 FEAT_Def("fuSingle",     "FuSingleAny",    "FuSingle grid (per-model follow-up map)",  "1", "Sending")
@@ -132,7 +138,7 @@ FEAT_Def("quickActions", "QuickActions", "Quick actions (pinned buttons)",    "1
 FEAT_Def("recorder",     "Recorder",     "Coordinate recorder",               "1", "Tools")
 FEAT_Def("capitalizer",  "Capitalizer",  "Auto-capitalize after Enter",       "1", "Tools")
 FEAT_Def("sequences",    "Sequences",    "Sequences + Discord Ctrl+click import", "1", "Tools")
-FEAT_Def("ocrGrab",      "OcrGrab",      "OCR / selection grab into Add Hotkey",  "1", "Tools")
+FEAT_Def("ocrGrab",      "OcrGrab",      "Add hotstring with OCR",            "1", "Tools")
 
 ; ── Background ────────────────────────────────────────────────────────────────
 FEAT_Def("modelDetector", "AutoDetectModel",    "Auto-detect the active model",        "0", "Background")
@@ -140,6 +146,13 @@ FEAT_Def("statsOverlay",  "StatsOverlay",       "Stats overlay",                
 FEAT_Def("automation",    "AutomationListener", "Automation hotkeys (needs Python)",   "1", "Background")
 FEAT_Def("pinger",        "Pinger",             "Unread pinger (needs Python)",        "0", "Background")
 FEAT_Def("startupScripts","StartupScriptsOn",   "Auto-start scripts + restart watchdog", "1", "Background")
+; OFF by default, deliberately. The startup check runs three seconds after launch
+; and its prompt is NOT suppressed by `silent`, so with this on you get an update
+; dialog in front of whatever you were doing, on someone else's release schedule
+; — and saying yes overwrites the tree you are working in. Settings ▸ Models
+; still has a "Check for updates" button that works whatever this is set to, so
+; off costs you nothing except being asked.
+FEAT_Def("autoUpdate",    "AutoUpdate",         "Check for updates at startup",        "0", "Background")
 
 ; ═══════════════════════════════════════════════════════════════════════════════
 ;  Hotkey ownership. HK_Bind consults this, so a feature being off means its keys
@@ -151,6 +164,7 @@ FEAT_Def("startupScripts","StartupScriptsOn",   "Auto-start scripts + restart wa
 global FEAT_HOTKEY_MAP := Map(
     "altFu",              "altFollowups",
     "br",                 "altFollowups",   ; branches ride the same toggle
+    "nextFu",             "nextFu",
     "mFu",                "mouseControl",
     "mPpv",               "mouseControl",   ; mPpv and mPpvFus, same thumb
     "gui.actions",        "actionsMenu",

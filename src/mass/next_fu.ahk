@@ -23,12 +23,16 @@
 ;    • correct after a restart, and correct in a chat MMA never sent in.
 ;
 ;  ─── WHAT IT REFUSES TO DO ───────────────────────────────────────────────────
-;  Nothing found → sends f1, because an empty conversation genuinely starts there.
-;  f3 found      → sends NOTHING. There is no f4, and wrapping back to f1 would
-;                  re-send a message this fan has already had. Every refusal in
-;                  this codebase is the same trade: a key that does nothing costs
-;                  a keypress, a key that guesses costs a real message to a real
-;                  person.
+;  nothing found, mass visible   → sends f1. The sequence genuinely starts here.
+;  nothing found, no mass either → sends NOTHING. Either the pane is scrolled away
+;                  from a thread that IS underway, or the mass never went to this
+;                  chat at all; both look identical to a substring search, and f1
+;                  is wrong in both. See NFU_MassPresence.
+;  last one found → sends NOTHING. There is no f4, and wrapping back to f1 would
+;                  re-send a message this fan has already had.
+;
+;  Every refusal here is the same trade: a key that does nothing costs a keypress,
+;  a key that guesses costs a real message to a real person.
 ; ═══════════════════════════════════════════════════════════════════════════════
 
 #Include "../vendor/OCR.ahk"
@@ -101,8 +105,19 @@ NFU_Needles(part, cfg) {
 ; negative StartingPos searches backwards from the end.
 NFU_GroupAt(m, group, hay, cfg) {
     best := 0
-    for field in ["fu" group, "fu" group "_5", "fu" group "_7"] {
-        part := m.%field%
+    ; _FuParts, not the three stored fields.
+    ;
+    ; They are the same thing for groups 1 and 2, and NOT for group 3: a mass with
+    ; no f3 of its own sends the Default FU3 text from Settings instead (see
+    ; _FuParts in runtime.ahk). So the message that lands in the conversation is
+    ; the default — and matching the stored fields, which are blank, meant the
+    ; walker could never find its own f3.
+    ;
+    ; The result was the exact failure this whole file is built to avoid. On such
+    ; a mass: press 3 sends the default, press 4 still reads f2 as the last one
+    ; sent and sends the default AGAIN, to a fan who has already had it. Match
+    ; what will actually be SENT, not what happens to be stored.
+    for part in _FuParts(m, group) {
         if (Trim(part) = "")
             continue
         for needle in NFU_Needles(part, cfg) {
@@ -149,6 +164,52 @@ NFU_ReadChat(cfg := 0) {
     }
 }
 
+; Is the mass itself — the opening message every follow-up follows up ON — in what
+; we just read? "seen", "absent", or "uncheckable" when there is no mass text long
+; enough to identify.
+;
+; This is the gate on f1, and it exists because "no follow-up found" has two very
+; different causes that look identical to a substring search:
+;
+;   the sequence has not started  — the mass is there, no follow-up yet. Send f1.
+;   we cannot see the sequence    — scrolled up, or a chat the mass never went to.
+;                                   Sending f1 here either repeats a follow-up
+;                                   that IS in the thread just out of view, or
+;                                   opens with "did you see what I sent?" to
+;                                   someone who was sent nothing.
+;
+; The mass is the evidence that tells them apart, so f1 waits for it. Matched with
+; the same needles as the follow-ups, so a long mass whose top has scrolled off
+; still registers on its middle or tail.
+NFU_MassPresence(m, hay, cfg) {
+    needles := NFU_Needles(m.mass, cfg)
+    if !needles.Length
+        return "uncheckable"
+    for needle in needles
+        if InStr(hay, needle, true)
+            return "seen"
+    return "absent"
+}
+
+; The next group AFTER this one that actually has something to send, or 0.
+;
+; Not simply group + 1. A mass is not required to carry all three follow-ups —
+; plenty are f1 only, and f1 + f3 with a gap in the middle is just as legitimate.
+; So "next" means the next follow-up THAT EXISTS, which is what the key promises.
+;
+; Counting blindly broke both ends of that. On an f1-only mass, press two resolved
+; to f2, and sndFu returns silently when every part is empty — so the key did
+; nothing at all while the toast said "sending f2". A key that lies about having
+; sent is worse than one that refuses, because you believe it and move on.
+NFU_NextWithContent(m, after) {
+    g := after
+    while (++g <= 3)
+        for part in _FuParts(m, g)
+            if (Trim(part) != "")
+                return g
+    return 0
+}
+
 ; ── the key ───────────────────────────────────────────────────────────────────
 ;  Bound like any other mass slot, so it inherits the model wiring for free:
 ;  _ModelFire sets the model for a per-model key, _ActiveFire resolves it from the
@@ -165,20 +226,47 @@ DoNextFu() {
         return
     }
 
-    r := NFU_LastGroup(m, NFU_Norm(text), cfg)
-    next := r.group + 1
-    if (next > 3) {
-        ; f3 is the end of the line. Wrapping to f1 would re-send a message this
-        ; fan has already had, which is worse than doing nothing.
+    hay := NFU_Norm(text)
+    r   := NFU_LastGroup(m, hay, cfg)
+
+    ; Starting the sequence is the one move that needs corroboration. Once a
+    ; follow-up is on screen the thread speaks for itself; before that, the mass
+    ; being visible is the only thing separating "not started yet" from "cannot
+    ; see it from here". Refuse rather than guess — the numbered f1 key is right
+    ; there when you know better than MMA does.
+    if (r.group = 0) {
+        seen := NFU_MassPresence(m, hay, cfg)
+        if (seen != "seen") {
+            SoundBeep(300, 250)
+            _MassToast(seen = "absent"
+                ? "No follow-up here, and the mass is not on screen either."
+                  . "`nScroll to it, or send f1 by hand if this chat is right."
+                : "This model has no mass text stored, so there is nothing to"
+                  . " check f1 against.`nSend it by hand.")
+            return
+        }
+    }
+
+    next := NFU_NextWithContent(m, r.group)
+    if !next {
+        ; The end of the line — either the last follow-up this mass HAS is already
+        ; in the chat, or the mass has none at all. Wrapping back to f1 would
+        ; re-send a message this fan has already had, which is worse than doing
+        ; nothing. Say which of the two it is, or the beep is just a mystery.
         SoundBeep(300, 250)
-        _MassToast("Follow-up 3 is already the last one sent here."
-                 . "`nNothing sent.")
+        _MassToast(r.group
+            ? "f" r.group " is the last follow-up this mass has,"
+              . " and it is already in this chat.`nNothing sent."
+            : "This mass has no follow-ups to send.`nNothing sent.")
         return
     }
 
     handlers := Map(1, DoFu1, 2, DoFu2, 3, DoFu3)
+    ; Name the gap when there is one, so skipping f2 on a mass that has no f2
+    ; reads as a decision rather than as the key losing count.
     _MassToast((r.group ? "Last seen: f" r.group : "No follow-up in this chat")
-             . "  →  sending f" next)
+             . "  →  sending f" next
+             . ((next > r.group + 1) ? "   (this mass has no f" (r.group + 1) ")" : ""))
     handlers[next]()
 }
 

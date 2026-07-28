@@ -15,7 +15,11 @@
 ;  => BUT (model 2). No setup, polls once a second.
 ;
 ;  The CURSOR line shows the colour+class under your mouse for inspection.
-;  Esc = quit    F5 = reload
+;  Ctrl+Alt+F12 = quit    Ctrl+Alt+F5 = reload
+;
+;  Modified keys, never a bare Esc or F5: this runs WHILE Infloww is focused, and
+;  a bare hotkey is swallowed globally — it would take Esc away from Infloww's own
+;  dialogs and F5 away from reloading the page, for as long as this was up.
 ; ============================================================================
 
 ; ---- CONFIG (tune from the live readout) -----------------------------------
@@ -95,7 +99,8 @@ Poll() {
       . "HISTORY (newest last):`n"
       . histBlock
       . "------------------------------------------`n"
-      . "region " REGION_X "," REGION_Y " " REGION_W "x" REGION_H "   Esc=quit  F5=reload",
+      . "region " REGION_X "," REGION_Y " " REGION_W "x" REGION_H
+      . "   ^!F12=quit  ^!F5=reload",
         TIP_X, TIP_Y)
 }
 
@@ -142,5 +147,5 @@ ColorDist(c1, c2) {
     return Max(r, g, b)
 }
 
-Esc::ExitApp
-F5::Reload
+^!F12::ExitApp
+^!F5::Reload

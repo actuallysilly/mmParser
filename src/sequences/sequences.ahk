@@ -7,7 +7,8 @@
 
 DetectHiddenWindows true
 MMA_GUI_WIN := MMA_SRC_GUI " ahk_class AutoHotkey"
-MMA_MSG_AUTOPARSE := 0x8010
+; MMA_MSG_AUTOPARSE was `:= 0x8010` here. It is in core/messages.ahk now, reached
+; through utils.ahk → hotkeys.ahk above, with the other nine.
 COPY_TEXT_IMG := MMA_ASSETS "\copy_text.png"
 SEQ_CFG := MMA_CFG
 

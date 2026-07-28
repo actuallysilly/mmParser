@@ -24,9 +24,13 @@
 ;    • a suggested GreyColor / InactiveColor / GapTol.
 ;
 ;  USAGE: put Infloww Messages in front with the tab strip visible, then run this
-;  and press F10. It never clicks or types; it only reads pixels. Copy the
-;  suggested values into mass_gui.cfg [Detector] (or Settings) and restart the
-;  detector.
+;  and press Ctrl+Alt+F10; Ctrl+Alt+F12 quits. It never clicks or types; it only
+;  reads pixels. Copy the suggested values into mass_gui.cfg [Detector] (or
+;  Settings) and restart the detector.
+;
+;  Modified keys, never a bare F10 or Esc: this is run WHILE Infloww is focused,
+;  and a bare hotkey is swallowed globally — Esc would stop closing Infloww's own
+;  dialogs for as long as the probe was up, and the F-keys are spoken for.
 ; ═══════════════════════════════════════════════════════════════════════════════
 
 CFG := MMA_CFG
@@ -47,7 +51,7 @@ IniInt(key, default) {
 }
 
 CoordMode "Pixel", "Screen"
-OUT := MMA_USERDATA "\detector_probe.txt"
+OUT := MMA_PROBE_DETECT
 
 Say(s := "") {
     global OUT
@@ -75,8 +79,8 @@ OcrRect(x1, x2) {
 ; about the probe.
 
 ; --now probes whatever is on screen immediately and exits, for scripted checks.
-; The interactive path waits for F10 because you have to put Infloww in front
-; first, and launching this file from Explorer focuses Explorer.
+; The interactive path waits for a keypress because you have to put Infloww in
+; front first, and launching this file from Explorer focuses Explorer.
 global QUIET := false
 for a in A_Args {
     if (a = "--now") {
@@ -86,14 +90,38 @@ for a in A_Args {
     }
 }
 
-ToolTip("Detector probe ready.`nFocus Infloww, then press F10.`nEsc quits.")
-SetTimer(() => ToolTip(), -4000)
+; A badge that STAYS, rather than a tooltip on a 4-second timer. This is a
+; separate script, so Ctrl+Alt+F10 exists only while it is running — and once the
+; tooltip faded there was nothing on screen to tell a probe that is up from one
+; that was never started, which makes "the key did nothing" impossible to
+; diagnose. NoActivate so focusing Infloww (which this probe REQUIRES) is not
+; disturbed by it. Same treatment as nextfu_probe.ahk.
+;
+; badgeGui, not badge: a variable and a function differing only in case are one
+; name to AHK, and the script fails to load rather than shadowing.
+badgeGui := Gui("+AlwaysOnTop -Caption +ToolWindow +E0x08000000")  ; WS_EX_NOACTIVATE
+badgeGui.BackColor := "1E1E1E"
+badgeGui.SetFont("s10 Bold cWhite", "Segoe UI")
+badgeGui.Add("Text", "x12 y10 w300", "Detector probe — running")
+badgeGui.SetFont("s9 Norm c9A9A9A")
+lblBadge := badgeGui.Add("Text", "x12 y34 w300",
+                         "Ctrl+Alt+F10   read the tab strip`n"
+                       . "Ctrl+Alt+F12   quit")
+badgeGui.Show("x" (A_ScreenWidth - 344) " y24 w324 h74 NoActivate")
 
-F10::Probe()
-Esc::ExitApp()
+Badge(s) {
+    global lblBadge
+    try lblBadge.Value := s
+}
+
+^!F10::Probe()
+^!F12::ExitApp()
 
 Probe() {
     global RegionX, RegionY, RegionW, RegionH, GreyHex, DarkHex, GreyTol, ScanStep, GapTol, OUT, QUIET
+    ; Before the slow part, so the key never looks dead while it works.
+    if !QUIET
+        Badge("reading the tab strip…")
 
     try FileDelete(OUT)
     x2 := RegionX + RegionW, y2 := RegionY + RegionH
@@ -207,8 +235,11 @@ Probe() {
     Say("the detector. If neither block gets it right, the region is probably")
     Say("wrong — RegionX/Y/W/H must cover the tab strip and nothing else.")
 
-    if !QUIET
+    if !QUIET {
+        Badge("read at " FormatTime(, "HH:mm:ss") " — see the Notepad window`n"
+            . "Ctrl+Alt+F10 again     Ctrl+Alt+F12 quit")
         Run('notepad.exe "' OUT '"')
+    }
 }
 
 ; Group columns into runs the way ScanPills does, and show the working.
