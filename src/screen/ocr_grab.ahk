@@ -11,9 +11,23 @@
 ;  Reads via Windows' own OCR engine (Windows.Media.Ocr) — offline, no install.
 ; ═══════════════════════════════════════════════════════════════════════════════
 
+; How long the selection overlay may sit there before it gives up. See the wait
+; loop for why a full-screen click-swallowing window must never wait forever.
+global OCR_SELECT_TIMEOUT_MS := 20000
+
+; Guards against a second overlay stacking on the first. The hotkey is global, so
+; pressing it again while the sheet is already up used to build a whole second
+; set of windows over the first — and cancelling then cleared only the newest,
+; leaving the desktop still covered by one nobody could see.
+global _ocrSelecting := false
+
 ; Drag a rectangle across the whole desktop. Returns {x,y,w,h} or 0 if cancelled.
 ; Spans the virtual screen, so it works on any monitor / negative coordinates.
 OcrSelectRegion() {
+    global _ocrSelecting, OCR_SELECT_TIMEOUT_MS
+    if _ocrSelecting
+        return 0
+    _ocrSelecting := true
     static SM_XVIRTUALSCREEN := 76, SM_YVIRTUALSCREEN := 77
          , SM_CXVIRTUALSCREEN := 78, SM_CYVIRTUALSCREEN := 79
     ; WS_EX_NOACTIVATE: these overlays must never steal focus from the chat.
@@ -36,17 +50,37 @@ OcrSelectRegion() {
     hint := Gui("+AlwaysOnTop -Caption +ToolWindow " NOACTIVATE)
     hint.BackColor := "101010"
     hint.SetFont("s10 cWhite", "Segoe UI")
-    hint.Add("Text", "x12 y8 w360", "Drag a box around the messages   ·   Esc cancels")
-    hint.Show("x" (vx + 20) " y" (vy + 20) " w384 h34 NoActivate")
+    ; Say every way out, because until one of them happens the whole desktop is
+    ; unclickable and this strip is the only thing on screen that explains why.
+    hint.Add("Text", "x12 y8 w520",
+             "Drag a box around the messages   ·   Esc or right-click cancels"
+           . "   ·   gives up after " (OCR_SELECT_TIMEOUT_MS // 1000) "s")
+    hint.Show("x" (vx + 20) " y" (vy + 20) " w544 h34 NoActivate")
 
     prevCoord := A_CoordModeMouse
     CoordMode "Mouse", "Screen"
     DllCall("SetCursor", "Ptr", DllCall("LoadCursor", "Ptr", 0, "Ptr", 32515, "Ptr"))  ; IDC_CROSS
 
     rect := 0
-    ; wait for press (or Esc)
+    ; Wait for a press — but NOT forever. This sheet covers the whole virtual
+    ; screen and deliberately swallows the click, so for as long as it is up the
+    ; entire desktop is unclickable. At 90/255 alpha over a dark theme it is also
+    ; nearly invisible, so "I pressed the OCR key and now nothing on my computer
+    ; responds to the mouse" is what a forgotten overlay actually looks like — and
+    ; Escape being the only way out is no help if you cannot see why you are stuck.
+    ;
+    ; Giving up after 20 seconds costs a keypress to start again, and is the
+    ; difference between a cancelled grab and a desktop you have to kill MMA to
+    ; get back.
+    startTick := A_TickCount
     while true {
         if GetKeyState("Escape", "P")
+            break
+        if (A_TickCount - startTick > OCR_SELECT_TIMEOUT_MS)
+            break
+        ; Right-click cancels too. One more way out than Escape, on the device
+        ; your hand is already on — the overlay is a mouse tool.
+        if GetKeyState("RButton", "P")
             break
         if GetKeyState("LButton", "P") {
             MouseGetPos &x1, &y1
@@ -71,6 +105,7 @@ OcrSelectRegion() {
 
     box.Destroy(), sheet.Destroy(), hint.Destroy()
     CoordMode "Mouse", prevCoord
+    _ocrSelecting := false
     return rect
 }
 
