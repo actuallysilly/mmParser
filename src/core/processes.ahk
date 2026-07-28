@@ -284,6 +284,49 @@ StopEngine() {
     DetectHiddenWindows prev
 }
 
+; ─── sequences.ahk ────────────────────────────────────────────────────────────
+;  Launched exactly like the engine, and for exactly the same reason.
+;
+;  It owns the seq.* hotkeys — the Discord Ctrl+click import, Open Farmolijer,
+;  Select top PPV. It was reached only through StartupScripts, which is a list of
+;  CHECKBOXES, and the default when the key is absent is "general.ahk" alone. So:
+;
+;    • every fresh install had the Ctrl+click import dead on arrival, because a
+;      new mass_gui.cfg has no StartupScripts key at all and never gets one until
+;      something writes it;
+;    • and on an install that did work, one untick — or one Save from a Settings
+;      window that happened to load before the box was ticked — killed it
+;      silently, with the key still listed in the Hotkeys tab.
+;
+;  That is the same failure the engine had ("it lost the engine exactly once,
+;  silently"), and it has now been reported as "the Discord import broke AGAIN"
+;  more than once. A script that owns hotkeys should not be a checkbox. FEAT
+;  ("sequences") is its real switch and is the only one it needs.
+_SequencesTitle() {
+    return MMA_SRC_SEQUENCES " ahk_class AutoHotkey"
+}
+SequencesRunning() {
+    prev := A_DetectHiddenWindows
+    DetectHiddenWindows true
+    up := WinExist(_SequencesTitle()) ? true : false
+    DetectHiddenWindows prev
+    return up
+}
+LaunchSequences() {
+    if !FEAT("sequences")
+        return
+    if (!FileExist(MMA_SRC_SEQUENCES) || SequencesRunning())
+        return
+    try Run(MMA_SRC_SEQUENCES)
+}
+StopSequences() {
+    prev := A_DetectHiddenWindows
+    DetectHiddenWindows true
+    if WinExist(_SequencesTitle())
+        try ProcessClose(WinGetPID(_SequencesTitle()))
+    DetectHiddenWindows prev
+}
+
 DetectorRunning() {
     return WinExist(_DetectorTitle()) != 0
 }
@@ -357,6 +400,7 @@ WatchdogTick() {
     if !FEAT("startupScripts")
         return
     LaunchEngine()                  ; core, not optional — see _EngineFile
+    LaunchSequences()               ; likewise — it owns the seq.* hotkeys
     LaunchStartupScripts()
     LaunchAutomationListener()
     ; FEAT, not the pinger/autoDetect/statsOverlay globals these used to test.

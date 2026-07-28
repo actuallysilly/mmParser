@@ -439,11 +439,14 @@ OpenSettings(*) {
     _eligible := []
     if FileExist(_genPath)
         _eligible.Push("general.ahk")
-    ; sequences.ahk owns the Discord Ctrl+click import, Open Farmolijer and Select
-    ; top PPV. It was missing from this list, so those keys could only be bound by
-    ; running the file by hand — and the day that stopped, the import "broke".
-    if FileExist(MMA_SRC_SEQUENCES)
-        _eligible.Push("sequences.ahk")
+    ; sequences.ahk is NOT offered here either, for the same reason as the engine.
+    ; It was added to this list to fix "the Ctrl+click import stopped working" —
+    ; but a checkbox was the wrong fix, and the import broke again twice more:
+    ; once because the DEFAULT StartupScripts is "general.ahk" alone, so a fresh
+    ; install never ticked it, and once because a box you can untick is a box that
+    ; gets unticked. LaunchSequences() starts it unconditionally now; its real
+    ; switch is the "sequences" feature on the Features tab.
+    ;
     ; The mass engine is deliberately NOT offered here. It is core, launched by
     ; LaunchEngine(); listing it would let one unticked box silently disable every
     ; mass hotkey, which is precisely how it went missing before.

@@ -686,6 +686,12 @@ ArchiveDarkTheme(gVar, [])
 ; list is rebuilt from checkboxes, and it lost the engine exactly once, silently.
 LaunchEngine()
 
+; And sequences.ahk, for the same reason — it carries the Discord Ctrl+click
+; import and the other seq.* keys. It reached here through StartupScripts, whose
+; DEFAULT is "general.ahk" alone, so a fresh install never started it and the
+; import was dead on arrival. See LaunchSequences in core/processes.ahk.
+LaunchSequences()
+
 ; auto-start configured startup scripts (defaults to general.ahk) if not already running
 LaunchStartupScripts()
 LaunchAutomationListener()
