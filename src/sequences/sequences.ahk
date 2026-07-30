@@ -77,10 +77,10 @@ DiscordChannelFromTitle() {
 ; with full confidence.
 DiscordHeaderBand() {
     global SEQ_CFG
-    return {x: Integer(IniRead(SEQ_CFG, "Discord", "HeaderX", "460")),
-            y: Integer(IniRead(SEQ_CFG, "Discord", "HeaderY", "42")),
-            w: Integer(IniRead(SEQ_CFG, "Discord", "HeaderW", "500")),
-            h: Integer(IniRead(SEQ_CFG, "Discord", "HeaderH", "38"))}
+    return {x: LOG_IniInt(SEQ_CFG, "Discord", "HeaderX", 460),
+            y: LOG_IniInt(SEQ_CFG, "Discord", "HeaderY", 42),
+            w: LOG_IniInt(SEQ_CFG, "Discord", "HeaderW", 500),
+            h: LOG_IniInt(SEQ_CFG, "Discord", "HeaderH", 38)}
 }
 
 DiscordChannelFromHeader() {
@@ -204,6 +204,10 @@ FindCopyTextRow(nearX, nearY) {
 
 copyDiscordMessageSeq() {
     global MMA_GUI_WIN, MMA_MSG_AUTOPARSE, COPY_TEXT_IMG
+    ; "The Discord import broke again" starts here. If this line is absent the key
+    ; never reached the handler (script not running, key unbound, wrong window) —
+    ; which has been the cause every time so far.
+    LOGD("seq.discord", "Ctrl+click import fired — right-clicking to open the menu")
     A_Clipboard := ""
     Click "Right"
     Sleep 250                    ; the menu is DOM-drawn; it needs a frame to paint
@@ -245,17 +249,35 @@ copyDiscordMessageSeq() {
     if !hit {
         CoordMode "Mouse", prevMouse
         Send "{Escape}"          ; don't leave the menu hanging open over the chat
+        ; Both routes failed. The bitmap one goes stale whenever Discord restyles
+        ; its menus and the OCR one depends on the window being readable — naming
+        ; which is which matters, because the fixes are completely different.
+        LOGE("seq.discord", "neither the bitmap match nor the OCR read found a"
+                          . " 'Copy Text' row in Discord's context menu — nothing"
+                          . " imported",
+                          "clicked at " mx "," my
+                        . "; bitmap needle " COPY_TEXT_IMG
+                        . " (goes stale when Discord restyles its menus)")
         ToolTip("Import: no 'Copy Text' in the menu")
         SetTimer(ClearImportTip, -2000)
         return
     }
 
+    LOGI("seq.discord", "clicking 'Copy Text' at " hit.sx "," hit.sy)
     Click hit.sx, hit.sy
     CoordMode "Mouse", prevMouse
 
-    ClipWait(1)
-    if A_Clipboard = ""
+    if !ClipWait(1) {
+        LOGE("seq.discord", "clicked 'Copy Text' but the clipboard stayed empty for"
+                          . " a second — nothing imported",
+                          "the click may have landed on the wrong menu row")
         return
+    }
+    if A_Clipboard = "" {
+        LOG_Bail("seq.discord", "the clipboard is empty after the copy — nothing"
+                              . " imported")
+        return
+    }
 
     ; Tag the paste with the channel's model. mass_gui's ExtractModelName() eats
     ; this line and routes the import by it; a name it does not know falls
@@ -266,11 +288,29 @@ copyDiscordMessageSeq() {
     if (model != "")
         A_Clipboard := "@model: " model "`n" A_Clipboard
 
+    ; The routing decision, in full. "It imported into the wrong model" and "it
+    ; did not recognise the channel" both start here, and the channel name is
+    ; OCR'd off the VOICE channel header — so seeing the raw string it read is
+    ; most of the answer.
+    LOGI("seq.discord", "copied " StrLen(A_Clipboard) " chars"
+                      . "  channel='" chan "'"
+                      . "  → model='" (model = "" ? "(not recognised)" : model) "'")
+
     ToolTip(model != "" ? "Import -> " model "   (#" chan ")" : "Import: channel not recognised")
     SetTimer(ClearImportTip, -1600)
 
-    if WinExist(MMA_GUI_WIN)
+    ; The last link in the chain, and the one that fails silently: the text is on
+    ; the clipboard, tagged and ready, and if the GUI is not running there is
+    ; nothing to receive it. From Discord that looks exactly like the import
+    ; having done nothing at all.
+    if WinExist(MMA_GUI_WIN) {
         PostMessage MMA_MSG_AUTOPARSE, 0, 0, , MMA_GUI_WIN
+        LOGI("seq.discord", "told the MMA window to auto-parse the clipboard")
+    } else {
+        LOGE("seq.discord", "the copied text is on the clipboard, but the MMA window"
+                          . " is not running — nothing will parse it",
+                          "looked for window title " MMA_GUI_WIN)
+    }
 }
 
 ; Discord-only. The #HotIf directive that used to wrap this did nothing: it only
@@ -287,4 +327,9 @@ SelectTopPPVSeq() {
 }
 
 HK_Bind("seq.selectTopPpv", SelectTopPPVSeq)
+
+; "The Discord import broke AGAIN" has been reported more than once, and the cause
+; has never once been this file's logic — it was the script not running, or the
+; key not bound. Both are now one line in the log, at the moment it starts.
+HK_Summary("sequences")
 

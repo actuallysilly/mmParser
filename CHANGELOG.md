@@ -1,5 +1,219 @@
 ﻿# Changelog
 
+## 2.0.1 — 2026-07-30
+
+### New: themes, and a Settings → GUI tab to switch them
+
+Three: **Pink** (default), **Dark**, and **Classic** (what MMA looked like before — system
+windows, dark picker).
+
+Pink is `#FEF7F9`, white with a little pink in it rather than a pink window. Kept that pale on
+purpose: MMA's windows are mostly **text**, and a real pink behind black text is tiring across a
+whole shift. Measured on 2.0.26 — static controls (Text, Checkbox, Radio, GroupBox) follow
+`Gui.BackColor` automatically, while Edit, ListView and Button keep system colours, so the light
+themes need nothing but the one background.
+
+Dark needs four colours, not one, because nothing inherits a *foreground*: set only the
+background and you get black text on a black window. It splits in two, and the split is not
+optional:
+
+* **Labels get their colour from the window font, before any control exists** —
+  `g.SetFont("s9" THEME_FontOpt(), …)`. Colouring them afterwards does not work, and fails two
+  different ways depending on how you try it. A static **on a tab page** that is sent `SetFont`
+  loses its inherited background and repaints with the system colour — a pale box behind every
+  label on a dark window. Add `+Background` to fix that and the same static comes back
+  `#000000`. Measured: an identical label *outside* the tab takes an explicit background
+  correctly (`#1E1D26` as asked); on a tab page it is `#000000`. Tab children are painted
+  through a different path and will not be told what to do after the fact.
+* **Everything else is walked afterwards** by `THEME_ApplyTo()` — the tab control (which paints
+  the whole panel), the Edit/ListView/dropdown interiors, and the title bar via
+  `DWMWA_USE_IMMERSIVE_DARK_MODE`.
+
+The tab pass runs on **every** theme that sets a colour, not just dark — without it the main
+window's tab page was never pink either.
+
+**Buttons and ListView headers stay light**: Windows draws those and ignores a colour unless the
+whole control is owner-drawn. That is on the tin in the GUI tab rather than left as a surprise.
+
+`core/theme.ahk` is the single source. It has to be a **name in the cfg**, not a variable —
+the main window, Settings and the follow-up picker are three different *processes*, and the cfg
+is the only thing they share. Each reads it per use, so switching applies without restarting
+anything: the main window repaints immediately, Settings on its next open, the picker on the next
+follow-up key. Adding a fourth theme is one edit in that file; the radio buttons are generated
+from `THEME_List()`.
+
+The GUI tab also holds the picker's `AltGuiWidth` and `AltGuiLift`, which were ini-only.
+
+Three notes for anyone extending this. A `Tab3` paints its own page interior, and that page
+covers everything but an 8px frame — so `sg.BackColor` alone changes a border you cannot see; the
+tab control needs its own `Background` option. Setting a control's colour is not the same as
+repainting with it: without `Redraw()` the Edit boxes keep the colours they were created with,
+the same way the picker's highlight bar did. And **radio buttons group by creation order** — a
+group ends at the first control that is not a radio, so adding each radio followed by its
+description `Text` made every one a group of one, all three themes could be lit at once, and Save
+wrote whichever it found first. The radios go in as one run now, descriptions afterwards, and
+`settings_build_test.ahk` asserts that exactly one is checked, because a control census cannot
+see this.
+
+`settings_build_test.ahk` grew a `hold [tab] [theme]` mode for looking at the result — the theme
+goes through the `MMA_THEME` environment variable, never into your cfg, because a tool that
+leaves your settings changed has broken something.
+
+### New: `docs/ahk-gui.html` — the advanced AHK v2 GUI reference
+
+Self-contained page (inline CSS, nothing loaded from the network, light and dark) on the parts
+of `Gui` that do something other than put a button on a form: `WS_EX_NOACTIVATE` overlays, the
+DPI-scaling trap that silently clips a window's last control, measuring controls before showing
+them, restyling in place, hotkeys scoped to one window, and how to build- and screenshot-test a
+GUI without a pair of eyes on it. Claims are tagged **measured here** (demonstrated against
+2.0.26 on this machine) or **capability** (documented behaviour), because they are not worth the
+same. Ends in a symptom → cause trap sheet.
+
+### Fixed: Enter could send EVERY variant instead of the one you picked
+
+The staged preview went **into the chat box**. Enter then cleared the box (`Ctrl+A`, `Delete`),
+pasted the marked variant and sent it — and that clear is not reliable. Infloww's composer is a
+web editor, and `Ctrl+A` in one of those can be swallowed outright or select the page instead.
+When it missed, the preview was still sitting there, the chosen variant was pasted onto the end
+of it, and **Enter sent the lot to the fan**: every variant, the markers, the labels, as one
+message.
+
+No settling delay fixes that, because it is not a race — it is the composer refusing the
+keystroke. So the preview does not go in the chat box any more.
+
+**The variants now show in a small window** above the composer: always on top, `WS_EX_NOACTIVATE`
+so it never takes focus off the chat, one band per variant with the marked one lit. `TAB` walks
+it, **`SHIFT+TAB` walks back** (new — `*Tab` fires on Shift+Tab too, so going backwards needed
+its own binding), `Enter` sends, `Esc` cancels. The chat box is never written to and never
+cleared, so the variants **cannot** be sent: they were never in the thing that sends.
+
+Two consequences worth knowing:
+
+* Anything you had typed in the composer stays. It is yours, and Escape no longer wipes it
+  either. A chosen variant lands after it — visible while you pick, since the window sits above
+  the composer rather than on it.
+* The picker cannot outlive the chat. `Tab`/`Enter`/`Esc` are scoped to the window staging began
+  in, which left a hole: switch away and **Escape stopped reaching the picker**, leaving an
+  always-on-top window with no title bar and no key that worked until the 45-second timeout.
+  A watchdog now closes it if that window is gone, and hides it while you are in another app —
+  come back and it is where you left it, marker and all.
+
+**Settings → Sending → "Don't use a GUI for alt FUs"** puts the preview back in the chat box, bug
+and all. It is the way out if the window misbehaves on your setup, not a preference. Read per
+keypress, so it applies to the next follow-up key with no restart. Two ini tunables come with it:
+`AltGuiWidth` (default 560, "at 100% zoom") and `AltGuiLift` (default 150, how far above the
+window's bottom edge it sits). A window that fails to build falls back to the chat box by itself.
+
+`tools/altgui_test.ahk` covers the label/body rendering and the walk, and `… show` puts the
+window up against a stand-in chat window so it can be looked at without Infloww.
+
+### Fixed: the alt picker pasted `/` into a composer where `/` is a command
+
+`AltStagePartSep` — the separator between the parts of one staged variant — defaulted to
+`  /  `. The staged preview is **pasted into the Infloww composer**, and `/` is Infloww's
+command trigger: it opened the slash-command menu over the box, which then swallowed the `Tab`
+and `Enter` that the picker runs on. The picker looked frozen, and escaping it could send the
+wrong variant.
+
+Now `  |  `. Changing the default was not enough on its own — `AltStageSetting` *seeds* the cfg
+the first time it reads a key, so every machine where a choice had ever been staged already had
+`AltStagePartSep=\s\s/\s\s` on disk, and a stored value always beats the fallback. So there is a
+one-time migration that rewrites **only the untouched original**; a separator you set yourself is
+left exactly as it is, slash or not.
+
+### "How to Use" is a real guide now
+
+**`docs/guide.html`** — one self-contained page (CSS inline, nothing to install, nothing loaded
+from the network), opened in the default browser by the main window's **How to Use** button.
+Light and dark, with a sticky contents sidebar and **real screenshots** in `docs/img/`.
+
+Written for somebody who has been chatting for months and needs to know where things are in
+*this tool*, not what a follow-up is: the window control by control, a full key reference, the
+paste format as reference rather than tutorial, the two footguns that eat afternoons
+(`massNo` pointing at an empty slot, and load/save moving all three tabs at once), the three
+ways MMA decides which model is on screen and why "I pick" exists, Tab-staging, the six
+Settings tabs, the logging switches, and a symptom → cause table.
+
+Screenshots are captured from the running app with the message fields pixelated — the copy in
+them is live working text, not sample data.
+
+That button previously dumped `docs/mass-format.md` into a read-only, non-wrapping Edit control
+in a 600×480 window — and because nobody could stand to read it, nobody noticed the content had
+gone stale: it still told you to open `1_mass.ahk` and `2_mass.ahk` to change your hotkeys, and
+neither file has existed since the v2 tree. It also documented the follow-up part suffixes as
+`.1` and `.2`, when the parser has only ever accepted **`.5` and `.7`** — so anyone following it
+had parts silently dropped.
+
+`docs/mass-format.md` survives as the markdown format reference, rewritten against what
+`parser.ahk` actually does.
+
+### Logging — every process, one file, and a switch that turns failures into dialogs
+
+MMA is up to eight processes talking through ini files and `PostMessage`, and none of
+that produces a stack trace when it goes wrong. It produces **nothing** — which is the
+actual bug report this answers: *"it silently failed to do something on my friend's
+machine."*
+
+- **`src/core/log.ahk`**, included at the end of `paths.ahk` — the one file every entry
+  point already includes. Every process now gets a `BOOT` line, an `EXIT` line (with the
+  reason, so a `ProcessClose` from the watchdog is visible) and an `OnError` hook that
+  records the **stack**, with no per-script wiring and no way to drift out of step.
+- **A `BAIL` level**, which is the point of the exercise. `INFO`/`WARN`/`FAIL` were never
+  the problem; the problem is the branch that returned early on purpose — feature off,
+  key unbound, mass slot empty, window not in front. All correct, all invisible, all
+  indistinguishable from a broken app. Roughly 200 of those now say which one they were.
+- **Settings ▸ Debug** grew the three switches, and is their sole writer:
+  *Write a log file* (default **on**), *Report errors with a pop-up*, *Max logging*.
+  Written on click, not on Save — they are read by eight processes, all of which re-read
+  the cfg on a 1.5s timer, so a click is live everywhere with no restart.
+- **Pop-ups carry the last 20 log lines**, so a user on another machine can screenshot
+  the context instead of finding, opening and sending a file. Budgeted — same message
+  once per process, 15 per process, 60s timeout — so a failure inside a 500ms timer
+  cannot become a machine you have to reboot.
+- **`MMA_DEBUG=max|popups|off`** in the environment overrides all three, for the machine
+  you cannot open Settings on. When set, the checkboxes disable themselves and say why.
+- **Diagnostic report** button: one file to hand over — environment, both config files in
+  full, and the last 400 log lines. Masses and message text are deliberately excluded.
+- `error_log.txt` is now failures only (short enough to read top to bottom);
+  `mma.log` is the full timeline and rotates at 8 MB.
+
+Instrumented throughout: the hotkey registry (every bind, every refusal, every
+anti-fumble drop and by how many milliseconds), the feature gate, every child process
+launch and the watchdog, model resolution, the whole send path, the mass library,
+next-follow-up, the Discord import, the detector's OCR, and the updater.
+
+Every `ClipWait` on the send path is now a `FAIL` rather than an ignored return value —
+a clipboard that does not take the text means Ctrl+V pastes **the previous clipboard**
+into a real fan's chat and presses Enter, which was previously undetectable.
+
+### The Discord Ctrl+click import has no switch left to lose
+
+It has been reported broken four times, and the cause has never once been the import's own
+code. Every time it was a switch somebody could turn off: the `StartupScripts` checkbox
+(whose default list does not include it, so fresh installs never had it), the same box
+unticked by a Settings save, and — after those were fixed — the **Features tab**, plus
+**Easy mode**, which switches off every feature in the registry in one radio button and took
+the import down with them, silently and with no box to look at.
+
+So `sequences` is no longer a feature. It is gone from the registry in `core/modes.ahk`,
+which is what makes it always-on: `FEAT()` answers true for any id it does not know, in Easy
+mode as much as Advanced. Its hotkeys lost their `FEAT_HOTKEY_MAP` entry, so `HK_Bind`
+registers them whatever the mode, and `LaunchSequences()` lost its gate. It is core now,
+exactly like the mass engine — a script that owns hotkeys should not be a checkbox.
+
+`sequences.ahk` and the engine also **start first** rather than last. Both used to be
+launched at the bottom of `main_window.ahk`, after three tabs, the variants window and the
+settings tabs had been built — 280–390 ms in which MMA is on screen with every hotkey it owns
+dead, which is exactly when you would reach for one. Measured after the move: engine at
+**38 ms**, `seq.copyDiscordMsg` bound and live at **223 ms**.
+
+### Fixed
+
+- `Clear logs` swept `*.txt` only, so it would have left `mma.log` — the one file that
+  actually grows — behind.
+- `MMA.ahk` had a stray word pasted after `ExitApp`, which is a **load-time** syntax error:
+  the launcher — the one thing you double-click — put up an error dialog and started nothing.
+
 ## 2.0.0-alpha — 2026-07-27
 
 First 2.0.0 pre-release. A clean break: no migration shims, no compatibility aliases.

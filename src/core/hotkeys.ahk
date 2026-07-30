@@ -72,9 +72,16 @@ global HK_WINDOW_MS := 200
 ; from "present but blank" (= deliberately disabled).
 global HK_UNSET := Chr(1) "«unset»"
 
+; Kept as the name every call site in this file already uses, but it is a
+; forwarder now: core\log.ahk owns the file, the timestamp and the format, and
+; routing through it means a hotkey problem appears in the SAME timeline as the
+; send it should have triggered. Reading "key not in ini" in one file and "engine
+; exited" in another, and having to interleave them by eye, is what made this
+; area hard to debug.
+;
+; WARN, not INFO: everything that calls this is something that did not bind.
 HK_Log(msg) {
-    try FileAppend(FormatTime(, "yyyy-MM-dd HH:mm:ss") "  [" A_ScriptName "]  hotkeys: " msg "`n",
-                   MMA_ERRLOG, "UTF-8")
+    LOGW("hk", msg)
 }
 
 ; ── declaration helpers ───────────────────────────────────────────────────────
@@ -334,18 +341,38 @@ _HK_IsSend(id) {
 ;   3. Cross-send cooldown: after any send, a *different* send within the window is
 ;      dropped, so an accidental F1-then-F2 can't both go out even once F1 finished.
 ; DoubleFireWindowMs = 0 in the ini switches all three off (HK_WINDOW_MS is 0 then).
+;
+; ─── why every branch here is logged ─────────────────────────────────────────
+;  All three guards are INVISIBLE and INTENTIONAL: you press a key, the key was
+;  registered, the handler exists, and nothing happens. That is indistinguishable
+;  from a broken hotkey from the outside, and it is the single most likely
+;  explanation for "it silently failed to do something" on a machine where
+;  somebody is working fast. So each drop says which guard ate it and by how many
+;  milliseconds it missed — a number that also tells you whether
+;  DoubleFireWindowMs is simply set too high for how this person types.
 _HK_Fire(id, fn) {
     global _HK_LAST, _HK_LAST_SEND, _HK_SENDING, HK_WINDOW_MS
     now := A_TickCount
     isSend := _HK_IsSend(id)
 
     if (HK_WINDOW_MS) {
-        if (_HK_SENDING)
+        if (_HK_SENDING) {
+            LOG_Bail("hk.fire", id " DROPPED — another send is still in flight."
+                              . " Anti-fumble guard 1 of 3.")
             return
-        if (_HK_LAST.Has(id) && now - _HK_LAST[id] < HK_WINDOW_MS)
+        }
+        if (_HK_LAST.Has(id) && now - _HK_LAST[id] < HK_WINDOW_MS) {
+            LOG_Bail("hk.fire", id " DROPPED — same key repeated after only "
+                              . (now - _HK_LAST[id]) "ms (window " HK_WINDOW_MS "ms)."
+                              . " Anti-fumble guard 2 of 3.")
             return
-        if (isSend && _HK_LAST_SEND && now - _HK_LAST_SEND < HK_WINDOW_MS)
+        }
+        if (isSend && _HK_LAST_SEND && now - _HK_LAST_SEND < HK_WINDOW_MS) {
+            LOG_Bail("hk.fire", id " DROPPED — a different send went out "
+                              . (now - _HK_LAST_SEND) "ms ago (window " HK_WINDOW_MS "ms)."
+                              . " Anti-fumble guard 3 of 3.")
             return
+        }
     }
 
     _HK_LAST[id] := now
@@ -353,14 +380,23 @@ _HK_Fire(id, fn) {
         _HK_LAST_SEND := now
         _HK_SENDING := true
     }
+    LOGI("hk.fire", id " → running" (isSend ? "  (send)" : ""))
     try
         fn()
+    catch as e {
+        ; Rethrown, so nothing about error handling changes — but written down
+        ; first. A handler that throws mid-send leaves the chat box in an unknown
+        ; state, and knowing WHICH key was in flight is most of the diagnosis.
+        LOGE("hk.fire", id " threw while running", LOG_Err(e))
+        throw
+    }
     finally {
         _HK_LAST[id] := A_TickCount
         if (isSend) {
             _HK_LAST_SEND := A_TickCount
             _HK_SENDING := false
         }
+        LOGV("hk.fire", id " finished in " (A_TickCount - now) "ms")
     }
 }
 
@@ -373,9 +409,17 @@ HK_Bind(id, fn) {
     ; switched off in Advanced, means its hotkeys are never registered at all —
     ; not registered-then-ignored. Declared in modes.ahk (FEAT_HOTKEY_MAP), so a
     ; new feature needs no change in any of the scripts that bind keys.
-    ; Silent: a key absent because the feature is off is not a fault.
-    if !FEAT_HotkeyAllowed(id)
+    ;
+    ; Still silent to the USER — a key absent because the feature is off is not a
+    ; fault — but no longer silent to the log. "That key does nothing on his
+    ; machine" and "that feature is off on his machine" are the same sentence, and
+    ; this is the line that says so. It names the feature, so the answer is
+    ; actionable rather than just a refusal.
+    if !FEAT_HotkeyAllowed(id) {
+        LOG_Bail("hk.bind", id " NOT REGISTERED — feature '" FEAT_ForHotkey(id)
+                          . "' is off (or MMA is in Easy mode). Settings ▸ Features.")
         return
+    }
     m := HK_META[id]
     if (m.when != "" && !HK_CTX.Has(m.when)) {
         ; Binding a context-limited key with no context would make it global —
@@ -397,10 +441,18 @@ _HK_Apply(id, key) {
     if (key != "") {
         try {
             Hotkey(key, _HK_Wrap(id, b.fn))
+            LOGI("hk.bind", id " ← " key (m.when != "" ? "   (only in: " m.when ")" : ""))
         } catch as e {
             HK_Log("'" key "' is not a valid key for " id " — " e.Message)
             key := ""
         }
+    } else {
+        ; Blank in the ini is "deliberately disabled" and absent was already
+        ; reported by HK_Key. Either way the action has no key, which is worth a
+        ; line: it is the difference between a broken feature and an unassigned
+        ; one, and from the user's chair those look identical.
+        LOG_Bail("hk.bind", id " has NO KEY — blank or missing in hotkeys.ini,"
+                          . " so nothing can trigger it")
     }
     HotIf()
     b.key := key
@@ -437,17 +489,29 @@ HK_SetState(id, state) {
 ; Re-read the ini and re-register anything whose key changed. Every script that
 ; includes this file answers HK_MSG_RELOAD, so the GUI's Save applies live.
 HK_Reload(*) {
+    changed := 0
     for id, b in _HK_BOUND {
         k := HK_Key(id)
-        if (k != b.key)
+        if (k != b.key) {
+            LOGI("hk.reload", id ": " (b.key = "" ? "(none)" : b.key)
+                           . " → " (k = "" ? "(none)" : k))
             _HK_Apply(id, k)
+            changed++
+        }
     }
+    LOGI("hk.reload", "re-read hotkeys.ini — " changed " key(s) changed in this script")
 }
 OnMessage(HK_MSG_RELOAD, HK_Reload)
 
 ; While the Hotkeys GUI is capturing a key, every other script holds fire —
 ; otherwise pressing F1 to assign it would also *send* model 1's follow-up.
+; Worth a line of its own: a script left SUSPENDED is the perfect silent failure —
+; every key is registered, every feature is on, and not one of them fires. If the
+; Hotkeys GUI or the Actions menu dies while holding the suspend, this is the only
+; evidence of why the whole app went deaf.
 _HK_OnSuspend(wParam, *) {
+    LOGI("hk.suspend", wParam ? "SUSPENDED — every hotkey in this script is on hold"
+                             : "resumed — hotkeys live again")
     Suspend(wParam ? true : false)
 }
 OnMessage(HK_MSG_SUSPEND, _HK_OnSuspend)
@@ -465,15 +529,34 @@ OnMessage(HK_MSG_SUSPEND, _HK_OnSuspend)
 HK_Broadcast(msg, wparam := 0, exceptHwnd := 0) {
     prev := A_DetectHiddenWindows
     DetectHiddenWindows true
+    sent := 0, seen := 0, names := ""
     for hwnd in WinGetList("ahk_class AutoHotkey") {
         if (hwnd = exceptHwnd)
             continue
+        seen++
         try {
-            if (InStr(WinGetTitle(hwnd), HK_DIR "\") = 1)
+            if (InStr(WinGetTitle(hwnd), HK_DIR "\") = 1) {
                 PostMessage(msg, wparam, 0, , "ahk_id " hwnd)
+                sent++
+                try names .= (names = "" ? "" : ", ") _LOG_BaseName(WinGetTitle(hwnd))
+            }
         }
     }
     DetectHiddenWindows prev
+    ; A cross-process message that reaches NOBODY is the shape of half the bugs
+    ; this file's header describes — a save that does not apply live, a rebind
+    ; that does not take, an Actions-menu entry that fires nothing. It looks
+    ; exactly like a message that was never sent, and until now it left no trace
+    ; either way. The recipient count is the fastest way to tell those apart.
+    if sent
+        LOGI("hk.broadcast", "msg " Format("0x{:X}", msg) " wparam=" wparam
+                          . " → " sent " of " seen " AutoHotkey window(s): " names)
+    else
+        LOGW("hk.broadcast", "msg " Format("0x{:X}", msg) " wparam=" wparam
+                           . " reached NOBODY — " seen " AutoHotkey window(s) exist"
+                           . " but none is titled under " HK_DIR "\ ."
+                           . " Whatever this was meant to apply live has not applied.")
+    return sent
 }
 
 ; Run an action on request from another script (the Actions menu).
@@ -487,16 +570,29 @@ HK_Broadcast(msg, wparam := 0, exceptHwnd := 0) {
 ; works for actions with no key at all, since HK_Bind records the callback whether
 ; or not the ini gave it one.
 _HK_OnFire(wParam, *) {
-    if (wParam < 1 || wParam > HK_ORDER.Length)
+    if (wParam < 1 || wParam > HK_ORDER.Length) {
+        LOGW("hk.remote", "fire request for index " wParam " is out of range"
+                        . " (1-" HK_ORDER.Length ") — sender and receiver disagree"
+                        . " about HK_ORDER, i.e. they are running different code")
         return
+    }
     id := HK_ORDER[wParam]
-    if !_HK_BOUND.Has(id)
+    ; Not an error: the message goes to EVERY MMA script and only the one that
+    ; bound this id answers. Verbose so the firehose can prove the request
+    ; arrived somewhere, without a line per script per press at normal level.
+    if !_HK_BOUND.Has(id) {
+        LOGV("hk.remote", id " not bound in this script — ignoring (expected)")
         return
+    }
     m := HK_META[id]
     ; Honour the context. Firing a Discord-only sequence while Infloww is focused
     ; would click into the wrong window — the menu is a shortcut, not an override.
-    if (m.when != "" && HK_CTX.Has(m.when) && !HK_CTX[m.when]())
+    if (m.when != "" && HK_CTX.Has(m.when) && !HK_CTX[m.when]()) {
+        LOG_Bail("hk.remote", id " requested but its context '" m.when "' is not"
+                            . " satisfied — wrong window is in front, so nothing ran")
         return
+    }
+    LOGI("hk.remote", id " fired by message from another MMA script")
     _HK_Fire(id, _HK_BOUND[id].fn)      ; same anti-fumble gate a real key press gets
 }
 OnMessage(HK_MSG_FIRE, _HK_OnFire)
@@ -564,9 +660,30 @@ HK_MergeDefaults() {
 HK_Init() {
     global HK_WINDOW_MS   ; assigned below, so it must be declared to hit the global
     if !FileExist(HK_INI) {
-        if FileExist(HK_INI_DEFAULT)
-            FileCopy(HK_INI_DEFAULT, HK_INI)
-        else {
+        if FileExist(HK_INI_DEFAULT) {
+            LOGW("hk.init", "hotkeys.ini did not exist — seeding it from"
+                          . " hotkeys.default.ini. This is normal on a fresh install"
+                          . " and alarming on an old one (did userdata\\ get wiped?)")
+            ; Guarded: an unwritable userdata\ (read-only, permissions, antivirus)
+            ; made this throw at LOAD, in a file every key-binding script includes.
+            ; One failed copy therefore stopped the whole app from starting, rather
+            ; than starting it with no hotkeys — which is recoverable and says so.
+            LOG_Try("hk.init", "seed hotkeys.ini from the default",
+                    () => FileCopy(HK_INI_DEFAULT, HK_INI), &seeded)
+            if !seeded {
+                LOGE("hk.init", "could not create hotkeys.ini — NO HOTKEY WILL BIND"
+                              . " in this script",
+                              "is " MMA_USERDATA " writable?")
+                return
+            }
+        } else {
+            ; The worst startup state there is: MMA loads, the GUI opens, and not
+            ; one key in the app works. FAIL, so it raises a dialog when popups
+            ; are on — this is precisely the case where a user is about to report
+            ; "nothing happens when I press anything".
+            LOGE("hk.init", "hotkeys.ini AND hotkeys.default.ini are both missing —"
+                          . " NO HOTKEY IN MMA WILL BIND",
+                          "looked for " HK_INI " and " HK_INI_DEFAULT)
             HK_Log("hotkeys.ini AND hotkeys.default.ini are both missing — no hotkeys will bind")
             return
         }
@@ -579,7 +696,43 @@ HK_Init() {
     ; then read it. Set to 0 to disable debouncing entirely.
     if (IniRead(HK_INI, "meta", "DoubleFireWindowMs", HK_UNSET) == HK_UNSET)
         try IniWrite(HK_WINDOW_MS, HK_INI, "meta", "DoubleFireWindowMs")
-    HK_WINDOW_MS := Integer(IniRead(HK_INI, "meta", "DoubleFireWindowMs", HK_WINDOW_MS))
+    ; LOG_IniInt, not Integer(IniRead(...)). This line runs at LOAD in every script
+    ; that binds a key — the GUI, the engine, sequences, general.ahk, every account
+    ; file. `DoubleFireWindowMs=none` typed into hotkeys.ini by hand therefore did
+    ; not disable debouncing, it stopped ALL OF MMA from starting, from a file
+    ; whose whole purpose is to be hand-editable.
+    HK_WINDOW_MS := LOG_IniInt(HK_INI, "meta", "DoubleFireWindowMs", HK_WINDOW_MS, "hk.init")
+    LOG_Kv("hk.init", Map("ini", HK_INI,
+                          "declared", HK_ORDER.Length,
+                          "sections", HK_SECTIONS.Length,
+                          "doubleFireWindowMs", HK_WINDOW_MS,
+                          "schema", IniRead(HK_INI, "meta", "SchemaVersion", "0")))
+}
+
+; What this script ACTUALLY ended up owning, once it has finished binding.
+;
+; Every other line in this file reports one key at a time, which answers "did this
+; key bind?" but never "is the engine holding the keys at all?". After a bad
+; startup the per-key lines can all look reasonable and the total still be zero —
+; that is what a feature-gated Easy mode looks like from in here. Call it at the
+; bottom of a script's binding block.
+HK_Summary(what := "") {
+    keyed := 0, dark := 0, list := ""
+    for id, b in _HK_BOUND {
+        if (b.key != "") {
+            keyed++
+            list .= (list = "" ? "" : "  ") id "=" b.key
+        } else
+            dark++
+    }
+    LOGI("hk.summary", (what != "" ? what ": " : "")
+                    . keyed " key(s) live, " dark " bound but unassigned")
+    LOGV("hk.summary", list)
+    if (keyed = 0)
+        LOGW("hk.summary", (what != "" ? what ": " : "")
+                         . "this script registered NO working hotkeys at all —"
+                         . " check Easy mode, the Features tab, and hotkeys.ini")
+    return keyed
 }
 
 HK_Init()

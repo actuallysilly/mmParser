@@ -68,7 +68,18 @@ HSI_ParseFile(rel, path, out) {
     ; they can't be mistaken for a trigger.
     static triggerRe := "^\s*:([^:]*):(.+?)::(.*)$"
 
-    text  := FileRead(path, "UTF-8")
+    ; Guarded because this runs over EVERY message file in a loop, so one
+    ; unreadable file (open in an editor, mid-save, permissions) threw and took
+    ; the whole scan with it — the Hotstrings manager then showed nothing at all
+    ; rather than everything except that one file.
+    text := ""
+    try {
+        text := FileRead(path, "UTF-8")
+    } catch as e {
+        LOGE("hsi.parse", "could not read " rel " — its hotstrings are MISSING from"
+                        . " the manager's list, the rest are fine", LOG_Err(e))
+        return
+    }
     lines := StrSplit(text, "`n", "`r")
     i := 1
     while (i <= lines.Length) {
@@ -296,7 +307,15 @@ HSI_DeleteBlock(rel, triggerLine, expectTrigger) {
     if !FileExist(path)
         return {ok: false, why: "File not found: " rel}
 
-    raw   := FileRead(path, "UTF-8")
+    ; This function DELETES a hotstring from a source file, so it already returns
+    ; a {ok, why} verdict the caller shows — the read just had no way to reach it.
+    raw := ""
+    try {
+        raw := FileRead(path, "UTF-8")
+    } catch as e {
+        LOGE("hsi.delete", "could not read " rel " — nothing was deleted", LOG_Err(e))
+        return {ok: false, why: "Could not read " rel ":`n`n" e.Message}
+    }
     crlf  := InStr(raw, "`r`n") ? true : false
     lines := StrSplit(raw, "`n", "`r")
 

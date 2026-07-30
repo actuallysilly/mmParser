@@ -72,16 +72,30 @@ OcrSelectRegion() {
     ; Giving up after 20 seconds costs a keypress to start again, and is the
     ; difference between a cancelled grab and a desktop you have to kill MMA to
     ; get back.
+    LOGI("ocr.select", "region overlay is UP — the whole desktop is unclickable"
+                     . " until you drag a box, press Escape, right-click, or it"
+                     . " gives up after " (OCR_SELECT_TIMEOUT_MS // 1000) "s")
     startTick := A_TickCount
     while true {
-        if GetKeyState("Escape", "P")
+        if GetKeyState("Escape", "P") {
+            LOGI("ocr.select", "cancelled with Escape")
             break
-        if (A_TickCount - startTick > OCR_SELECT_TIMEOUT_MS)
+        }
+        if (A_TickCount - startTick > OCR_SELECT_TIMEOUT_MS) {
+            ; The timeout is the safety net that stops a forgotten overlay locking
+            ; the desktop. If it is what ended the selection, say so — otherwise
+            ; the grab looks like it silently failed.
+            LOGW("ocr.select", "gave up after " OCR_SELECT_TIMEOUT_MS "ms with no"
+                             . " selection — the overlay is down and the desktop is"
+                             . " clickable again")
             break
+        }
         ; Right-click cancels too. One more way out than Escape, on the device
         ; your hand is already on — the overlay is a mouse tool.
-        if GetKeyState("RButton", "P")
+        if GetKeyState("RButton", "P") {
+            LOGI("ocr.select", "cancelled with a right-click")
             break
+        }
         if GetKeyState("LButton", "P") {
             MouseGetPos &x1, &y1
             ; drag
@@ -123,6 +137,13 @@ OcrRegionToText(rect) {
     out := ""
     for l in lines
         out .= (out = "" ? "" : "`n") l.t
+    if (out = "")
+        LOGW("ocr.grab", "OCR found no text in the " rect.w "x" rect.h " box at "
+                       . rect.x "," rect.y " — nothing to add")
+    else
+        LOGI("ocr.grab", "OCR read " lines.Length " line(s), " StrLen(out)
+                       . " chars from the " rect.w "x" rect.h " box at "
+                       . rect.x "," rect.y)
     return out
 }
 

@@ -20,3 +20,9 @@
     Sendt("So you can fuck me relentlessly and make me squirt in doggy...", 1000)
     Sendt("Should I remove the panties or fuck yes?", 1000)
 }
+
+; @added 2026-07-30 00:15
+!9::
+{
+    snd("But I'm also wondering.. Should I take all of that off myself")
+}

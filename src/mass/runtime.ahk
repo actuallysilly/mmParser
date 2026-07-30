@@ -47,16 +47,41 @@ global MASS_DOC := MASS_Load()
 ; ── Settings mirrored from mass_gui.cfg ───────────────────────────────────────
 ; Read once at load, then kept live by the OnMessage handlers below — the GUI
 ; posts on toggle so you never have to restart a model script to change one.
-mouseControl   := Integer(IniRead(MMA_CFG, "Settings", "MouseControl",   "1"))
-openTabFu2     := Integer(IniRead(MMA_CFG, "Settings", "OpenTabFu2",     "0"))
-openTabFu3     := Integer(IniRead(MMA_CFG, "Settings", "OpenTabFu3",     "0"))
-openTabPpv     := Integer(IniRead(MMA_CFG, "Settings", "OpenTabPpv",     "0"))
-walletCheckFu3 := Integer(IniRead(MMA_CFG, "Settings", "WalletCheckFu3", "0"))
-editableFu1    := Integer(IniRead(MMA_CFG, "Settings", "EditableFu1",    "0"))
-editableFu2    := Integer(IniRead(MMA_CFG, "Settings", "EditableFu2",    "0"))
-editableFu3    := Integer(IniRead(MMA_CFG, "Settings", "EditableFu3",    "0"))
+; LOG_IniInt, not Integer(IniRead(...)) — nine times over.
+;
+; These eight lines run at the TOP LEVEL of the mass engine, so a throw here is
+; not a wrong setting, it is an engine that does not start: every follow-up key,
+; every PPV key, every branch and every __mm trigger in MMA silently dead. And
+; Integer() throws on anything non-numeric, so all it takes is one hand-edited
+; `MouseControl=yes` in a file MMA itself invites you to edit.
+;
+; Now each one degrades to its default and says so in the log. See LOG_IniInt.
+mouseControl   := LOG_IniInt(MMA_CFG, "Settings", "MouseControl",   1, "mass.boot")
+openTabFu2     := LOG_IniInt(MMA_CFG, "Settings", "OpenTabFu2",     0, "mass.boot")
+openTabFu3     := LOG_IniInt(MMA_CFG, "Settings", "OpenTabFu3",     0, "mass.boot")
+openTabPpv     := LOG_IniInt(MMA_CFG, "Settings", "OpenTabPpv",     0, "mass.boot")
+walletCheckFu3 := LOG_IniInt(MMA_CFG, "Settings", "WalletCheckFu3", 0, "mass.boot")
+editableFu1    := LOG_IniInt(MMA_CFG, "Settings", "EditableFu1",    0, "mass.boot")
+editableFu2    := LOG_IniInt(MMA_CFG, "Settings", "EditableFu2",    0, "mass.boot")
+editableFu3    := LOG_IniInt(MMA_CFG, "Settings", "EditableFu3",    0, "mass.boot")
 
 doubleMM := false
+
+; What this process resolved at load, in one line.
+;
+; These eight values decide what every follow-up key does, they are read ONCE
+; here, and they are then kept live by PostMessage — so a stale one is invisible
+; and permanent for the life of the process. Writing them down at boot is what
+; makes "editable was on the whole time" a thing you can see rather than deduce.
+LOG_Kv("mass.boot", Map("masses",     MMA_MASSES,
+                        "mouseCtrl",  mouseControl,
+                        "openTabFu2", openTabFu2,
+                        "openTabFu3", openTabFu3,
+                        "openTabPpv", openTabPpv,
+                        "walletFu3",  walletCheckFu3,
+                        "editFu1",    editableFu1,
+                        "editFu2",    editableFu2,
+                        "editFu3",    editableFu3))
 
 ; ── Live settings messages from mass_gui ──────────────────────────────────────
 ; The numbers are a contract with main_window.ahk, and they are declared in
@@ -67,12 +92,18 @@ doubleMM := false
 ToggleDMMMsg(wParam, lParam, msg, hwnd) {
     global doubleMM
     doubleMM := !doubleMM
+    LOGI("mass.setting", "double-MM " (doubleMM ? "ON — follow-up keys now send"
+                                                . " models 1 AND 2 back to back"
+                                                : "off"))
 }
 OnMessage(MMA_MSG_DOUBLE_MM, ToggleDMMMsg)
 
 SetWalletMsg(wParam, lParam, msg, hwnd) {
     global walletCheckFu3
     walletCheckFu3 := wParam
+    LOGI("mass.setting", "wallet-check on FU3 → " (wParam ? "on (FU3 pastes for"
+                                                          . " review instead of sending)"
+                                                          : "off"))
 }
 OnMessage(MMA_MSG_WALLET_FU3, SetWalletMsg)
 
@@ -85,6 +116,15 @@ SetEditableFuMsg(wParam, lParam, msg, hwnd) {
         editableFu2 := wParam
     else if fuIdx = 3
         editableFu3 := wParam
+    else {
+        LOGW("mass.setting", "an editable-FU message arrived for follow-up " fuIdx
+                           . ", which is not 1-3 — ignored. The GUI and the engine"
+                           . " disagree about the message contract.")
+        return
+    }
+    LOGI("mass.setting", "editable follow-up " fuIdx " → " (wParam ? "on (pastes for"
+                                                                   . " review, no Enter)"
+                                                                   : "off (sends)"))
 }
 OnMessage(MMA_MSG_EDITABLE_FU1, SetEditableFuMsg)
 OnMessage(MMA_MSG_EDITABLE_FU2, SetEditableFuMsg)
@@ -157,12 +197,23 @@ _BranchKey() {
 ; resolved against the detector by _RunOnActiveModel), so by this point there is
 ; nothing left to second-guess.
 _DoFuGroup(group, editable, openTab) {
-    global doubleMM, openInNewTabButton
+    global doubleMM, openInNewTabButton, MASS_CUR_MODEL, MASS_DOC
     ; Each extra is both a user setting and a feature; Easy mode drops all three
     ; back to "paste the follow-up and press Enter", which is all v1.4.0 did.
     editable := editable && FEAT("editableFu")
     openTab  := openTab  && FEAT("openTab")
     sendBoth := doubleMM && FEAT("doubleMM")
+    ; The state every follow-up decision is made from, in one line, before any of
+    ; it is acted on. Which model, which mass slot, and the three modifiers — the
+    ; four things you would ask for first when somebody says "it sent the wrong
+    ; thing" or "it sent nothing".
+    LOG_Kv("mass.fu", Map("group",    group,
+                          "model",    MASS_CUR_MODEL,
+                          "massNo",   MASS_MassNo(MASS_DOC, MASS_CUR_MODEL),
+                          "branch",   ActiveBranchNo(),
+                          "editable", editable ? "y" : "n",
+                          "openTab",  openTab ? "y" : "n",
+                          "doubleMM", sendBoth ? "y" : "n"))
     ; One key. If this follow-up has alts or branches, they stage and TAB walks
     ; them; if it has neither, nothing appears and the send below runs. The old
     ; second key (ctrl+f<N>) and the PromptAltCtrl setting that chose between them
@@ -215,26 +266,52 @@ DefaultFu3Parts() {
     return MASS_SplitParts(IniRead(MMA_CFG, "Settings", "DefaultFu3", ""))
 }
 
+; ── devlog: the handler was reached ───────────────────────────────────────────
+;  One line each, at the top, before any decision is taken. These are the three
+;  functions a user means when they say "I pressed f2 and nothing happened", and
+;  they turn that into a yes/no question: if there is no `devlog: DoFu2 entered`
+;  line, the problem is upstream of this file entirely — the key never bound, the
+;  feature is off, the engine is not running, the press was debounced — and the
+;  hk.* lines above say which. If there IS one, the cause is below it, and the
+;  mass.fu BAIL line says which.
 DoFu1() {
     global editableFu1
+    LOGD("mass.fu1", "DoFu1 entered")
     _DoFuGroup(1, editableFu1, false)
 }
 DoFu2() {
     global editableFu2, openTabFu2
+    LOGD("mass.fu2", "DoFu2 entered")
     _DoFuGroup(2, editableFu2, openTabFu2)
 }
 DoFu3() {
     global editableFu3, walletCheckFu3, openTabFu3
+    LOGD("mass.fu3", "DoFu3 entered")
     _DoFuGroup(3, walletCheckFu3 || editableFu3, openTabFu3)
 }
 
 ; The mass body itself — pastes only, so you can review before sending.
 DoMass() {
+    global MASS_CUR_MODEL, MASS_DOC
+    LOGD("mass.body", "DoMass entered")
     m := CurMass()
-    if m.mass = ""
+    if (m.mass = "") {
+        ; The classic __mm complaint. Almost always massNo pointing at a slot the
+        ; user never filled in — see the "MMA hotkeys do nothing" pattern — so the
+        ; slot number is named rather than just "empty".
+        LOG_Bail("mass.body", "model " MASS_CUR_MODEL " mass slot "
+                            . MASS_MassNo(MASS_DOC, MASS_CUR_MODEL) " has no mass"
+                            . " text — nothing to paste. Check that this slot is the"
+                            . " one you filled in.")
         return
+    }
+    LOGI("mass.body", "pasting model " MASS_CUR_MODEL " mass slot "
+                    . MASS_MassNo(MASS_DOC, MASS_CUR_MODEL)
+                    . " (" StrLen(m.mass) " chars, no Enter)")
     A_Clipboard := m.mass
-    ClipWait(0.5)
+    if !ClipWait(0.5)
+        LOGE("mass.body", "the clipboard never accepted the mass — Ctrl+V is about"
+                        . " to paste the PREVIOUS clipboard into the chat")
     Send "^v"
 }
 
@@ -243,21 +320,41 @@ DoMass() {
 ; Same one-key rule as the follow-ups: with branch PPVs present this stages them
 ; alongside the trunk's and TAB walks the list. That is what retired brPpv.
 DoPpv() {
-    global openTabPpv, openInNewTabButton
+    global openTabPpv, openInNewTabButton, MASS_CUR_MODEL
+    LOGD("mass.ppv", "DoPpv entered")
     m := CurMass()
     if AltInterceptPpv(m, true, ActiveBranchNo())
         return
-    if m.ppv_base = ""
+    if (m.ppv_base = "") {
+        LOG_Bail("mass.ppv", "model " MASS_CUR_MODEL " has no PPV base text in the"
+                           . " selected mass — nothing to paste")
         return
+    }
+    LOGI("mass.ppv", "pasting model " MASS_CUR_MODEL " PPV base ("
+                   . StrLen(m.ppv_base) " chars, no Enter)")
     A_Clipboard := m.ppv_base
-    ClipWait(0.1)
+    if !ClipWait(0.1)
+        LOGE("mass.ppv", "the clipboard never accepted the PPV in 100ms — Ctrl+V is"
+                       . " about to paste the PREVIOUS clipboard")
     Send "^v"
     if openTabPpv && FEAT("openTab")
         clickReturn(openInNewTabButton)
 }
 
 DoPpvFus() {
+    global MASS_CUR_MODEL
+    LOGD("mass.ppvfus", "DoPpvFus entered")
     m := CurMass()
+    n := 0
+    for _, p in [m.ppv_f1, m.ppv_f2, m.ppv_f3]
+        if (Trim(p) != "")
+            n++
+    if (n = 0) {
+        LOG_Bail("mass.ppvfus", "model " MASS_CUR_MODEL " has no PPV follow-ups in"
+                              . " the selected mass — nothing sent")
+        return
+    }
+    LOGI("mass.ppvfus", "sending " n " PPV follow-up(s) for model " MASS_CUR_MODEL)
     snd(m.ppv_f1)
     snd(m.ppv_f2)
     snd(m.ppv_f3)
@@ -398,11 +495,27 @@ MassBindActive() {
 _ActiveFire(fn) {
     return (*) => _RunOnActiveModel(fn)
 }
+; Every [mass.active] key comes through here, and "no answer" means the key does
+; nothing at all. That is the correct choice — guessing sends one model's message
+; to another model's fan — but it is also the single most confusing thing MMA
+; does, because the key is bound, the feature is on, and nothing happens.
+;
+; ActiveModelStatus already logged WHY it has no answer (detector off, window not
+; in front, name unclaimed, tabs ambiguous). This adds the consequence, so the two
+; lines sit together in the log and the chain is readable end to end.
 _RunOnActiveModel(fn) {
-    n := ActiveModelNo()
-    if !n
+    st := ActiveModelStatus()
+    if !st.no {
+        LOG_Bail("mass.active", "a shared [mass.active] key was pressed but MMA does"
+                              . " not know which model is on screen (state: "
+                              . st.state "). Nothing sent — that is deliberate,"
+                              . " since guessing would send to the wrong fan. Use"
+                              . " the numbered keys, or a 'active model = N' key.")
         return
-    _SetCurModel(n)
+    }
+    LOGV("mass.active", "shared key resolved to model " st.no
+                      . " (" st.state (st.name != "" ? ", " st.name : "") ")")
+    _SetCurModel(st.no)
     fn()
 }
 

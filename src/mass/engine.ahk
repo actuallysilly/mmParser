@@ -44,15 +44,26 @@
 ; the neighbouring numbers — which is exactly the split that file now closes.
 ReloadMasses(*) {
     global MASS_DOC := MASS_Load()
+    LOGI("mass.reload", "the GUI saved masses.json — library reloaded, the next"
+                      . " keypress uses the new text")
 }
 OnMessage(MMA_MSG_MASSES_CHANGED, ReloadMasses)
 
 ; ── keys ──────────────────────────────────────────────────────────────────────
 ; Per-model first, then the shared set. Both come from hotkeys.ini and neither
 ; names a key here; see hotkeys.ahk.
+LOGI("engine.boot", "binding keys for " MASS_MODELS " model(s)")
 Loop MASS_MODELS
     MassBindModel(A_Index)
 MassBindActive()
 MassBindSelect()
 
 NavBind()
+
+; The line that answers "are the mass hotkeys alive at all on this machine?".
+;
+; Every bind above logs itself, but a hundred individual lines do not answer the
+; question a user is actually asking when they say nothing happens. If this says
+; 0, the cause is upstream of anything in this file — Easy mode, the Features tab,
+; or a hotkeys.ini that never arrived — and HK_Summary says which.
+HK_Summary("mass engine")

@@ -43,12 +43,12 @@ gOverloads := OL_Load()        ; trigger -> {file, options, variants}; refreshed
 ; to every other part of MMA, and sat one folder away from the real config under
 ; the same name.
 gSizes    := ["9", "10", "11", "12", "13", "14", "16", "18", "20", "22", "24"]
-gFontSize := Integer(IniRead(MMA_CFG, "Hotstrings", "FontSize", "11"))
+gFontSize := LOG_IniInt(MMA_CFG, "Hotstrings", "FontSize", 11)
 
 ; sort order, remembered across runs. "File order" is how the library reads on
 ; disk and stays the default; the date orders answer "what did I write lately?"
 gSortModes := ["File order", "Newest first", "Oldest first", "Trigger A-Z"]
-gSortMode  := Integer(IniRead(MMA_CFG, "Hotstrings", "Sort", "1"))
+gSortMode  := LOG_IniInt(MMA_CFG, "Hotstrings", "Sort", 1)
 if (gSortMode < 1 || gSortMode > gSortModes.Length)
     gSortMode := 1
 

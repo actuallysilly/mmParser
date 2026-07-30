@@ -4,7 +4,7 @@
 #Include "../core/hotkeys.ahk"
 
 cfgFile        := MMA_CFG
-defaultSleep   := Integer(IniRead(cfgFile, "Recorder", "DefaultSleep", "500"))
+defaultSleep   := LOG_IniInt(cfgFile, "Recorder", "DefaultSleep", 500)
 
 recording      := false
 sequence       := []
@@ -215,20 +215,64 @@ ShowOutput() {
 
 ; Add a HK_Def line for a recorded sequence at the marker in hotkeys.ahk, so the
 ; registry knows the id exists (HK_Bind refuses undeclared ids by design).
+; ── the most dangerous write in the repo ──────────────────────────────────────
+;  This edits core/hotkeys.ahk, which EVERY script in MMA includes. It was
+;  completely unguarded: `FileOpen(hkFile, "w")` truncates the file, and any
+;  failure between that and the write left the central hotkey registry empty —
+;  at which point nothing in the app loads at all, including the GUI you would
+;  use to fix it. Recovering means editing source by hand.
+;
+;  Temp file plus FileMove, so hotkeys.ahk is either the old version or the new
+;  one. Same pattern as store.ahk and archive.ahk, and for a more serious reason.
 DeclareSeqHotkey(id, label) {
     hkFile := MMA_SRC_HOTKEYS
     marker := "; @recorder-sequences@"
-    if !FileExist(hkFile)
+    LOGD("recorder.declare", "declaring hotkey id '" id "' in hotkeys.ahk")
+
+    if !FileExist(hkFile) {
+        LOGE("recorder.declare", "hotkeys.ahk is missing — cannot declare '" id "',"
+                               . " so the recorded sequence will have no hotkey id"
+                               . " and HK_Bind will refuse it", hkFile)
         return false
-    content := FileRead(hkFile, "UTF-8")
-    if !InStr(content, marker)
+    }
+    content := ""
+    try {
+        content := FileRead(hkFile, "UTF-8")
+    } catch as e {
+        LOGE("recorder.declare", "could not read hotkeys.ahk — '" id "' not declared",
+                                 LOG_Err(e))
         return false
-    if InStr(content, 'HK_Def("' id '"')
+    }
+    if !InStr(content, marker) {
+        ; The marker is load-bearing and its own comment in hotkeys.ahk says to
+        ; keep it. If somebody removes it, every future recording silently fails
+        ; to declare — which shows up as a sequence you cannot bind a key to.
+        LOGE("recorder.declare", "the '" marker "' marker is gone from hotkeys.ahk,"
+                               . " so new sequences cannot be declared",
+                               "restore that comment line — see its note in hotkeys.ahk")
+        return false
+    }
+    if InStr(content, 'HK_Def("' id '"') {
+        LOGD("recorder.declare", "'" id "' is already declared — nothing to do")
         return true                       ; already declared — re-saving is fine
+    }
     content := StrReplace(content, marker,
                           'HK_Def("' id '", "' label '", , "sequences.ahk")`n' marker, , , 1)
-    f := FileOpen(hkFile, "w", "UTF-8")
-    f.Write(content)
-    f.Close()
+
+    tmp := hkFile ".tmp"
+    try {
+        f := FileOpen(tmp, "w", "UTF-8")
+        if !f
+            throw Error("could not open " tmp " for writing")
+        f.Write(content)
+        f.Close()
+        FileMove(tmp, hkFile, true)
+    } catch as e {
+        try FileDelete(tmp)
+        LOGE("recorder.declare", "could not write hotkeys.ahk — '" id "' was NOT"
+                               . " declared. hotkeys.ahk is untouched.", LOG_Err(e))
+        return false
+    }
+    LOG_Ok("recorder.declare", "declared '" id "' — assign it a key in the Hotkeys tab")
     return true
 }

@@ -59,7 +59,8 @@ path**, which is how `HK_Broadcast` and `processes.ahk` find and close them.
 | [modes.ahk](src/core/modes.ahk) | Easy vs Advanced, and the one registry (`FEAT_Def`) of every optional feature. In Easy mode features are switched **off**, not hidden. |
 | [utils.ahk](src/core/utils.ahk) | 26 KB grab bag: `snd()`/`Sendt()` send helpers, AFK handling, the active-model gate (`FuGate`/`ModelIsActive`), plumbing hotstrings. Included by every message script. |
 | [coords.ahk](src/core/coords.ahk) | Named screen coordinates + Corsair Scimitar button aliases. Written to by `recorder.ahk`. |
-| [crashlog.ahk](src/core/crashlog.ahk) | `OnError` → `error_log.txt`. Deliberately separate from `utils.ahk` so `mass_gui.ahk` can have crash logging without inheriting utils' hotstrings. |
+| [log.ahk](src/core/log.ahk) | **The logger every process gets for free.** Included at the end of `paths.ahk`, which everything already includes, so each process gets a boot line, an exit line and an `OnError` hook with no wiring of its own. Six levels; the one that matters is `LOG_Bail` — *"nothing happened, on purpose, here is which purpose"*. Switches live in `mass_gui.cfg [Debug]`. See §7. |
+| [crashlog.ahk](src/core/crashlog.ahk) | A forwarder now. Its `OnError` → `error_log.txt` job moved into `log.ahk` (with the stack attached); the file survives because two scripts name it in an `#Include`. |
 | [mass_runtime.ahk](src/mass/runtime.ahk) | **All model behaviour, once.** Follow-ups, alts, branches, PPV, the Settings toggles. Model files are data because this exists. |
 | [mass_parser.ahk](src/mass/parser.ahk) | The `!mm` / `f1` / `--Branch` / `~alt` paste format: parse it in, escape it back out. |
 | [archive.ahk](src/mass/archive.ahk) | `mass_archive.txt`'s format, its one parser, and the viewer window. |
@@ -107,8 +108,11 @@ Python + deps, and **switches the Python features off in the cfg if you decline*
 ### 1.6 Docs
 
 [README.md](README.md) (install + features; its "File structure" section is now out of date),
-[CHANGELOG.md](CHANGELOG.md), [guide.md](docs/mass-format.md) (the paste format — this is *user*
-documentation with a developer-ish name), [branching_feature.md](docs/proposals/branching.md)
+[CHANGELOG.md](CHANGELOG.md), **[docs/guide.html](docs/guide.html)** (the user guide — every
+button, the paste format, the advanced features and a troubleshooting table; this is what the
+main window's **How to Use** button opens),
+[docs/mass-format.md](docs/mass-format.md) (the paste format alone, in markdown, for reading in
+an editor), [branching_feature.md](docs/proposals/branching.md)
 (unimplemented proposal for a web branch editor),
 [automation/UI-ELEMENT-MAP.md](src/services/automation/UI-ELEMENT-MAP.md) (measured Infloww geometry —
 the source of truth for `automation.py`), [pinger/README.md](src/services/pinger/README.md).
@@ -248,7 +252,8 @@ MMA/
 │   └── ui-research/            (was "infloww ui elements" — the space is hostile)
 │
 └── docs/
-    ├── mass-format.md          (was guide.md) — the paste format
+    ├── guide.html              the user guide — what "How to Use" opens
+    ├── mass-format.md          (was guide.md) — the paste format, in markdown
     └── proposals/branching.md  (was branching_feature.md)
 ```
 
@@ -663,3 +668,123 @@ by hand, which is the same trap in a new costume.
   an accident. They are Infloww chat navigation and have nothing to do with masses. Give
   them `src/chat/nav.ahk`, included by the engine rather than spawned separately, so no
   new process appears and `HK_Def`'s `owner` column finally tells the truth.
+
+---
+
+## 7. Logging: making a silent failure audible
+
+MMA is up to eight processes talking through ini files and `PostMessage`. Nothing in
+that arrangement produces a stack trace when it goes wrong — it produces **nothing**,
+which is the actual bug report: *"it silently failed to do something on my friend's
+machine."*
+
+Read back through this document and the comments in the tree and the same shape keeps
+recurring:
+
+- a folder missing from `MMA_ScriptPath`'s list, so a startup script never runs —
+  *"no error, no dialog, nothing in the log"*
+- an `IniRead` with a default, so a setting quietly reverts
+- a key absent from `hotkeys.ini`, so an action is simply unbound
+- a feature switched off, so its hotkey never registers
+- `engine.ahk` dropped out of `StartupScripts`, so every mass hotkey went dead
+
+**Not one of those throws.** Every one is a branch that returned early, and the only way
+to see a branch that returned early is to have written it down on the way past.
+
+### 7.1 How it reaches everything
+
+`src/core/paths.ahk` includes `src/core/log.ahk` **at its end**. `paths.ahk` is the one
+file every entry point already includes, which makes it the only place a logger can be
+added once and reach everything — including the scripts nobody remembers exist. The
+include is circular (`log.ahk` names `paths.ahk` too, since it may be included directly)
+and that is fine: AHK loads a given file once however many times it is named.
+
+Each process therefore gets, with no code of its own:
+
+| Line | When |
+|---|---|
+| `BOOT` | at load, before the script's own code can fail — so a script that dies during load still leaves proof it started |
+| `EXIT` | on any exit, including `ProcessClose` from the watchdog and `#SingleInstance` replacement |
+| `CRSH` | every uncaught error, **with its stack** |
+
+### 7.2 The six levels
+
+| Level | Call | Means |
+|---|---|---|
+| `INFO` | `LOGI` | something happened you would want in a timeline |
+| `VERB` | `LOGV` | something happened, and there are thousands of them |
+| `WARN` | `LOGW` | wrong, but survivable, and nobody is going to notice |
+| `FAIL` | `LOGE` | it did not work — the only level that can raise a dialog |
+| `BAIL` | `LOG_Bail` | **it deliberately did nothing, and here is why** |
+| `DONE` | `LOG_Ok` | a thing that can fail finished |
+
+`BAIL` is the level with no equivalent anywhere else and the reason this exists. A
+feature that is off, a key that is unbound, a mass slot that is empty, a window that is
+not in front — all correct behaviour, all identical from the user's chair (*nothing
+happened*), and all exactly what *"why did it silently do nothing?"* is asking about.
+
+### 7.3 The three switches
+
+`mass_gui.cfg [Debug]`, owned by **Settings ▸ Debug** and written nowhere else — the
+same one-control-one-place rule the Features tab follows (§1.3).
+
+| Key | Default | What it does |
+|---|---|---|
+| `Logging` | **1** | write to `debuglogs\mma.log` at all |
+| `Popups` | 0 | a failure also raises a dialog carrying the last 20 log lines |
+| `MaxLogging` | 0 | also write the `VERB` firehose |
+
+`Logging` defaults **on** because a log nobody switched on is a log that is empty on the
+morning you need it. It costs one `FileAppend` per event.
+
+`Popups` is the *debug on someone else's machine* switch. Off, a failure is a line in a
+file they would have to find, open and send you. On, it is a dialog in front of them
+carrying the context — which they can screenshot. Same information; only one of those
+two actually arrives. Dialogs are budgeted (same message once per process, 15 per
+process, 60s timeout) so a failure inside a 500ms timer cannot become a machine you have
+to reboot.
+
+They are written **the instant you click**, not on Save: the switches are read by eight
+processes, all of which re-read the cfg on a 1.5s timer, so a click is live everywhere
+within a second and a half with no broadcast and no restart. A debugging switch you have
+to remember to Save is a switch that is off in the log you finally go and read.
+
+`MMA_DEBUG=max|popups|off` in the **environment** overrides all three, for the machine
+you cannot open Settings on. When it is set the checkboxes are disabled and say so —
+a checkbox that silently does nothing because something outside the app is winning is
+precisely the failure this whole feature exists to stamp out.
+
+### 7.4 Two files, deliberately
+
+| File | What |
+|---|---|
+| `debuglogs\mma.log` | the full timeline, every process, one line per event. Rotates at 8 MB to `mma.log.1`. |
+| `debuglogs\error_log.txt` | `FAIL` and `CRSH` only, so it stays short enough to read top to bottom. |
+
+*"What broke"* and *"what was happening when it broke"* are different questions and want
+different files. `LOGE` writes both — and writes them **even when `Logging` is off**,
+because a failure is never noise.
+
+### 7.5 The diagnostic report
+
+**Settings ▸ Debug ▸ Diagnostic report** writes one file to hand over:
+environment, `mass_gui.cfg` and `hotkeys.ini` in full, `userdata\` file names and sizes,
+and the last 400 log lines. Masses and message text are deliberately **excluded** — the
+report gets sent to somebody, and those are the user's work, not diagnostic data.
+
+*"Send me your log"* otherwise produces a log with no idea what version, what mode or
+what settings produced it, and then a second round trip.
+
+### 7.6 Two traps worth knowing
+
+**`Log()` and `Ln()` are AutoHotkey built-ins** (base-10 and natural logarithm). A
+user-defined `LOG()` shadows the built-in, so every file that includes the logger works
+perfectly — and every file that does *not* silently binds to the built-in instead, where
+`LOG("tag", "msg")` fails at **load** with *"Too many parameters passed to function"*.
+The failure lands in a file that never mentioned logging. Hence `LOGI`, which collides
+with nothing and makes the four levels symmetrical. Likewise never name a top-level
+loop variable `ln`.
+
+**A logger must never crash the thing it is logging for.** Every path in `log.ahk` is
+inside a `try`, including the ones that look incapable of throwing. Nothing is buffered
+either — the tail of the file before a crash is the whole reason you are reading it.

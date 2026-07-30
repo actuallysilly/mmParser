@@ -172,7 +172,7 @@ ActionsBuild() {
     _actGui.SetFont("s9 c" ACT_MUTED, "Segoe UI")
     _actSends := _actGui.Add("Checkbox", "x14 y344 w230",
                              "Show model send keys (F1-F4 etc.)")
-    _actSends.Value := Integer(IniRead(ACT_CFG, "Actions", "ShowSends", "0"))
+    _actSends.Value := LOG_IniInt(ACT_CFG, "Actions", "ShowSends", 0)
     _actSends.OnEvent("Click", ActionsToggleSends)
     _actPinBtn := _actGui.Add("Button", "x250 y338 w130 h26", "Pin / Unpin")
     _actPinBtn.OnEvent("Click", (*) => ActionsPinSelected())

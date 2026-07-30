@@ -1,4 +1,10 @@
 ﻿#Requires AutoHotkey v2.0
+; Named explicitly rather than inherited from main_window.ahk, which is the only
+; file that includes this one today. Every function below now logs, and a file
+; that depends on its INCLUDER having pulled in the logger first is one refactor
+; away from failing to load — the include is free (AHK loads a file once however
+; many times it is named) and it makes this file stand on its own.
+#Include "paths.ahk"
 ; ═══════════════════════════════════════════════════════════════════════════════
 ;  processes.ahk — starting, stopping and watching everything MMA runs.
 ; ───────────────────────────────────────────────────────────────────────────────
@@ -25,11 +31,31 @@ ToggleScript(path, btn) {
     SplitPath path, &fname
     label := StrReplace(fname, ".ahk", "")
     if WinExist(path " ahk_class AutoHotkey") {
-        pid := WinGetPID(path " ahk_class AutoHotkey")
-        ProcessClose pid
+        ; TOCTOU: the script can exit between WinExist and WinGetPID, and then
+        ; WinGetPID throws "Target window not found" — so clicking the toggle at
+        ; the moment a script happens to be dying raised an error dialog and left
+        ; the button's label lying about the state.
+        try {
+            pid := WinGetPID(path " ahk_class AutoHotkey")
+            LOGI("proc.toggle", "stopping " fname " (pid " pid ") — clicked in the GUI")
+            ProcessClose pid
+        } catch as e {
+            LOGW("proc.toggle", fname " vanished while we were closing it — treating"
+                              . " it as stopped (" LOG_Err(e) ")")
+        }
         btn.Text := "◻ " label
     } else {
-        Run path
+        ; A missing file here is the whole failure: Run throws, the button still
+        ; flips to "on", and the script is not running. Checked first so the log
+        ; says which of those two things happened.
+        if !FileExist(path) {
+            LOGE("proc.toggle", fname " cannot start — the file does not exist", path)
+            return
+        }
+        LOGI("proc.toggle", "starting " fname " — clicked in the GUI")
+        LOG_Try("proc.toggle", "Run " fname, () => Run(path), &ok)
+        if !ok
+            return
         btn.Text := "◼ " label
     }
 }
@@ -57,18 +83,38 @@ KillAllAndExit(*) {
 ; ProcessClose every AutoHotkey script launched from this folder (except this GUI).
 KillAllScripts() {
     global SCRIPT_DIR
+    LOGI("proc.killall", "tearing down every MMA script under " SCRIPT_DIR)
     try SetTimer(WatchdogTick, 0)        ; stop watchdog first so it can't relaunch anything
     StopAutomationListener()             ; not an AHK window, so the loop below misses it
     StopPinger()                         ; likewise
     myPID := ProcessExist()
     DetectHiddenWindows true
+    closed := 0
+    ; The whole body is guarded PER WINDOW, not around the loop.
+    ;
+    ; WinGetList returns a snapshot, and closing scripts is exactly when its
+    ; entries go stale — a script that exits while we are working down the list
+    ; makes WinGetPID/WinGetTitle throw "Target window not found". Unguarded that
+    ; escaped the loop, so "close all running scripts too?" on exit silently left
+    ; every script after the vanished one still running: you answer Yes, the panel
+    ; closes, and half your scripts are still in the tray.
     for hwnd in WinGetList("ahk_class AutoHotkey") {
-        pid := WinGetPID("ahk_id " hwnd)
-        if pid = myPID
-            continue
-        if InStr(WinGetTitle("ahk_id " hwnd), SCRIPT_DIR)
-            try ProcessClose(pid)
+        try {
+            pid := WinGetPID("ahk_id " hwnd)
+            if pid = myPID
+                continue
+            title := WinGetTitle("ahk_id " hwnd)
+            if InStr(title, SCRIPT_DIR) {
+                LOGI("proc.killall", "closing " _LOG_BaseName(title) " (pid " pid ")")
+                ProcessClose(pid)
+                closed++
+            }
+        } catch as e {
+            LOGV("proc.killall", "a script vanished while closing (already gone) — "
+                               . LOG_Err(e))
+        }
     }
+    LOGI("proc.killall", closed " script(s) closed")
 }
 
 ; The cfg stores BARE FILENAMES: StartupScripts=1_mass.ahk,ALIW.ahk,general.ahk.
@@ -77,19 +123,54 @@ KillAllScripts() {
 ; cfg format never changes and nobody's existing settings break.
 ResolveScriptPath(fname) {
     p := MMA_ScriptPath(fname)
-    return FileExist(p) ? p : ""
+    if FileExist(p)
+        return p
+    ; "" means LaunchStartupScripts skips this entry entirely and the script never
+    ; starts. That is the exact failure paths.ahk's header describes, and it has
+    ; happened at least twice in this repo's history — so it gets a FAIL, not a
+    ; shrug. With popups on, the user is told the moment it bites instead of
+    ; discovering it as a dead hotkey an hour later.
+    LOGE("proc.resolve", "startup script '" fname "' was not found anywhere —"
+                       . " it will NOT be started",
+                       "searched acc\\, content\\ and the src\\ subfolders;"
+                     . " last guess was " p)
+    return ""
 }
 
 ; run each configured startup script that isn't already running (also used by the watchdog)
 LaunchStartupScripts() {
-    if !FEAT("startupScripts")
+    if !FEAT("startupScripts") {
+        LOG_Bail("proc.startup", "startupScripts feature is off — no auto-start"
+                               . " scripts will run, and the watchdog will not"
+                               . " restart anything")
         return
+    }
     global startupScripts
+    started := 0, already := 0, missing := 0
     for fname in startupScripts {
         path := ResolveScriptPath(fname)
-        if path != "" && !WinExist(path " ahk_class AutoHotkey")
-            try Run(path)
+        if (path = "") {
+            missing++
+            continue
+        }
+        if WinExist(path " ahk_class AutoHotkey") {
+            already++
+            LOGV("proc.startup", fname " already running")
+            continue
+        }
+        LOGI("proc.startup", "starting " fname " → " path)
+        LOG_Try("proc.startup", "Run " fname, () => Run(path), &ok)
+        if ok
+            started++
     }
+    ; One summary line even when nothing happened, because "the list was empty"
+    ; and "the list ran" look identical in a log that only reports actions. An
+    ; empty StartupScripts key is itself a known way to lose a script silently.
+    LOG_Kv("proc.startup", Map("configured", startupScripts.Length,
+                               "started", started,
+                               "alreadyUp", already,
+                               "missing", missing),
+           started || missing ? "INFO" : "VERB")
 }
 
 ; ── is there a Python to run the Python children with? ───────────────────────
@@ -120,11 +201,19 @@ PythonAvailable() {
             ; instead of the listener starting.
             if FileExist(path) && FileGetSize(path) > 0 {
                 found := true
+                LOGI("proc.python", "interpreter found: " path)
                 break 2
             }
         }
     }
     cached := found ? "1" : "0"
+    ; Not an error — plenty of installs have no Python and do not want one — but
+    ; it silently disables two whole features, so it is written down once per
+    ; process rather than left to be inferred from their absence.
+    if !found
+        LOGW("proc.python", "no python.exe or pythonw.exe on PATH (zero-byte Store"
+                          . " aliases ignored) — the automation listener and the"
+                          . " unread pinger cannot start")
     return found
 }
 
@@ -161,17 +250,23 @@ AutomationListenerRunning() {
 ; happened" gets an explanation. Silent at startup — see PythonAvailable().
 LaunchAutomationListener(announce := false) {
     global SCRIPT_DIR
-    if AutomationListenerRunning()
+    if AutomationListenerRunning() {
+        LOGV("proc.automation", "already running (its named event exists)")
         return
+    }
     ; FEAT reads the cfg key, so it is right the moment Settings writes it. This
     ; used to ALSO check an `automationListener` global that the old Settings
     ; window assigned on save — and once the Features tab became the only writer
     ; of that key, nothing assigned the global any more. It kept its startup value
     ; for the whole session, so switching the listener on and pressing Save
     ; returned here, read a stale 0, and silently did nothing.
-    if !FEAT("automation")
+    if !FEAT("automation") {
+        LOG_Bail("proc.automation", "feature 'automation' is off — listener not started")
         return
+    }
     if !PythonAvailable() {
+        LOG_Bail("proc.automation", "no Python — listener not started, so every"
+                                  . " [automation] hotkey is dead")
         if announce
             MsgBox "The automation listener needs Python, which isn't installed.`n`n"
                  . "Run install.bat to set it up, or leave this off — the "
@@ -180,8 +275,16 @@ LaunchAutomationListener(announce := false) {
         return
     }
     vbs := MMA_SRC "\services\automation\automation_listen.vbs"
-    if FileExist(vbs)
-        try Run('wscript.exe "' vbs '"', SCRIPT_DIR, "Hide")
+    ; A .vbs has nowhere to report a failure, so if the file is not even there,
+    ; this function returns having done nothing at all and looks like success.
+    if !FileExist(vbs) {
+        LOGE("proc.automation", "the launcher script is missing — the listener"
+                              . " cannot start and the [automation] keys are dead", vbs)
+        return
+    }
+    LOGI("proc.automation", "starting the listener via " vbs)
+    LOG_Try("proc.automation", "run automation_listen.vbs",
+            () => Run('wscript.exe "' vbs '"', SCRIPT_DIR, "Hide"))
 }
 
 ; Ask it to exit cleanly (it has no console to Ctrl+C, and it is not an AHK window
@@ -190,6 +293,7 @@ StopAutomationListener() {
     h := _AutomationOpenEvent()
     if !h
         return
+    LOGI("proc.automation", "asking the listener to exit (setting its stop event)")
     DllCall("SetEvent", "Ptr", h)
     DllCall("CloseHandle", "Ptr", h)
 }
@@ -216,25 +320,36 @@ PingerRunning() {
 
 LaunchPinger(announce := false) {
     global SCRIPT_DIR
-    if PingerRunning()
+    if PingerRunning() {
+        LOGV("proc.pinger", "already running (its named event exists)")
         return
-    if !FEAT("pinger")
+    }
+    if !FEAT("pinger") {
+        LOG_Bail("proc.pinger", "feature 'pinger' is off — not started")
         return
+    }
     if !PythonAvailable() {
+        LOG_Bail("proc.pinger", "no Python — pinger not started")
         if announce
             MsgBox "The unread pinger needs Python, which isn't installed.`n`n"
                  . "Run install.bat to set it up.", "No Python found", 0x40
         return
     }
     vbs := MMA_SRC "\services\pinger\pinger_start.vbs"
-    if FileExist(vbs)
-        try Run('wscript.exe "' vbs '"', SCRIPT_DIR, "Hide")
+    if !FileExist(vbs) {
+        LOGE("proc.pinger", "the launcher script is missing — the pinger cannot start", vbs)
+        return
+    }
+    LOGI("proc.pinger", "starting the pinger via " vbs)
+    LOG_Try("proc.pinger", "run pinger_start.vbs",
+            () => Run('wscript.exe "' vbs '"', SCRIPT_DIR, "Hide"))
 }
 
 StopPinger() {
     h := _PingerOpenEvent()
     if !h
         return
+    LOGI("proc.pinger", "asking the pinger to exit (setting its stop event)")
     DllCall("SetEvent", "Ptr", h)
     DllCall("CloseHandle", "Ptr", h)
 }
@@ -272,15 +387,31 @@ EngineRunning() {
     return up
 }
 LaunchEngine() {
-    if (!FileExist(_EngineFile()) || EngineRunning())
+    ; The engine carries EVERY mass hotkey. If it is not running, every follow-up
+    ; key, PPV key and __mm trigger in MMA is dead — and that is exactly what it
+    ; looks like from the outside: nothing happens, no error, no dialog. So a
+    ; missing engine.ahk is a FAIL that pops up, not a quiet return.
+    if !FileExist(_EngineFile()) {
+        LOGE("proc.engine", "engine.ahk is MISSING — every mass hotkey is dead",
+                            _EngineFile())
         return
-    try Run(_EngineFile())
+    }
+    if EngineRunning() {
+        LOGV("proc.engine", "already running")
+        return
+    }
+    LOGI("proc.engine", "starting the mass engine")
+    LOG_Try("proc.engine", "Run engine.ahk", () => Run(_EngineFile()))
 }
 StopEngine() {
     prev := A_DetectHiddenWindows
     DetectHiddenWindows true
-    if WinExist(_EngineTitle())
+    if WinExist(_EngineTitle()) {
+        LOGI("proc.engine", "stopping the mass engine — every mass hotkey goes dead"
+                         . " until it is back")
         try ProcessClose(WinGetPID(_EngineTitle()))
+    } else
+        LOGV("proc.engine", "stop requested but it was not running")
     DetectHiddenWindows prev
 }
 
@@ -300,8 +431,15 @@ StopEngine() {
 ;
 ;  That is the same failure the engine had ("it lost the engine exactly once,
 ;  silently"), and it has now been reported as "the Discord import broke AGAIN"
-;  more than once. A script that owns hotkeys should not be a checkbox. FEAT
-;  ("sequences") is its real switch and is the only one it needs.
+;  more than once. A script that owns hotkeys should not be a checkbox.
+;
+;  So it has no switch at all now — not StartupScripts, not the Hotkeys tab's
+;  owner column, and not the Features tab either. The FEAT("sequences") gate that
+;  stood at the top of LaunchSequences was the last one, and it made Easy mode a
+;  silent killer: Easy switches off every feature in the registry at once, so the
+;  import went dead there with no box to find and nothing to untick. The feature is
+;  gone from the registry (see the note in core/modes.ahk) and this starts
+;  unconditionally, exactly like the engine above.
 _SequencesTitle() {
     return MMA_SRC_SEQUENCES " ahk_class AutoHotkey"
 }
@@ -313,17 +451,25 @@ SequencesRunning() {
     return up
 }
 LaunchSequences() {
-    if !FEAT("sequences")
+    if !FileExist(MMA_SRC_SEQUENCES) {
+        LOGE("proc.sequences", "sequences.ahk is MISSING — the Discord import and"
+                             . " every seq.* key are dead", MMA_SRC_SEQUENCES)
         return
-    if (!FileExist(MMA_SRC_SEQUENCES) || SequencesRunning())
+    }
+    if SequencesRunning() {
+        LOGV("proc.sequences", "already running")
         return
-    try Run(MMA_SRC_SEQUENCES)
+    }
+    LOGI("proc.sequences", "starting sequences.ahk")
+    LOG_Try("proc.sequences", "Run sequences.ahk", () => Run(MMA_SRC_SEQUENCES))
 }
 StopSequences() {
     prev := A_DetectHiddenWindows
     DetectHiddenWindows true
-    if WinExist(_SequencesTitle())
+    if WinExist(_SequencesTitle()) {
+        LOGI("proc.sequences", "stopping sequences.ahk")
         try ProcessClose(WinGetPID(_SequencesTitle()))
+    }
     DetectHiddenWindows prev
 }
 
@@ -331,19 +477,33 @@ DetectorRunning() {
     return WinExist(_DetectorTitle()) != 0
 }
 LaunchDetector() {
-    if !FEAT("modelDetector")
+    if !FEAT("modelDetector") {
+        LOG_Bail("proc.detector", "feature 'modelDetector' is off — the"
+                                . " [mass.active] shared keys have nothing to follow")
         return
+    }
     global SCRIPT_DIR
     path := MMA_SRC "\screen\model_detector.ahk"
-    if !FileExist(path) || DetectorRunning()
+    if !FileExist(path) {
+        LOGE("proc.detector", "model_detector.ahk is missing", path)
         return
-    try Run(path)
+    }
+    if DetectorRunning() {
+        LOGV("proc.detector", "already running")
+        return
+    }
+    LOGI("proc.detector", "starting the model detector")
+    LOG_Try("proc.detector", "Run model_detector.ahk", () => Run(path))
 }
 StopDetector() {
     global SCRIPT_DIR
-    if WinExist(_DetectorTitle())
+    if WinExist(_DetectorTitle()) {
+        LOGI("proc.detector", "stopping the model detector")
         try ProcessClose(WinGetPID(_DetectorTitle()))
+    }
     ; clear the gate so every model responds again once detection is off
+    LOGI("proc.detector", "clearing detector_status.ini active_model — model gating"
+                       . " is now off, so every model's keys respond again")
     try IniWrite("", MMA_DETECTOR, "detector", "active_model")
 }
 
@@ -357,17 +517,29 @@ StatsOverlayRunning() {
     return WinExist(_StatsTitle()) != 0
 }
 LaunchStatsOverlay() {
-    if !FEAT("statsOverlay")
+    if !FEAT("statsOverlay") {
+        LOG_Bail("proc.stats", "feature 'statsOverlay' is off — the overlay and its"
+                             . " toggle key are dead")
         return
+    }
     global SCRIPT_DIR
     path := MMA_SRC "\screen\stats_overlay.ahk"
-    if !FileExist(path) || StatsOverlayRunning()
+    if !FileExist(path) {
+        LOGE("proc.stats", "stats_overlay.ahk is missing", path)
         return
-    try Run(path)
+    }
+    if StatsOverlayRunning() {
+        LOGV("proc.stats", "already running")
+        return
+    }
+    LOGI("proc.stats", "starting the stats overlay")
+    LOG_Try("proc.stats", "Run stats_overlay.ahk", () => Run(path))
 }
 StopStatsOverlay() {
-    if WinExist(_StatsTitle())
+    if WinExist(_StatsTitle()) {
+        LOGI("proc.stats", "stopping the stats overlay")
         try ProcessClose(WinGetPID(_StatsTitle()))
+    }
 }
 
 TogglePinger(*) {
@@ -397,8 +569,29 @@ RefreshPingerLabel() {
 
 WatchdogTick() {
     ; Easy mode runs no children, so the watchdog has nothing to restart.
-    if !FEAT("startupScripts")
+    if !FEAT("startupScripts") {
+        LOGV("proc.watchdog", "tick skipped — startupScripts is off")
         return
+    }
+    ; Which of the two core children were DOWN when this tick started.
+    ;
+    ; The Launch* calls below already log a restart, but they cannot tell you it
+    ; was a RE-start: on the first tick after launch "starting the engine" is
+    ; normal, and on the twentieth it means the engine is crash-looping and every
+    ; mass key is dying with it every five seconds. Sampling first is what makes
+    ; those two distinguishable in the log.
+    down := ""
+    if !EngineRunning()
+        down .= "engine "
+    ; Unconditional, like the engine beside it: sequences.ahk has no feature switch
+    ; any more, so "down" here always means it actually died.
+    if !SequencesRunning()
+        down .= "sequences "
+    if (down != "")
+        LOGW("proc.watchdog", "found down, restarting: " Trim(down))
+    else
+        LOG_Heartbeat("proc.watchdog", "alive; engine and sequences both up")
+
     LaunchEngine()                  ; core, not optional — see _EngineFile
     LaunchSequences()               ; likewise — it owns the seq.* hotkeys
     LaunchStartupScripts()

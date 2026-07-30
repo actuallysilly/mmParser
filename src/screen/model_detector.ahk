@@ -26,26 +26,35 @@
 CFG    := MMA_CFG
 STATUS := MMA_DETECTOR
 
-RegionX  := Integer(IniRead(CFG, "Detector", "RegionX",  "0"))
-RegionY  := Integer(IniRead(CFG, "Detector", "RegionY",  "0"))
-RegionW  := Integer(IniRead(CFG, "Detector", "RegionW",  "330"))
-RegionH  := Integer(IniRead(CFG, "Detector", "RegionH",  "50"))
+; LOG_IniInt throughout — see the note in mass/runtime.ahk. Every one of these is
+; read at the TOP LEVEL of a background service that has no window, no tray icon
+; and no output, so `GreyTol=high` in a config the header above explicitly tells
+; you to edit did not mis-tune the detector, it stopped it from existing. The only
+; symptom is the [mass.active] shared keys quietly having nothing to follow.
+RegionX  := LOG_IniInt(CFG, "Detector", "RegionX",  0,   "detector.boot")
+RegionY  := LOG_IniInt(CFG, "Detector", "RegionY",  0,   "detector.boot")
+RegionW  := LOG_IniInt(CFG, "Detector", "RegionW",  330, "detector.boot")
+RegionH  := LOG_IniInt(CFG, "Detector", "RegionH",  50,  "detector.boot")
 GreyHex  := Trim(IniRead(CFG, "Detector", "GreyColor", "0x2B2C30"))
-GreyTol  := Integer(IniRead(CFG, "Detector", "GreyTol",  "22"))
-MinGrey  := Integer(IniRead(CFG, "Detector", "MinGrey",  "6"))
-ScanStep := Integer(IniRead(CFG, "Detector", "ScanStep", "4"))
-PollMs   := Integer(IniRead(CFG, "Detector", "PollMs",   "500"))
-OcrScale := Integer(IniRead(CFG, "Detector", "OcrScale", "3"))
-MoveTol  := Integer(IniRead(CFG, "Detector", "MoveTol",  "20"))
+GreyTol  := LOG_IniInt(CFG, "Detector", "GreyTol",  22,  "detector.boot")
+MinGrey  := LOG_IniInt(CFG, "Detector", "MinGrey",  6,   "detector.boot")
+ScanStep := LOG_IniInt(CFG, "Detector", "ScanStep", 4,   "detector.boot")
+PollMs   := LOG_IniInt(CFG, "Detector", "PollMs",   500, "detector.boot")
+OcrScale := LOG_IniInt(CFG, "Detector", "OcrScale", 3,   "detector.boot")
+MoveTol  := LOG_IniInt(CFG, "Detector", "MoveTol",  20,  "detector.boot")
 ; Widest gap in px that still counts as INSIDE one pill. A pill is a solid block
 ; of colour so its columns are contiguous; anything wider than this is the space
 ; between two tabs, and grouping across it is what produced "AW Bellarama".
-GapTol   := Integer(IniRead(CFG, "Detector", "GapTol",   "12"))
+GapTol   := LOG_IniInt(CFG, "Detector", "GapTol", 12, "detector.boot")
 ; The INACTIVE pill colour. Needed only to count tabs, which is what positional
 ; mode reads instead of a name: a grey-only scan sees the lit tab but has no way
 ; to know whether it is the first of three or the third.
 DarkHex  := Trim(IniRead(CFG, "Detector", "InactiveColor", "0x0D0D0D"))
-DarkRGB  := Integer(RegExMatch(DarkHex, "i)^0x") ? DarkHex : "0x" DarkHex)
+; A colour is the single most likely value here to be typed in by hand, and a typo
+; in it threw at load exactly like the numbers above. IsInteger accepts "0x1A", so
+; the same guard covers hex.
+DarkRGB  := LOG_Int(RegExMatch(DarkHex, "i)^0x") ? DarkHex : "0x" DarkHex,
+                    0x0D0D0D, "[Detector] InactiveColor")
 ; Foreground gate. This MUST default to the Infloww window, not to "" — the scan
 ; below looks at a fixed screen rectangle, not at a window, so with no gate it
 ; happily OCRs whatever else is sitting at those coordinates. That is not
@@ -55,7 +64,8 @@ DarkRGB  := Integer(RegExMatch(DarkHex, "i)^0x") ? DarkHex : "0x" DarkHex)
 ; Same window as automation.py's TARGET_TITLE and the "chrome" hotkey context.
 ; Blank it deliberately only if you want no gate at all.
 WinMatch := Trim(IniRead(CFG, "Detector", "WinMatch",  "Infloww Messages"))
-GreyRGB  := Integer(RegExMatch(GreyHex, "i)^0x") ? GreyHex : "0x" GreyHex)
+GreyRGB  := LOG_Int(RegExMatch(GreyHex, "i)^0x") ? GreyHex : "0x" GreyHex,
+                    0x2B2C30, "[Detector] GreyColor")
 
 ; Seed the [Detector] section on first run so the values are visible/editable.
 if (IniRead(CFG, "Detector", "RegionW", "") = "") {
@@ -82,6 +92,18 @@ _wPos       := -1       ; last active_index written  (dedupes writes)
 _wTot       := -1       ; last tab_count written
 _wX         := -99999   ; last active_x written
 
+; What this service resolved at load. It has no window and no output, so without
+; this there is no way to know what geometry it is actually scanning — and "the
+; detector is wrong" is nearly always "the detector is reading the wrong pixels".
+LOG_Kv("detector.boot", Map("region", RegionX "," RegionY " " RegionW "x" RegionH,
+                            "grey",   Format("0x{:06X}", GreyRGB),
+                            "greyTol", GreyTol,
+                            "minGrey", MinGrey,
+                            "gapTol", GapTol,
+                            "pollMs", PollMs,
+                            "ocrScale", OcrScale,
+                            "winMatch", WinMatch = "" ? "(none — UNGATED)" : WinMatch))
+
 Poll()
 SetTimer(Poll, PollMs)
 
@@ -90,12 +112,20 @@ Poll() {
     global OcrScale, MoveTol, GapTol, DarkRGB, WinMatch, _lastCentre, _lastName
 
     if (WinMatch != "" && !WinActive(WinMatch)) {
+        ; Throttled, or this would be 7,000 lines an hour while you work in any
+        ; other window. Its absence from a stretch of log is how you spot the
+        ; service having died rather than merely having nothing to report.
+        LOG_Heartbeat("detector.idle",
+                      "alive, but '" WinMatch "' is not in front — not scanning."
+                    . " Shared [mass.active] keys have no answer while this is true.")
         WriteActive("")
         WritePos(0, 0)
         WriteX(-1)
         _lastCentre := -99999, _lastName := ""
         return
     }
+    LOG_Heartbeat("detector.poll", "alive and scanning; last name read: '"
+                                 . (_lastName = "" ? "(none)" : _lastName) "'")
 
     ; ONE BitBlt, then read from memory. This poll used to call PixelGetColor
     ; ~1000 times, which measured 10.8 SECONDS on this machine — twenty times the
@@ -117,8 +147,24 @@ Poll() {
     if (_lastName = "" || Abs(r.avgX - _lastCentre) > MoveTol) {
         name := OcrPill(r.minX, RegionY, r.maxX - r.minX, RegionH, OcrScale)
         if (name != "") {
+            ; The one line worth having from this whole service. Everything
+            ; downstream — which model the shared keys mean, whether __mm expands
+            ; — is decided from this string, and it is OCR of a 13px pill. Seeing
+            ; the ACTUAL text it read is the difference between "detection is
+            ; broken" and "detection read 'AW Bellarama' because the scan merged
+            ; two tabs", which are completely different bugs.
+            LOGI("detector", "OCR read '" name "'"
+                           . "  pill x " r.minX "-" r.maxX
+                           . "  tab " r.index " of " r.total)
             _lastName   := name
             _lastCentre := r.avgX
+        } else {
+            ; Note the pill WAS found — this is an OCR failure, not a scan
+            ; failure. Positional mode keeps working here, which is exactly the
+            ; advice this line should lead somebody towards.
+            LOGW("detector", "found the lit pill at x " r.minX "-" r.maxX " but OCR"
+                           . " read nothing from it. Name mode has no answer;"
+                           . " positional mode is unaffected and still works.")
         }
     }
     if (_lastName != "")
@@ -153,10 +199,17 @@ OcrPill(x, y, w, h, scale) {
     }
 }
 
+; Only CHANGES are logged — this runs every 500ms, and the early return above is
+; what keeps a steady state from filling the file with one identical line twice a
+; second. What is left is a clean record of every tab switch MMA believed in.
 WriteActive(name) {
     global STATUS, _written
     if (name = _written)
         return
+    LOGI("detector", "active model name: '" (_written = "" ? "(none)" : _written)
+                   . "' → '" (name = "" ? "(none)" : name) "'"
+                   . (name = "" ? "   — gating is now OFF, so every model's keys"
+                                . " respond" : ""))
     _written := name
     try IniWrite(name, STATUS, "detector", "active_model")
 }

@@ -23,9 +23,21 @@ ArchiveFile() {
 ReadArchiveEntries() {
     path := ArchiveFile()
     entries := []
-    if !FileExist(path)
+    if !FileExist(path) {
+        LOGD("archive.read", "no archive file yet — nothing to browse")
         return entries
-    raw := FileRead(path, "UTF-8")
+    }
+    raw := ""
+    try {
+        raw := FileRead(path, "UTF-8")
+    } catch as e {
+        ; The archive grows without bound and is the one file here likely to be
+        ; open in a text editor while MMA runs. Unguarded this threw straight into
+        ; whatever opened the archive window.
+        LOGE("archive.read", "could not read the archive — the archive window will"
+                           . " show nothing", LOG_Err(e) "   " path)
+        return entries
+    }
     for chunk in StrSplit(raw, "===END===") {
         chunk := Trim(chunk, " `t`r`n")   ; Trim() alone keeps leading CR/LF, making lines[1] empty → only first entry parsed
         if chunk = ""
@@ -87,12 +99,22 @@ DeleteArchiveEntry(target) {
     tmp := path ".tmp"
     try {
         f := FileOpen(tmp, "w", "UTF-8")
-        if !f
+        if !f {
+            LOGE("archive", "could not open the archive's temp file for writing —"
+                          . " the archive was NOT changed", tmp)
             return false
+        }
         f.Write(out)
         f.Close()
         FileMove(tmp, path, 1)
-    } catch {
+        LOGI("archive", "rewrote " path " — " kept.Length " entr(ies) kept")
+    } catch as e {
+        ; The archive is a write-only history of every mass ever parsed, so a
+        ; failed rewrite is not data loss — the previous file is still there,
+        ; untouched, by construction. Worth a FAIL anyway: the deletion the user
+        ; just asked for did not happen, and the entry will still be there.
+        LOGE("archive", "could not rewrite the archive — it is unchanged, so"
+                      . " whatever you just deleted is still in it", LOG_Err(e))
         try FileDelete(tmp)
         return false
     }
@@ -132,7 +154,9 @@ ArchiveDayStamp(ts) {
 ; entry, but either one is worth asking about.
 ArchiveFindDuplicate(mName, raw) {
     global CFG_FILE
-    window := Integer(IniRead(CFG_FILE, "Settings", "ArchiveDupDays", "1"))
+    ; Reached from Parse, so an unparseable ArchiveDupDays threw every time you
+    ; pressed Parse with archiving on — i.e. the core action of the app.
+    window := LOG_IniInt(CFG_FILE, "Settings", "ArchiveDupDays", 1, "archive")
     if window < 0
         return 0
     want  := NormalizeMass(raw)
@@ -329,7 +353,11 @@ OpenArchive(*) {
         row := lv.GetNext(0)
         if !row
             return 0
-        idx := Integer(lv.GetText(row, 4))
+        ; Column 4 is a hidden index the Populate loop writes. LOG_Int rather than
+        ; Integer(): an empty or non-numeric cell (a row added by any future code
+        ; path that forgets column 4) threw on SELECTION, so clicking a row in the
+        ; archive raised an error dialog instead of showing the mass.
+        idx := LOG_Int(lv.GetText(row, 4), 0, "archive row index")
         return (idx >= 1 && idx <= all.Length) ? idx : 0
     }
 
@@ -340,7 +368,7 @@ OpenArchive(*) {
     DoFocus(ctrl, row) {
         if !row || row > ctrl.GetCount()
             return
-        idx := Integer(ctrl.GetText(row, 4))
+        idx := LOG_Int(ctrl.GetText(row, 4), 0, "archive row index")
         if idx < 1 || idx > all.Length
             return
         e := all[idx]

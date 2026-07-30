@@ -69,18 +69,42 @@ MODE_Current() {
 MODE_IsEasy() => (MODE_Current() = "easy")
 
 MODE_Set(mode) {
-    IniWrite((mode = "easy") ? "easy" : "advanced", MODE_CFG, "Settings", "Mode")
+    was := MODE_Current()
+    now := (mode = "easy") ? "easy" : "advanced"
+    IniWrite(now, MODE_CFG, "Settings", "Mode")
+    ; INFO, and phrased as a consequence rather than a value, because switching to
+    ; Easy is the single largest behaviour change available in MMA and it is one
+    ; radio button. Somebody reading the log a week later needs to see that this
+    ; is why half the app went quiet.
+    LOGI("mode", "mode " was " → " now
+              . (now = "easy" ? "   (every registry feature is now off, their hotkeys"
+                              . " will not register and their children will not start)"
+                              : "   (features return to their own checkboxes)"))
 }
 
 ; ── The one question the rest of the code asks ────────────────────────────────
 ; True only when this feature is switched on AND we are in Advanced mode.
+;
+; Logged at VERB, never higher, and that split is deliberate. This is called from
+; #HotIf and from inside send handlers, so it runs tens of times per keystroke —
+; at INFO it would bury every other line in the file. But "the feature is off" is
+; the correct answer to a startling number of "why did nothing happen" reports, so
+; with max logging on, every gate that closed is written down with the cfg key you
+; would have to change to open it.
 FEAT(id) {
-    if !FEAT_META.Has(id)                 ; undeclared = not a gated feature
+    if !FEAT_META.Has(id) {               ; undeclared = not a gated feature
+        LOGV("feat", id " is not in the registry — treated as always on")
         return true
-    if MODE_IsEasy()
+    }
+    if MODE_IsEasy() {
+        LOGV("feat", id " OFF — MMA is in Easy mode, which switches off every"
+                   . " feature in the registry")
         return false
+    }
     f := FEAT_META[id]
-    return Trim(IniRead(MODE_CFG, "Settings", f.cfgKey, f.default)) = "1"
+    on := Trim(IniRead(MODE_CFG, "Settings", f.cfgKey, f.default)) = "1"
+    LOGV("feat", id " " (on ? "on" : "OFF") "  ([Settings] " f.cfgKey ")")
+    return on
 }
 
 ; The feature's own checkbox, ignoring the mode. The Settings window needs this
@@ -92,10 +116,26 @@ FEAT_Raw(id) {
     return Trim(IniRead(MODE_CFG, "Settings", f.cfgKey, f.default)) = "1"
 }
 
+; Instrumented here rather than in features_panel.ahk on purpose: this is the
+; single writer of every feature key (see that file's header), so one line here
+; catches every toggle from everywhere, forever, and cannot be forgotten by a
+; future second caller.
+;
+; Only CHANGES are logged. Saving the Features tab rewrites all ~24 keys whether
+; or not you touched them, and 24 identical lines per save would make the one that
+; matters unfindable.
 FEAT_SetRaw(id, on) {
-    if !FEAT_META.Has(id)
+    if !FEAT_META.Has(id) {
+        LOGW("feat.set", "'" id "' is not a declared feature — nothing written")
         return
-    IniWrite(on ? "1" : "0", MODE_CFG, "Settings", FEAT_META[id].cfgKey)
+    }
+    f := FEAT_META[id]
+    now := on ? "1" : "0"
+    was := Trim(IniRead(MODE_CFG, "Settings", f.cfgKey, f.default))
+    if (was != now)
+        LOGI("feat.set", id " " (was = "1" ? "on" : "off") " → " (on ? "on" : "off")
+                      . "   ([Settings] " f.cfgKey ")")
+    IniWrite(now, MODE_CFG, "Settings", f.cfgKey)
 }
 
 ; ═══════════════════════════════════════════════════════════════════════════════
@@ -137,8 +177,23 @@ FEAT_Def("actionsMenu",  "ActionsMenu",  "Actions menu",                      "1
 FEAT_Def("quickActions", "QuickActions", "Quick actions (pinned buttons)",    "1", "Tools")
 FEAT_Def("recorder",     "Recorder",     "Coordinate recorder",               "1", "Tools")
 FEAT_Def("capitalizer",  "Capitalizer",  "Auto-capitalize after Enter",       "1", "Tools")
-FEAT_Def("sequences",    "Sequences",    "Sequences + Discord Ctrl+click import", "1", "Tools")
 FEAT_Def("ocrGrab",      "OcrGrab",      "Add hotstring with OCR",            "1", "Tools")
+
+; ── sequences: deliberately NOT declared ──────────────────────────────────────
+;  It had a FEAT_Def here ("Sequences + Discord Ctrl+click import"), and that made
+;  it the third switch able to kill the Discord import on its own — after the
+;  StartupScripts checkbox and the Hotkeys tab, both of which have already done it.
+;  Easy mode made it a fourth: Easy switches off EVERYTHING in this registry, so
+;  the import died there with no checkbox to look at and nothing to untick.
+;
+;  Sequences is core now, like the engine. It owns hotkeys, the import is how masses
+;  get into MMA at all, and a script that owns hotkeys should not be a checkbox —
+;  see LaunchSequences in core/processes.ahk.
+;
+;  Leaving it undeclared is what makes it always-on: FEAT() above answers TRUE for
+;  any id not in this registry, in Easy mode as well as Advanced, so the FEAT
+;  ("sequences") calls that used to gate it cannot come back to life by accident.
+;  The old [Settings] Sequences key in mass_gui.cfg is simply ignored from here on.
 
 ; ── Background ────────────────────────────────────────────────────────────────
 FEAT_Def("modelDetector", "AutoDetectModel",    "Auto-detect the active model",        "0", "Background")
@@ -175,8 +230,9 @@ global FEAT_HOTKEY_MAP := Map(
     "gui.addHotkeyGrab",  "ocrGrab",
     "recorder.",          "recorder",
     "automation.",        "automation",
-    "cap.",               "capitalizer",
-    "seq.",               "sequences")
+    ; No "seq." entry, and that absence is the point: FEAT_ForHotkey returns "" for
+    ; seq.copyDiscordMsg and friends, so HK_Bind registers them whatever the mode.
+    "cap.",               "capitalizer")
 
 ; Which feature owns this hotkey id, or "" when nothing does.
 ; mass.<n>.<slot> keys are matched on the SLOT, so one entry covers every model.

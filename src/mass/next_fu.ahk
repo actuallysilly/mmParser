@@ -215,11 +215,24 @@ NFU_NextWithContent(m, after) {
 ;  _ModelFire sets the model for a per-model key, _ActiveFire resolves it from the
 ;  screen for the shared one. By the time this runs, CurMass() is the right mass.
 DoNextFu() {
+    global MASS_CUR_MODEL
+    LOGD("nextfu", "DoNextFu entered — about to OCR the chat")
     cfg := NFU_Cfg()
     m   := CurMass()
+    LOGI("nextfu", "reading the chat for model " MASS_CUR_MODEL
+                 . "  region=" cfg.x "," cfg.y " " cfg.w "x" cfg.h
+                 . "  scale=" cfg.scale)
 
     text := NFU_ReadChat(cfg)
     if (text = "") {
+        ; This key DECIDES WHAT TO SEND by looking at the screen, so a failed read
+        ; is the one case where doing nothing is unambiguously right — and it is
+        ; also the case a user is most likely to retry three times before asking.
+        LOGE("nextfu", "OCR read NOTHING from the chat pane — cannot tell which"
+                     . " follow-up comes next, so nothing was sent",
+                     "region " cfg.x "," cfg.y " " cfg.w "x" cfg.h
+                   . " — check [NextFu] Region* in mass_gui.cfg, or run"
+                   . " tools\\nextfu_probe.ahk")
         _NextFuFail("Could not read the conversation."
                   . "`nCheck [NextFu] Region* in mass_gui.cfg, or run"
                   . " tools\nextfu_probe.ahk to see what it reads.")
@@ -228,6 +241,9 @@ DoNextFu() {
 
     hay := NFU_Norm(text)
     r   := NFU_LastGroup(m, hay, cfg)
+    LOGI("nextfu", "OCR returned " StrLen(text) " chars; last follow-up found in"
+                 . " the chat: " (r.group ? "f" r.group : "none"))
+    LOGV("nextfu", "normalised chat text: " SubStr(hay, 1, 400))
 
     ; Starting the sequence is the one move that needs corroboration. Once a
     ; follow-up is on screen the thread speaks for itself; before that, the mass
@@ -237,6 +253,10 @@ DoNextFu() {
     if (r.group = 0) {
         seen := NFU_MassPresence(m, hay, cfg)
         if (seen != "seen") {
+            LOG_Bail("nextfu", "no follow-up in this chat AND the mass is " seen
+                             . " — refusing to send f1, because that would either"
+                             . " repeat a follow-up scrolled out of view or open on"
+                             . " a fan who was never sent the mass")
             SoundBeep(300, 250)
             _MassToast(seen = "absent"
                 ? "No follow-up here, and the mass is not on screen either."
@@ -249,6 +269,10 @@ DoNextFu() {
 
     next := NFU_NextWithContent(m, r.group)
     if !next {
+        LOG_Bail("nextfu", r.group
+            ? "f" r.group " is already in this chat and is the LAST follow-up this"
+            . " mass has — nothing sent, rather than re-sending it"
+            : "this mass has no follow-ups at all — nothing sent")
         ; The end of the line — either the last follow-up this mass HAS is already
         ; in the chat, or the mass has none at all. Wrapping back to f1 would
         ; re-send a message this fan has already had, which is worse than doing
@@ -262,6 +286,10 @@ DoNextFu() {
     }
 
     handlers := Map(1, DoFu1, 2, DoFu2, 3, DoFu3)
+    LOGI("nextfu", "decision: last seen " (r.group ? "f" r.group : "none")
+                 . " → sending f" next
+                 . ((next > r.group + 1) ? "  (skipped f" (r.group + 1)
+                                         . " — this mass has none)" : ""))
     ; Name the gap when there is one, so skipping f2 on a mass that has no f2
     ; reads as a decision rather than as the key losing count.
     _MassToast((r.group ? "Last seen: f" r.group : "No follow-up in this chat")

@@ -30,14 +30,17 @@ Persistent
 
 CFG := MMA_CFG
 
-RedAt    := Number(IniRead(CFG, "StatsOverlay", "RedAt",    "0.30"))
-YellowAt := Number(IniRead(CFG, "StatsOverlay", "YellowAt", "0.40"))
-GreenAt  := Number(IniRead(CFG, "StatsOverlay", "GreenAt",  "0.50"))
-PollMs   := Integer(IniRead(CFG, "StatsOverlay", "PollMs",   "10000"))
-OcrScale := Integer(IniRead(CFG, "StatsOverlay", "OcrScale", "2"))
-PosX     := Integer(IniRead(CFG, "StatsOverlay", "PosX", "60"))
-PosY     := Integer(IniRead(CFG, "StatsOverlay", "PosY", "60"))
-Visible0 := Integer(IniRead(CFG, "StatsOverlay", "Visible", "1"))
+; LOG_IniNum, not Number(IniRead(...)) — Number() throws on non-numeric exactly
+; like Integer() does, and these three are the values a user is most likely to
+; tune by hand. Unguarded, `RedAt = 30%` stopped this whole service loading.
+RedAt    := LOG_IniNum(CFG, "StatsOverlay", "RedAt",    0.30, "stats.boot")
+YellowAt := LOG_IniNum(CFG, "StatsOverlay", "YellowAt", 0.40, "stats.boot")
+GreenAt  := LOG_IniNum(CFG, "StatsOverlay", "GreenAt",  0.50, "stats.boot")
+PollMs   := LOG_IniInt(CFG, "StatsOverlay", "PollMs", 10000)
+OcrScale := LOG_IniInt(CFG, "StatsOverlay", "OcrScale", 2)
+PosX     := LOG_IniInt(CFG, "StatsOverlay", "PosX", 60)
+PosY     := LOG_IniInt(CFG, "StatsOverlay", "PosY", 60)
+Visible0 := LOG_IniInt(CFG, "StatsOverlay", "Visible", 1)
 ; The window carrying the Chatting-statistics numbers (a WinTitle criterion). The
 ; live suffix — "Infloww Home - 333" — is why this is a substring match, not exact.
 StatsWin := IniRead(CFG, "StatsOverlay", "StatsWin", "Infloww Home ahk_exe Infloww.exe")
@@ -135,6 +138,9 @@ Refresh(*) {
         if (v != "")
             _fans := v, _haveFans := true
     }
+    LOG_Kv("stats", Map("sales", _haveSales ? _sales : "—",
+                        "ppv",   _havePpv   ? _ppv   : "—",
+                        "fans",  _haveFans  ? _fans  : "—"), "VERB")
     SavePos()
     Paint()
 }
@@ -171,15 +177,26 @@ Paint() {
 ; that window directly via PrintWindow (mode 4). This reads it even while it's in
 ; the background behind the chat, and never steals focus. Returns "" if the window
 ; isn't open or the capture fails, leaving the last good value in place.
+; VERB throughout: this runs on a repeating timer, so anything louder would be
+; the only thing in the log. The overlay showing "—" for an hour is a mild
+; annoyance, not a failure — but when somebody does ask why, these three lines
+; separate "the Home window is not open" from "OCR read it and got nothing", which
+; are the only two possibilities and have different fixes.
 OcrRect(r, scale) {
     global StatsWin
-    if !WinExist(StatsWin)
+    if !WinExist(StatsWin) {
+        LOGV("stats", "the '" StatsWin "' window is not open — keeping the last"
+                    . " numbers, showing '—' for anything never read")
         return ""
+    }
     try
         return OCR.FromWindow(StatsWin, {x: r.x, y: r.y, w: r.w, h: r.h,
                                          scale: scale, grayscale: 1, mode: 4}).Text
-    catch
+    catch as e {
+        LOGV("stats", "OCR of the " r.w "x" r.h " box at " r.x "," r.y " failed — "
+                    . LOG_Err(e))
         return ""
+    }
 }
 
 ; Pull a number out of an OCR line. Money keeps decimals (strip $ and commas);
@@ -248,7 +265,19 @@ CalibrateOne(key, label) {
     if !rect
         return false
     if (hw := WinExist(StatsWin)) {
-        WinGetClientPos(&cx, &cy, , , hw)
+        ; TOCTOU: the Home window can close between WinExist and WinGetClientPos,
+        ; and then this throws away a calibration the user has just finished
+        ; dragging — with nothing written and nothing said.
+        try {
+            WinGetClientPos(&cx, &cy, , , hw)
+        } catch as e {
+            LOGE("stats.calibrate", "the '" StatsWin "' window closed mid-calibration"
+                                  . " — the box was NOT saved", LOG_Err(e))
+            MsgBox("The stats window closed before I could anchor the box to it."
+                 . "`n`nNothing was saved — open it and calibrate again.",
+                   "Calibrate", 0x30)
+            return false
+        }
         rect.x -= cx, rect.y -= cy      ; screen → client of the stats window
     } else {
         MsgBox "The Infloww Home (statistics) window isn't open, so I can't anchor"

@@ -1,0 +1,759 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>MMA — the tooling</title>
+<style>
+/* ─── palette ────────────────────────────────────────────────────────────── */
+:root{
+  --bg:#fffafc; --bg-alt:#fdf4f8; --bg-code:#faeef4; --bd:#f0dde6;
+  --tx:#241a20; --tx-dim:#6b5560; --accent:#6b4ede;
+  --accent-soft:#efeafc; --warn-bg:#fff6e6; --warn-bd:#e8b04b;
+  --bad-bg:#fdeced; --bad-bd:#dc6b76; --ok-bg:#e9f7ee; --ok-bd:#4fa96b;
+  --kbd-bg:#fff; --kbd-bd:#e0ccd6; --kbd-sh:#eddae3;
+  --shot-bd:#f0dde6;
+}
+@media (prefers-color-scheme:dark){
+  :root{
+    --bg:#16121a; --bg-alt:#1e1822; --bg-code:#221b28; --bd:#352b3a;
+    --tx:#eee4ec; --tx-dim:#a894a4; --accent:#b89cff;
+    --accent-soft:#241f38; --warn-bg:#2d2413; --warn-bd:#9a7a2e;
+    --bad-bg:#31191d; --bad-bd:#c4707e; --ok-bg:#16281d; --ok-bd:#3f7d55;
+    --kbd-bg:#2a2233; --kbd-bd:#443850; --kbd-sh:#100c14;
+    --shot-bd:#352b3a;
+  }
+}
+:root[data-theme="dark"]{
+  --bg:#16121a; --bg-alt:#1e1822; --bg-code:#221b28; --bd:#352b3a;
+  --tx:#eee4ec; --tx-dim:#a894a4; --accent:#b89cff;
+  --accent-soft:#241f38; --warn-bg:#2d2413; --warn-bd:#9a7a2e;
+  --bad-bg:#31191d; --bad-bd:#c4707e; --ok-bg:#16281d; --ok-bd:#3f7d55;
+  --kbd-bg:#2a2233; --kbd-bd:#443850; --kbd-sh:#100c14;
+  --shot-bd:#352b3a;
+}
+:root[data-theme="light"]{
+  --bg:#fffafc; --bg-alt:#fdf4f8; --bg-code:#faeef4; --bd:#f0dde6;
+  --tx:#241a20; --tx-dim:#6b5560; --accent:#6b4ede;
+  --accent-soft:#efeafc; --warn-bg:#fff6e6; --warn-bd:#e8b04b;
+  --bad-bg:#fdeced; --bad-bd:#dc6b76; --ok-bg:#e9f7ee; --ok-bd:#4fa96b;
+  --kbd-bg:#fff; --kbd-bd:#e0ccd6; --kbd-sh:#eddae3;
+  --shot-bd:#f0dde6;
+}
+
+*{box-sizing:border-box}
+html{scroll-behavior:smooth; scroll-padding-top:1rem}
+body{
+  margin:0; background:var(--bg); color:var(--tx);
+  font:15.5px/1.62 "Segoe UI",system-ui,-apple-system,sans-serif;
+  -webkit-font-smoothing:antialiased;
+}
+.wrap{display:grid; grid-template-columns:236px minmax(0,1fr); max-width:1320px; margin:0 auto}
+
+nav{
+  position:sticky; top:0; align-self:start; height:100vh; overflow-y:auto;
+  padding:1.5rem .9rem 3rem 1.3rem; border-right:1px solid var(--bd); font-size:.86rem;
+}
+nav .brand{font-weight:700; font-size:1.05rem; margin:0 0 .1rem}
+nav .brand span{color:var(--bad-bd)}
+nav .ver{color:var(--tx-dim); font-size:.74rem; margin:0 0 1.2rem}
+nav ol{list-style:none; margin:0; padding:0}
+nav a{display:block; padding:.28rem .5rem; border-radius:5px; color:var(--tx-dim); text-decoration:none}
+nav a:hover{color:var(--tx); background:var(--bg-alt)}
+nav .sec{margin:1.1rem 0 .25rem; font-size:.66rem; text-transform:uppercase;
+  letter-spacing:.09em; color:var(--bad-bd); font-weight:700; padding-left:.5rem}
+
+main{padding:2rem 2.4rem 6rem; min-width:0}
+h1{font-size:1.95rem; line-height:1.2; margin:0 0 .15rem; letter-spacing:-.02em}
+.sub{color:var(--tx-dim); font-size:1rem; margin:0 0 2rem}
+h2{font-size:1.4rem; margin:3rem 0 .8rem; padding-bottom:.35rem;
+   border-bottom:2px solid var(--bd); letter-spacing:-.01em}
+h2:first-of-type{margin-top:1.2rem}
+h3{font-size:1.06rem; margin:1.8rem 0 .5rem}
+h4{margin:1.3rem 0 .35rem; color:var(--bad-bd); text-transform:uppercase;
+   letter-spacing:.07em; font-size:.72rem; font-weight:700}
+p{margin:.6rem 0}
+ul,ol{margin:.6rem 0; padding-left:1.35rem}
+li{margin:.25rem 0}
+a{color:var(--accent)}
+hr{border:0; border-top:1px solid var(--bd); margin:2.2rem 0}
+small{color:var(--tx-dim)}
+
+code{font:.87em/1.5 "Cascadia Code",Consolas,monospace; background:var(--bg-code);
+  padding:.12em .36em; border-radius:4px; border:1px solid var(--bd)}
+pre{background:var(--bg-code); border:1px solid var(--bd); border-radius:8px;
+  padding:.9rem 1.05rem; overflow-x:auto; margin:.8rem 0}
+pre code{background:none; border:0; padding:0; font-size:.845rem; line-height:1.55}
+.cmt{color:var(--tx-dim); font-style:italic}
+.hl{color:var(--bad-bd); font-weight:600}
+
+kbd{font:.79em/1 "Segoe UI",sans-serif; background:var(--kbd-bg);
+  border:1px solid var(--kbd-bd); border-bottom-width:2px; border-radius:5px;
+  padding:.16em .42em; box-shadow:0 1px 0 var(--kbd-sh); white-space:nowrap; color:var(--tx)}
+
+table{border-collapse:collapse; width:100%; margin:.9rem 0; font-size:.9rem; display:block; overflow-x:auto}
+th,td{text-align:left; padding:.45rem .65rem; border-bottom:1px solid var(--bd); vertical-align:top}
+th{font-size:.71rem; text-transform:uppercase; letter-spacing:.06em; color:var(--bad-bd); font-weight:700}
+tbody tr:hover{background:var(--bg-alt)}
+td code{white-space:nowrap}
+td:first-child{white-space:nowrap}
+td.w code{white-space:normal}
+
+.note,.warn,.bad,.ok{border-left:3px solid; border-radius:0 7px 7px 0;
+  padding:.75rem 1rem; margin:1rem 0; font-size:.92rem}
+.note{background:var(--accent-soft); border-color:var(--accent)}
+.warn{background:var(--warn-bg); border-color:var(--warn-bd)}
+.bad{background:var(--bad-bg); border-color:var(--bad-bd)}
+.ok{background:var(--ok-bg); border-color:var(--ok-bd)}
+.note>:first-child,.warn>:first-child,.bad>:first-child,.ok>:first-child{margin-top:0}
+.note>:last-child,.warn>:last-child,.bad>:last-child,.ok>:last-child{margin-bottom:0}
+
+figure{margin:1.2rem 0}
+figure img{width:100%; height:auto; display:block; border:1px solid var(--shot-bd);
+  border-radius:8px; box-shadow:0 2px 10px rgba(120,80,100,.08)}
+figcaption{color:var(--tx-dim); font-size:.82rem; margin-top:.45rem; text-align:center}
+figure.inset img{max-width:660px; margin:0 auto}
+
+.pill{display:inline-block; font-size:.65rem; font-weight:700; letter-spacing:.05em;
+  text-transform:uppercase; padding:.12em .48em; border-radius:20px;
+  border:1px solid var(--bad-bd); color:var(--bad-bd); background:var(--bad-bg);
+  vertical-align:middle; margin-left:.35em}
+.pill.bug{border-color:var(--warn-bd); color:var(--warn-bd); background:var(--warn-bg)}
+
+.themebtn{position:fixed; top:.8rem; right:1rem; z-index:10; background:var(--bg-alt);
+  color:var(--tx-dim); border:1px solid var(--bd); border-radius:6px;
+  padding:.32rem .58rem; cursor:pointer; font-size:.78rem}
+.themebtn:hover{color:var(--tx)}
+
+@media(max-width:860px){
+  .wrap{grid-template-columns:1fr}
+  nav{position:static; height:auto; border-right:0; border-bottom:1px solid var(--bd)}
+  main{padding:1.4rem 1.1rem 4rem}
+}
+</style>
+</head>
+<body>
+<button class="themebtn" onclick="(function(){var r=document.documentElement,d=r.getAttribute('data-theme'),m=window.matchMedia('(prefers-color-scheme:dark)').matches;r.setAttribute('data-theme',(d?d==='dark':m)?'light':'dark')})()">◐ theme</button>
+
+<div class="wrap">
+<nav>
+  <p class="brand">MM<span>A</span></p>
+  <p class="ver">the tooling</p>
+  <ol>
+    <li class="sec">Reference</li>
+    <li><a href="#window">The window</a></li>
+    <li><a href="#keys">Every key</a></li>
+    <li><a href="#format">Paste format</a></li>
+
+    <li class="sec">The two footguns</li>
+    <li><a href="#massno">massNo</a></li>
+    <li><a href="#loadsave">load / save</a></li>
+
+    <li class="sec">Sending</li>
+    <li><a href="#singleedit">single &amp; edit</a></li>
+    <li><a href="#whichmodel">Which model</a></li>
+    <li><a href="#variants">Tab-staging</a></li>
+    <li><a href="#nextfu">Next follow-up</a></li>
+
+    <li class="sec">Settings</li>
+    <li><a href="#settings">The six tabs</a></li>
+    <li><a href="#modes">Easy / Advanced</a></li>
+
+    <li class="sec">The rest</li>
+    <li><a href="#hotstrings">Hotstrings</a></li>
+    <li><a href="#actions">Actions menu</a></li>
+    <li><a href="#discord">Discord import</a></li>
+    <li><a href="#services">Services</a></li>
+
+    <li class="sec">When it breaks</li>
+    <li><a href="#debug">Logs</a></li>
+    <li><a href="#trouble">Symptom → cause</a></li>
+    <li><a href="#files">Files</a></li>
+  </ol>
+</nav>
+
+<main>
+
+<h1>MMA</h1>
+<p class="sub">You know the job. This is where everything lives, and the handful of things
+that will waste your afternoon if nobody tells you.</p>
+
+<div class="note">
+<p><b>The one architectural fact that matters.</b> The window is just an editor. A separate
+background script — the <b>mass engine</b> — owns every hotkey and does all the sending. They
+share files, not memory, so a save takes effect on the next keypress with no restart. It also
+means <b>if the engine is not running, no key works</b>, no matter how good the fields look.
+MMA starts it and a watchdog restarts it every 5 s if it dies.</p>
+</div>
+
+<!-- ═══════════════════════════════════════════════════════════════════════ -->
+<h2 id="window">The window</h2>
+
+<figure>
+  <img src="img/main-window.png" alt="The MMA main window">
+  <figcaption>Left: the mass in fields, three tabs. Right: paste → parse → load/save → massNo.
+  Bottom: everything else. <i>(Message text pixelated — it is live copy, not a rendering bug.)</i></figcaption>
+</figure>
+
+<p><b>Left</b> is one mass in 14 fields, three tabs deep. <b>Right</b> is the workflow.
+<b>Bottom</b> is every other window plus one ◻ toggle per message script (◻ stopped, ◼ running).</p>
+
+<figure>
+  <img src="img/right-panel.png" alt="Parse, Clear, Export, Archive, load/save and massNo">
+  <figcaption>The right panel below the paste box.</figcaption>
+</figure>
+
+<table>
+<thead><tr><th>Control</th><th>What it actually does</th></tr></thead>
+<tbody>
+<tr><td><b>Parse</b></td><td>Fills <b>the tab you are looking at</b>, clearing that tab's fields first.</td></tr>
+<tr><td><b>Clear</b></td><td>Wipes the paste box <b>and every field in all three tabs</b>. Disk untouched — reload to recover.</td></tr>
+<tr><td><b>Export !mma</b></td><td>Reverse of Parse: rebuilds paste text from the current tab. For handing a mass to someone.</td></tr>
+<tr><td><b>Archive</b></td><td>Every Parse also appends the raw text to <code>mass_archive.txt</code>, and warns on likely duplicates.</td></tr>
+<tr><td><b>Load from archive</b></td><td>Search past masses, preview, load one back into the fields.</td></tr>
+<tr><td><b>load <i>&lt;model&gt;</i></b></td><td>Disk → <b>all three tabs</b>. Discards what is on screen.</td></tr>
+<tr><td><b>save <i>&lt;model&gt;</i></b></td><td><b>All three tabs</b> → disk, then nudges the engine. <a href="#loadsave">Read this first.</a></td></tr>
+<tr><td><b>Set massNo</b></td><td>Which of the three masses that model sends. Applies instantly. <a href="#massno">Read this too.</a></td></tr>
+</tbody>
+</table>
+
+<figure>
+  <img src="img/bottom-strip.png" alt="The bottom button strip">
+  <figcaption>The bottom strip. <b>Variants…</b> is alts + branches; <b>Pinger</b>'s label is its own status light.</figcaption>
+</figure>
+
+<p><b>Add Hotkey</b> appends a hotstring to a message file without opening an editor — trigger,
+target file, send mode (<code>snd()</code> sends, <code>SendText()</code> types only,
+<code>Sendt()</code> sends with a custom wait), <code>::</code> vs <code>:*:</code>, one message
+per line. The script restarts itself so the trigger is live immediately. The OCR variant
+(<kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>O</kbd>) lets you drag a box round text anywhere on
+screen and opens the same form prefilled.</p>
+
+<!-- ═══════════════════════════════════════════════════════════════════════ -->
+<h2 id="keys">Every key</h2>
+
+<p>All of them live in <code>userdata\hotkeys.ini</code>, editable in <b>Settings ▸ Hotkeys</b>.
+Changes apply live. <code>^</code> Ctrl · <code>!</code> Alt · <code>+</code> Shift ·
+<code>#</code> Win · blank = deliberately off. <kbd>F13</kbd>–<kbd>F24</kbd> are Scimitar side
+buttons 1–12.</p>
+
+<h4>Per model — never gated, always work</h4>
+<table>
+<thead><tr><th></th><th>Model 1</th><th>Model 2</th><th>Model 3</th></tr></thead>
+<tbody>
+<tr><td>f1 / f2 / f3</td>
+    <td><kbd>F1</kbd> <kbd>F2</kbd> <kbd>F3</kbd></td>
+    <td><kbd>F9</kbd> <kbd>F10</kbd> <kbd>F11</kbd></td>
+    <td><kbd>F6</kbd> <kbd>F7</kbd> <kbd>!F7</kbd></td></tr>
+<tr><td>f1–f3 second key</td>
+    <td><kbd>Ins</kbd> <kbd>Home</kbd> <kbd>PgUp</kbd></td><td>—</td><td>—</td></tr>
+<tr><td>ppv / ppv f-ups</td>
+    <td><kbd>F4</kbd> <kbd>F5</kbd></td>
+    <td><kbd>F12</kbd> <kbd>!F12</kbd></td>
+    <td><kbd>F8</kbd> <kbd>!F8</kbd></td></tr>
+</tbody>
+</table>
+<p>The key <i>is</i> the model selector. No detector, no mode, no gating — <kbd>F1</kbd> sends
+model 1 whatever is on screen. These are the fallback when anything clever misbehaves.</p>
+
+<h4>Shared — follows whichever model is in front</h4>
+<table>
+<tbody>
+<tr><td>f1 / f2 / f3</td><td><kbd>F13</kbd> <kbd>F14</kbd> <kbd>F15</kbd> &nbsp;·&nbsp; mouse: <kbd>XButton2</kbd> <kbd>XButton1</kbd> <kbd>^MButton</kbd></td></tr>
+<tr><td>ppv / ppv f-ups</td><td><kbd>F16</kbd> <kbd>F17</kbd></td></tr>
+<tr><td>paste the mass</td><td><kbd>F18</kbd></td></tr>
+<tr><td>next follow-up</td><td><kbd>Ctrl</kbd>+<kbd>XButton2</kbd></td></tr>
+<tr><td>pick active model</td><td><kbd>^!1</kbd> <kbd>^!2</kbd> <kbd>^!3</kbd> &nbsp;·&nbsp; cycle <kbd>^!w</kbd></td></tr>
+</tbody>
+</table>
+
+<h4>Navigation and tools</h4>
+<table>
+<tbody>
+<tr><td><kbd>^!m</kbd></td><td><b>Actions menu</b> — search every action and its key. Use this instead of memorising the rest.</td></tr>
+<tr><td><kbd>^!q</kbd></td><td>Quick actions (pinned buttons)</td></tr>
+<tr><td><kbd>!Space</kbd></td><td>Focus chat textbox, or top chat</td></tr>
+<tr><td><kbd>Down</kbd> / <kbd>Up</kbd></td><td>Next chat down / focus top chat</td></tr>
+<tr><td><kbd>!-</kbd> / <kbd>+Left</kbd></td><td>Mark unread &amp; drag back / mark unread (left)</td></tr>
+<tr><td><kbd>Del</kbd> <kbd>End</kbd> <kbd>PgDn</kbd></td><td>Click unread / home / PPV notification</td></tr>
+<tr><td><kbd>^+z</kbd></td><td>Recover last typed message</td></tr>
+<tr><td><kbd>^p</kbd></td><td>AFK click cycle</td></tr>
+<tr><td><kbd>^!u</kbd></td><td>Unsend last message — again for the whole run. <span class="pill">python</span></td></tr>
+<tr><td><kbd>^!s</kbd></td><td>Total your sales in Notifications ▸ Purchases <span class="pill">python</span></td></tr>
+<tr><td><kbd>^LButton</kbd></td><td>Discord: import the message under the cursor</td></tr>
+<tr><td><kbd>^+o</kbd></td><td>Add hotstring with OCR</td></tr>
+<tr><td><kbd>^!F12</kbd></td><td>Coordinate recorder on/off</td></tr>
+</tbody>
+</table>
+
+<div class="note">
+<p><b>Anti-fumble.</b> A second send within 200 ms of the first is dropped, and any key pressed
+while a send is still in flight is dropped — so a clumsy <kbd>F1</kbd>-then-<kbd>F2</kbd> cannot
+put two masses in one chat. Navigation keys are exempt. Tune with
+<code>DoubleFireWindowMs</code> under <code>[meta]</code> in <code>hotkeys.ini</code>;
+<code>0</code> disables it.</p>
+</div>
+
+<div class="warn">
+<p>If you open <code>hotkeys.ini</code>, <b>ignore <code>brPick</code>, <code>brFu2</code>,
+<code>brFu3</code> and <code>brPpv</code></b>. Branches used to have four keys and their own
+picker window; they ride the ordinary follow-up key now, so nothing claims those entries and
+setting them does nothing.</p>
+</div>
+
+<!-- ═══════════════════════════════════════════════════════════════════════ -->
+<h2 id="format">Paste format</h2>
+
+<p>Three modes, picked automatically from what is in the paste. You never choose.</p>
+
+<table>
+<thead><tr><th>Mode</th><th>Triggered by</th></tr></thead>
+<tbody>
+<tr><td><b>keyword</b></td><td>a line starting with an exact field name (<code>f2.5 …</code>, <code>ppvfu1 …</code>)</td></tr>
+<tr><td><b>prefixed</b></td><td>any line starting with <code>f</code>/<code>fu</code> + number</td></tr>
+<tr><td><b>positional</b></td><td>neither — blank lines separate the groups</td></tr>
+</tbody>
+</table>
+
+<h4>Positional — what a Discord mass usually is</h4>
+<pre><code>!mma opening message here            <span class="cmt">← optional; without it, line 1 is the mass</span>
+
+first follow-up                      <span class="cmt">← f1</span>
+second part of it                    <span class="cmt">← f1.5</span>
+
+second follow-up                     <span class="cmt">← f2</span>
+
+third follow-up                      <span class="cmt">← f3</span>
+
+ppv the caption                      <span class="cmt">← group starting "ppv" → ppv</span>
+
+did you like it?                     <span class="cmt">← ppvfu1  (group straight after the ppv)</span>
+want more?                           <span class="cmt">← ppvfu2</span></code></pre>
+<p>Within a group: line 1 → <code>fN</code>, line 2 → <code>fN.5</code>, line 3 →
+<code>fN.7</code>. A fourth line is ignored. <code>!mm</code> <code>!mma</code> <code>mm</code>
+<code>mma</code> are interchangeable, colon optional.</p>
+
+<h4>Prefixed — blank lines stop mattering</h4>
+<pre><code>!mma opening message
+f1 first follow-up
+f1.5 second part
+f2 second follow-up
+ppv the caption</code></pre>
+<p><code>f1</code> <code>fu1</code> <code>f1:</code> <code>fu 1</code> all identical.</p>
+
+<div class="warn">
+<p><b>Only <code>.5</code> and <code>.7</code> work today.</b> <code>f1.1</code> /
+<code>f1.2</code> / <code>f1.3</code> match nothing and are <b>silently dropped</b> — no error,
+no log line, the part is just not there. If a follow-up part vanishes after parsing, this is
+why. <span class="pill bug">known bug</span></p>
+<p>Both spellings are <i>supposed</i> to work; it is written up in
+<code>development.md</code>. Until it is fixed, use <code>.5</code> and <code>.7</code>.</p>
+</div>
+
+<h4>Comments, fences, alts, branches</h4>
+<pre><code>-- this line is a comment           <span class="cmt">"--" alone or "-- " + space</span>
+--BranchName                        <span class="cmt">no space = a BRANCH, not a comment</span>
+---                                 <span class="cmt">3+ dashes = multiline-ppv fence</span>
+
+alt: another wording of this f-up   <span class="cmt">each alt: line = its own alternative</span>
+alt0: part one of alt 1             <span class="cmt">numbered: same number = one multi-part alt</span>
+alt0: part two of alt 1</code></pre>
+
+<p>A <b>fence</b> keeps a multi-paragraph PPV caption in one field instead of spilling into
+<code>ppvfu1</code>: everything from the <code>ppv</code> marker up to the <code>---</code>
+becomes the caption, blank lines and all.</p>
+
+<p>A <b>branch</b> is an alternate sequence, not just an alternate line — pick it at f1 and
+f2/f3 open on it. Everything before the first <code>--Name</code> is the shared trunk; each
+branch is laid out positionally exactly like the trunk. Max 3 branches, 3 alts per group.</p>
+
+<p>A leading <code>word:</code> is stripped from message text (so pasted transcripts don't carry
+their labels). URL schemes are exempt: <code>http</code> <code>https</code> <code>ftp</code>
+<code>ftps</code> <code>mailto</code> <code>tel</code> <code>file</code>.</p>
+
+<!-- ═══════════════════════════════════════════════════════════════════════ -->
+<h2 id="massno">Footgun 1 — massNo</h2>
+
+<p>Each model holds three masses and sends <b>one</b>. The <b>Set massNo</b> radios pick which.
+Applies instantly, no save.</p>
+
+<div class="bad">
+<p><b>This is the number one cause of "my hotkeys stopped working."</b> The keys are fine.
+massNo points at a slot you never filled, so the key sends an empty field, which sends nothing —
+silently, with nothing on screen to say so.</p>
+<p>MMA now warns the moment you switch to an empty slot and logs it. <b>If keys go quiet, check
+massNo before anything else.</b></p>
+</div>
+
+<!-- ═══════════════════════════════════════════════════════════════════════ -->
+<h2 id="loadsave">Footgun 2 — load / save cover all three tabs</h2>
+
+<p>They are labelled per model, but each one moves <b>all three tabs</b> at once.</p>
+
+<div class="bad">
+<p><b>The way this bites:</b> load Aliw → edit Mass 2 → click <b>save Rama</b>. You have just
+written <i>Aliw's</i> three masses into Rama, because the tabs still held Aliw's data.</p>
+<p><b>Habit that avoids it:</b> load a model, edit it, save <i>that same</i> model. One model
+start to finish.</p>
+</div>
+
+<p>Save while the engine is down and MMA says so explicitly rather than reporting success — the
+write worked, but nothing on the machine can send it.</p>
+
+<!-- ═══════════════════════════════════════════════════════════════════════ -->
+<h2 id="singleedit">single &amp; edit</h2>
+
+<p>Two boxes in the gutter beside f1, f2, f3.</p>
+
+<table>
+<thead><tr><th></th><th>off</th><th>on</th><th>scope</th></tr></thead>
+<tbody>
+<tr><td><b>single</b></td>
+    <td>parts go out as separate messages, wait time between</td>
+    <td>parts joined into <b>one</b> message with line breaks</td>
+    <td>per model <i>and</i> per group</td></tr>
+<tr><td><b>edit</b></td>
+    <td>pasted <b>and sent</b></td>
+    <td>pasted only, no Enter — change it before it goes</td>
+    <td>per group, all models</td></tr>
+</tbody>
+</table>
+<p><b>edit</b> applies immediately without a save. <b>Wallet check before FU3</b> in Settings is
+the same mechanism aimed at f3.</p>
+
+<!-- ═══════════════════════════════════════════════════════════════════════ -->
+<h2 id="whichmodel">Which model is on screen</h2>
+
+<p>Only matters for the <b>shared</b> key set. Three ways, in <b>Settings ▸ Models</b>:</p>
+
+<figure>
+  <img src="img/settings-models.png" alt="Settings, Models tab">
+  <figcaption>Models tab. Note the live <b>Detector sees:</b> readout and the per-model
+  <b>Platform</b> column.</figcaption>
+</figure>
+
+<table>
+<thead><tr><th>Mode</th><th>How</th><th>Costs you</th></tr></thead>
+<tbody>
+<tr><td><b>name (OCR)</b></td><td>OCRs the model name off the Infloww tab.</td>
+    <td>Survives reordering tabs. Depends on names matching across Infloww/Discord/MMA, which
+        they often don't — map them in <code>[ActiveMap]</code> / <code>[ModelAliases]</code>.</td></tr>
+<tr><td><b>tab position</b></td><td>Uses <i>where</i> the lit tab sits. Teach it: click a tab,
+    press that model's <kbd>^!N</kbd>. High beep = set, low = refused.</td>
+    <td>No names, no OCR. Trusts tab order — reorder and you re-teach.</td></tr>
+<tr><td><b>I pick</b></td><td><kbd>^!1</kbd>/<kbd>^!2</kbd>/<kbd>^!3</kbd>, remembered until you
+    say otherwise. Reads no pixels.</td>
+    <td>Can't notice you switching tabs. The confirmation tooltip <i>is</i> the safety net.</td></tr>
+</tbody>
+</table>
+
+<div class="bad">
+<p><b>Why "I pick" exists.</b> Screen detection doesn't fail by going quiet — it fails by
+reporting the <i>wrong</i> tab confidently, and then a shared key sends one model's message to
+another model's fan. <b>With no answer at all the shared keys deliberately do nothing</b> rather
+than guess. If detection isn't solid on your screen, use <b>I pick</b> or the numbered keys.</p>
+</div>
+
+<p>Read <b>Detector sees:</b> top to bottom when it's wrong — <i>no lit tab</i> is a
+colour/region problem; a wrong tab <b>number</b> is geometry (<code>TabOrigin</code>/
+<code>TabPitch</code>); a right number pointing at the wrong model is your tab order.</p>
+
+<p><b>Platform</b> per model: set <code>manual</code> for a model MMA can't see (Fansly), and
+"detector saw nothing" resolves to that model instead of nothing.</p>
+
+<!-- ═══════════════════════════════════════════════════════════════════════ -->
+<h2 id="variants">Tab-staging — alts and branches</h2>
+
+<p>One key, one list. Press the follow-up key as normal:</p>
+<ul>
+  <li><b>No alternatives</b> → it sends. Nothing appears.</li>
+  <li><b>Alternatives</b> → all of them are pasted into the chat box with <code>▸</code> marking
+      one. <kbd>Tab</kbd> moves the marker · <kbd>Enter</kbd> sends the marked one ·
+      <kbd>Esc</kbd> cancels and clears the box.</li>
+</ul>
+
+<p>You read the options in the real chat box, at the real width, with nothing stealing focus.
+Picking a branch variant is remembered for that conversation, so f2/f3 open on it; picking
+<code>main</code> at f2 returns you to the trunk.</p>
+
+<div class="warn">
+<p><b>If <kbd>Enter</kbd> "stops working" in a chat, a choice is still staged.</b>
+<kbd>Tab</kbd>/<kbd>Enter</kbd>/<kbd>Esc</kbd> are captured while it is — scoped to that window
+only. Press <kbd>Esc</kbd>, or wait 45 s for it to release on its own.</p>
+</div>
+
+<p>Edit variants in <b>Variants…</b>, or write them in the paste. Separators are configurable in
+<code>mass_gui.cfg [Settings]</code> — with <code>\n</code>, <code>\t</code>, <code>\s</code>
+escapes (<code>\s</code> is needed because ini reads strip edge spaces):</p>
+
+<table>
+<tbody>
+<tr><td><code>AltStageVariantSep</code></td><td>between variants</td><td><code>\n\n</code> (blank line)</td></tr>
+<tr><td><code>AltStagePartSep</code></td><td>between parts of one variant</td><td><code>\s\s|\s\s</code> → <code>&nbsp;&nbsp;|&nbsp;&nbsp;</code></td></tr>
+<tr><td><code>AltStageMarker</code></td><td>marks the staged variant</td><td><code>▸</code></td></tr>
+</tbody>
+</table>
+
+<div class="bad">
+<p><b>Don't put a <code>/</code> in <code>AltStagePartSep</code>.</b> The staged preview is
+pasted into the Infloww composer, and <code>/</code> is Infloww's command trigger — it opens the
+slash-command menu over the box, which then swallows the <kbd>Tab</kbd> and <kbd>Enter</kbd> the
+picker runs on. The picker looks frozen, and the wrong variant goes out once you escape it.</p>
+<p>It used to default to <code>/</code> for exactly this reason-shaped bug. If your config still
+has the old value, MMA rewrites it to <code>|</code> once, automatically — but it leaves a
+separator <i>you</i> chose alone, so if you set one containing a slash, that's on you.</p>
+</div>
+
+<p>Same rule for anything else you put here: it has to be inert in a chat composer.</p>
+
+<!-- ═══════════════════════════════════════════════════════════════════════ -->
+<h2 id="nextfu">Next follow-up</h2>
+
+<p><kbd>Ctrl</kbd>+<kbd>XButton2</kbd>. OCRs the conversation, finds the last follow-up already
+in it, sends the one after. Right per chat and per model with nothing to remember, and it skips
+gaps — on a mass with no f2, "last seen f1" sends f3 and says so.</p>
+
+<p>It refuses in two cases, both deliberate:</p>
+<ul>
+  <li><b>No follow-up found <i>and</i> the mass isn't on screen.</b> Ambiguous — you're scrolled
+      up, or this fan never got the mass. Sending f1 would repeat a message or open with "did you
+      see what I sent?" to someone who got nothing.</li>
+  <li><b>The last follow-up the mass has is already there.</b> Wrapping to f1 would re-send.</li>
+</ul>
+<p>Both beep low and tooltip which it was.</p>
+
+<p>Region is set in <b>Settings ▸ Sending</b>. A wrong region can't announce itself — it just
+never finds a follow-up and always sends f1. Tune it there, or run the <b>Next follow-up</b>
+probe in Settings ▸ Debug to see exactly what it reads.</p>
+
+<!-- ═══════════════════════════════════════════════════════════════════════ -->
+<h2 id="settings">Settings — six tabs</h2>
+
+<p>Every setting has exactly one control in one place. Where a tab shows state another tab owns,
+it's greyed and points at the owner.</p>
+
+<table>
+<thead><tr><th>Tab</th><th>Holds</th></tr></thead>
+<tbody>
+<tr><td><b>Models</b></td><td>Model count, names, per-model platform, wait time, the three
+  detection modes, tab order, the live detector readout.</td></tr>
+<tr><td><b>Sending</b></td><td>Open-new-tab after FU2/FU3/PPV · wallet check before FU3 ·
+  double-MM (session only, not saved) · Default FU3 text · Next-follow-up region and OCR
+  settings.</td></tr>
+<tr><td><b>Features</b></td><td>Easy/Advanced and every feature switch. <a href="#modes">Below.</a></td></tr>
+<tr><td><b>Scripts</b></td><td>Which file Add Hotkey targets · visible scripts · run-on-startup ·
+  watchdog · read-only service status · Wipe TEMP.ahk · Check update.</td></tr>
+<tr><td><b>Hotkeys</b></td><td>Every action, its key, its owning script. Click a row, press the
+  key. <b>Conflict report</b> at the bottom — it's trustworthy, so silence means you're fine.</td></tr>
+<tr><td><b>Debug</b></td><td>Logging switches, probes, self-tests, diagnostic report.
+  <a href="#debug">Below.</a></td></tr>
+</tbody>
+</table>
+
+<div class="note">
+<p>The mass engine and <code>sequences.ahk</code> are deliberately <b>not</b> in the
+run-on-startup list. Both own hotkeys, and a box you can untick is a box that gets unticked —
+which is exactly how "every mass key went dead" and "the Discord import broke again" both
+happened. They start unconditionally; their real switches are in Features.</p>
+</div>
+
+<h3 id="modes">Easy / Advanced</h3>
+<p><b>Easy</b> is MMA as of v1.4.0 — paste, parse, tabs, script toggles, basic settings.
+<b>Advanced</b> is everything, each switchable alone.</p>
+<div class="warn">
+<p><b>Easy doesn't hide the extras, it switches them off</b> — hotkeys never register, services
+never start. A hidden feature that still runs can still surprise you. Your individual choices
+are remembered; flip back and every box is where you left it.</p>
+</div>
+<p>Features by section — <b>Sending:</b> alts &amp; branches · editable f-ups / wallet check ·
+default FU3 · next follow-up · open in new tab · double-MM · FuSingle grid · mouse f-ups.
+<b>Library:</b> archive · hotstrings manager · fast-parse autosave.
+<b>Tools:</b> actions menu · quick actions · recorder · auto-capitalize · sequences &amp; Discord
+import · OCR hotstring.
+<b>Background:</b> model detector · stats overlay · automation · pinger · auto-start &amp;
+watchdog · startup update check.</p>
+
+<!-- ═══════════════════════════════════════════════════════════════════════ -->
+<h2 id="hotstrings">Hotstrings</h2>
+
+<p>Canned messages live in plain files: <code>content\general.ahk</code> (shared, always
+running) and one per account in <code>content\accounts\</code>.</p>
+<pre><code>:*:_gns1::{
+    snd("your message here")
+}</code></pre>
+
+<p>With ~117 of them the problem is recall, so the <b>Hotstrings</b> manager searches <b>the
+message text as well as the trigger</b> — find one by half-remembering a phrase. From there:
+jump to source, delete, or make it an <b>overload</b>.</p>
+
+<p><b>Overloads</b> give one trigger several variants <b>without rewriting your message
+files</b> — the trigger is re-pointed at a picker when the script loads. Per trigger:
+<b>ask</b> (chooser, click a row or press <kbd>1</kbd>–<kbd>9</kbd>, <kbd>Esc</kbd> cancels) or
+<b>random</b>.</p>
+
+<!-- ═══════════════════════════════════════════════════════════════════════ -->
+<h2 id="actions">Actions menu</h2>
+
+<p><kbd>^!m</kbd>. Searchable list of every action and its key. Type to filter,
+<kbd>Enter</kbd> to run. Two things make it worth the muscle memory:</p>
+<ul>
+  <li>It runs actions with <b>no key bound</b> — otherwise unreachable without editing the ini.</li>
+  <li>It's generated from the registry, so it can't go stale.</li>
+</ul>
+<p>Other scripts are suspended while it's open (so typing can't fire a hotstring), and focus
+returns to your chat before the action runs.</p>
+
+<!-- ═══════════════════════════════════════════════════════════════════════ -->
+<h2 id="discord">Discord import</h2>
+
+<p><kbd>Ctrl</kbd>+click a message in Discord. MMA copies it, reads the channel name to decide
+which model it's for, and hands it to the window, which parses it into that model's tab.</p>
+<p><code>#aliw-staff-chat</code> → <code>aliw</code> → the Aliw model. Unrecognised channel →
+a prompt asks which model and <b>remembers</b>, so the next one is automatic. Aliases live in
+<code>mass_gui.cfg [ModelAliases]</code> as <code>name=slot</code> — the same table name-based
+detection uses.</p>
+
+<!-- ═══════════════════════════════════════════════════════════════════════ -->
+<h2 id="services">Background services</h2>
+
+<table>
+<thead><tr><th>Service</th><th>Does</th><th>Needs</th></tr></thead>
+<tbody>
+<tr><td><b>Model detector</b></td><td>Reports which model's tab is in front, for the shared keys.</td><td>—</td></tr>
+<tr><td><b>Stats overlay</b></td><td>Always-on-top Sales + PPV-sent/Fans-chatted ratio, red→green.
+  Reads the Infloww <b>Home</b> window in the background without stealing focus. Right-click to
+  calibrate or park. Toggle key configurable.</td><td>—</td></tr>
+<tr><td><b>Automation listener</b></td><td>Serves <kbd>^!u</kbd> unsend, <kbd>^!s</kbd> count
+  sales, <kbd>^!k</kbd> hop kebabs.</td><td>Python</td></tr>
+<tr><td><b>Unread pinger</b></td><td>Beeps when a fan tab goes unread.</td><td>Python</td></tr>
+<tr><td><b>Recorder</b></td><td><kbd>^!F12</kbd>. Records clicks into a named sequence and writes
+  it into <code>sequences.ahk</code> ready to bind.</td><td>—</td></tr>
+</tbody>
+</table>
+<p>All switched in <b>Features</b>. No Python → the two Python services just don't start, and MMA
+says so once instead of erroring every launch.</p>
+
+<!-- ═══════════════════════════════════════════════════════════════════════ -->
+<h2 id="debug">Logs</h2>
+
+<p><b>Settings ▸ Debug.</b> MMA is up to eight cooperating processes; this is how you find out
+which one went quiet.</p>
+
+<table>
+<thead><tr><th>Switch</th><th>Default</th><th>Does</th></tr></thead>
+<tbody>
+<tr><td><b>Write a log file</b></td><td>on</td><td>Every process appends to
+  <code>debuglogs\mma.log</code> — what it did, and every point where it deliberately did nothing.</td></tr>
+<tr><td><b>Report errors with a pop-up</b></td><td>off</td><td>A failure also raises a dialog
+  carrying the last 20 log lines. The "debug someone else's machine" switch — they can
+  screenshot it.</td></tr>
+<tr><td><b>Max logging</b></td><td>off</td><td>The full firehose: every feature gate, every
+  setting read, every branch.</td></tr>
+</tbody>
+</table>
+<p>They apply everywhere within a second or two — no save, no restart.</p>
+
+<pre><code>21:42:26  <span class="hl">BOOT</span>  engine.ahk   11244  lifecycle  start ahk=2.0.26 …
+21:42:31  <span class="hl">DEVL</span>  engine.ahk   11244  mass.fu2   devlog: DoFu2 entered
+21:42:31  <span class="hl">BAIL</span>  engine.ahk   11244  send.fu    model 2 follow-up 2 is EMPTY …</code></pre>
+
+<div class="ok">
+<p><b>How to read it.</b> "Nothing happened" has exactly two causes and one grep separates them:</p>
+<ul>
+  <li><code>DEVL</code> line present, no send → the code ran and chose to stop. The
+      <code>BAIL</code> right after says why.</li>
+  <li><b>No <code>DEVL</code> line at all</b> → it never ran. Key unbound, feature off, engine
+      down, or the press was debounced. The <code>hk.*</code> lines say which.</li>
+</ul>
+</div>
+
+<p>Levels: <code>BOOT</code>/<code>EXIT</code> (process start/stop, with reason) ·
+<code>DEVL</code> (it fired) · <code>INFO</code> · <code>BAIL</code> (deliberately did nothing,
+and why) · <code>WARN</code> · <code>FAIL</code>/<code>CRSH</code> (with stack).</p>
+
+<p><b>Buttons:</b> open <code>mma.log</code> · <b>Error log</b> (failures only, short) ·
+<b>Mark log</b> (press before and after a repro — only the lines between matter) ·
+<b>Diagnostic report</b> (<i>the</i> file to send: environment, both config files, last 400 log
+lines; masses and message text excluded) · <b>Clear logs</b> · probes · self-tests.</p>
+
+<div class="note">
+<p>For a machine you can't open Settings on: set <code>MMA_DEBUG=max</code> (or
+<code>popups</code> / <code>off</code>) in the environment and launch. It overrides all three,
+and the checkboxes grey out and say so.</p>
+</div>
+
+<!-- ═══════════════════════════════════════════════════════════════════════ -->
+<h2 id="trouble">Symptom → cause</h2>
+
+<table>
+<thead><tr><th>Symptom</th><th>Check in this order</th></tr></thead>
+<tbody>
+<tr><td><b>A mass key does nothing</b></td>
+    <td class="w">1. <a href="#massno">massNo</a> — pointing at a slot with text in it?<br>
+        2. Engine running? Settings ▸ Debug shows <code>engine ●</code>.<br>
+        3. Is that follow-up filled in for <i>that</i> model? Sparse masses are normal.<br>
+        4. Easy mode, or that feature off?<br>
+        5. Settings ▸ Hotkeys — key assigned, no clash?</td></tr>
+<tr><td><b>Shared keys (F13+) dead</b></td>
+    <td class="w">MMA has no answer for which model is on screen and refuses to guess. Fix
+        detection, switch to <b>I pick</b>, or use numbered keys.</td></tr>
+<tr><td><b>Wrong model's message went out</b></td>
+    <td class="w">Detection read the wrong tab. Switch to <b>I pick</b> now, then check
+        <b>Detector sees:</b>.</td></tr>
+<tr><td><b>A follow-up part is missing</b></td>
+    <td class="w">You wrote <code>f1.1</code> instead of <code>f1.5</code>. <a href="#format">Known bug.</a></td></tr>
+<tr><td><b>Parsed into the wrong tab</b></td>
+    <td class="w">Parse fills the tab you're on. Switch and re-parse.</td></tr>
+<tr><td><b>Saved, didn't take</b></td>
+    <td class="w"><a href="#loadsave">load/save move all three tabs.</a> One model start to finish.</td></tr>
+<tr><td><b>Discord import stopped</b></td>
+    <td class="w">Almost always the script not running or the key unbound, not the import logic.
+        Check <code>sequences</code> in Features, then the key.</td></tr>
+<tr><td><b>The wrong text went out</b></td>
+    <td class="w">Grep the log for a <code>FAIL</code> on the clipboard — if the clipboard didn't
+        take the text, Ctrl+V pastes whatever was there before. MMA records that now.</td></tr>
+<tr><td><b>Enter dead in chat</b></td>
+    <td class="w">A <a href="#variants">staged choice</a> still holds it. <kbd>Esc</kbd>, or wait 45 s.</td></tr>
+<tr><td><b>Everything dead</b></td>
+    <td class="w">A script may be suspended, or <code>hotkeys.ini</code> missing. Grep the log for
+        <code>hk.suspend</code> and <code>hk.init</code>.</td></tr>
+</tbody>
+</table>
+
+<!-- ═══════════════════════════════════════════════════════════════════════ -->
+<h2 id="files">Files</h2>
+
+<pre><code>MMA.ahk                  <span class="cmt">the only thing you double-click</span>
+
+content\                 <span class="cmt">YOURS — hand-written messages, never overwritten</span>
+  general.ahk              <span class="cmt">shared hotstrings, always running</span>
+  accounts\               <span class="cmt">one per account; TEMP.ahk is the scratch file</span>
+
+userdata\                <span class="cmt">YOURS — settings and masses</span>
+  masses.json             <span class="cmt">every mass, every model</span>
+  hotkeys.ini             <span class="cmt">every key</span>
+  mass_gui.cfg            <span class="cmt">every setting</span>
+  mass_archive.txt        <span class="cmt">the archive</span>
+
+debuglogs\               <span class="cmt">throwaway</span>
+  mma.log · error_log.txt · diagnostic_report.txt
+
+src\                     <span class="cmt">the app — replaced by updates</span></code></pre>
+
+<div class="bad">
+<p><b>Back up <code>userdata\</code> and <code>content\</code>.</b> That's everything you've
+written. Updates skip them deliberately, but nothing protects them from a mistake.</p>
+</div>
+
+<p>Don't rearrange the tree — parts of MMA find each other by path. New account files go in
+<code>content\accounts\</code>; use <b>New Script</b> and it lands correctly with the right
+header.</p>
+
+<hr>
+<p><small>MMA — made by actually.silly · internals in <code>ARCHITECTURE.md</code> ·
+paste format alone in <code>docs/mass-format.md</code></small></p>
+
+</main>
+</div>
+</body>
+</html>

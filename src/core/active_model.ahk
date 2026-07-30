@@ -71,9 +71,13 @@ ReadActiveX() {
 ; error dialog per key you press, which is how the MASS_MODELS bug behaved.
 ; A setting MMA cannot read should degrade to the default, loudly in the log if
 ; anywhere, never into the typing path.
+; A thin alias now. The behaviour described above is exactly LOG_IniInt in
+; core/log.ahk, which every file can reach — and the same guard was needed in
+; runtime.ahk, hotkeys.ahk and model_detector.ahk, none of which include this
+; file. One implementation, in the place that can log it; this name stays because
+; a dozen call sites below use it and it reads well here.
 _IniInt(file, section, key, default) {
-    v := Trim(IniRead(file, section, key, default))
-    return IsInteger(v) ? Integer(v) : default
+    return LOG_IniInt(file, section, key, default, "cfg.int")
 }
 
 ; "name" (default), "position" or "manual". See ActiveModelStatus.
@@ -97,8 +101,13 @@ ManualModelNo() {
 
 SetManualModel(n) {
     global MASS_MODELS
-    if (n < 1 || n > MASS_MODELS)
+    if (n < 1 || n > MASS_MODELS) {
+        LOGW("model.manual", "refused to select model " n " — outside 1-" MASS_MODELS)
         return false
+    }
+    LOGI("model.manual", "active model is now " n " (" ModelLabel(n) ") — every"
+                       . " [mass.active] shared key follows this until you say"
+                       . " otherwise")
     IniWrite(n, MMA_CFG, "Settings", "CurrentModel")
     return true
 }
@@ -221,7 +230,15 @@ DetectorCfg() {
         min:  _IniInt(MMA_CFG, "Detector", "MinGrey",  6),
         origin: _IniInt(MMA_CFG, "Detector", "TabOrigin", 30),
         pitch:  _IniInt(MMA_CFG, "Detector", "TabPitch",  150),
-        rgb:  Integer(RegExMatch(hex, "i)^0x") ? hex : "0x" hex),
+        ; Every other field here goes through _IniInt precisely so a bad value
+        ; cannot throw — and this one did not. DetectorCfg() is reached from
+        ; #HotIf, which AHK re-evaluates on EVERY KEYSTROKE, so one mistyped
+        ; GreyColor was not a mis-tuned detector: it was an error dialog per
+        ; character typed into a fan's chat. That is the exact failure the _IniInt
+        ; comment above describes, left open in the one field a human is most
+        ; likely to edit by hand.
+        rgb:  LOG_Int(RegExMatch(hex, "i)^0x") ? hex : "0x" hex,
+                      0x2B2C30, "[Detector] GreyColor"),
         win:  Trim(IniRead(MMA_CFG, "Detector", "WinMatch", "Infloww Messages"))}
 }
 
@@ -400,6 +417,8 @@ ActiveModelStatus() {
     ; confirmation IS the safety mechanism.
     if (mode = "manual") {
         n := ManualModelNo()
+        LOGV("model.resolve", "manual mode → model " n " (" ModelDisplayName(n) ")"
+                            . " because you said so; nothing on screen was read")
         return {no: n, name: ModelDisplayName(n), state: "ok"}
     }
 
@@ -423,8 +442,18 @@ ActiveModelStatus() {
         ; either the detector is off/Infloww is hidden, or you are on the other
         ; platform. A model marked "manual" can only mean the latter.
         fb := ManualFallbackModel()
-        if fb
+        if fb {
+            LOGV("model.resolve", "name mode: detector_status.ini has no name, but"
+                                . " model " fb " is marked 'manual' platform → " fb)
             return {no: fb, name: ModelDisplayName(fb), state: "ok"}
+        }
+        ; The single most common "the shared keys do nothing" cause. Every
+        ; [mass.active] key resolves through here, so with no answer they all
+        ; correctly refuse to guess — and look broken doing it.
+        LOG_Bail("model.resolve", "name mode: detector_status.ini has NO active"
+                                . " model name — the detector is off, or Infloww is"
+                                . " not in front. Every [mass.active] shared key"
+                                . " will do nothing; the numbered keys still work.")
         return {no: 0, name: "", state: "none"}
     }
     cfg  := MMA_CFG
@@ -432,10 +461,22 @@ ActiveModelStatus() {
     Loop MASS_MODELS
         if _SlotOwnsName(cfg, A_Index, active)
             hits.Push(A_Index)
-    if (hits.Length = 1)
+    if (hits.Length = 1) {
+        LOGV("model.resolve", "name mode: OCR read '" active "' → model " hits[1])
         return {no: hits[1], name: active, state: "ok"}
-    if (hits.Length > 1)
+    }
+    if (hits.Length > 1) {
+        ; Almost always two tabs read as one string. Refusing is correct — the
+        ; alternative is one model's mass in the other's chat — but it is invisible.
+        LOGW("model.resolve", "name mode: OCR read '" active "' which matches "
+                            . hits.Length " models at once, so MMA refuses to guess."
+                            . " Usually two tabs read as one string. Shared keys do"
+                            . " nothing until this is unambiguous.")
         return {no: 0, name: active, state: "ambiguous"}
+    }
+    LOGW("model.resolve", "name mode: OCR read '" active "' and NO model claims it."
+                        . " Add it under [ActiveMap] File<n> or [ModelAliases] in"
+                        . " mass_gui.cfg, or rename the model to match.")
     return {no: 0, name: active, state: "unknown"}
 }
 
@@ -471,18 +512,43 @@ _PositionalStatusUncached(cfg) {
     ; See ManualFallbackModel for why that condition is what keeps this honest.
     if !DetectorWindowUp(cfg) {
         fb := ManualFallbackModel()
-        if fb
+        if fb {
+            LOGV("model.resolve", "positional: '" cfg.win "' is not in front, but"
+                                . " model " fb " is marked 'manual' platform → " fb)
             return {no: fb, name: ModelDisplayName(fb), state: "ok"}
+        }
+        LOG_Bail("model.resolve", "positional: the window '" cfg.win "' is not in"
+                                . " front, so the tab strip must not be read"
+                                . " (fixed screen coordinates would measure whatever"
+                                . " is sitting there). Shared keys do nothing.")
         return {no: 0, name: "", state: "none"}
     }
 
-    idx := TabLitIndex(cfg).index
-    if (idx < 1)
+    lit := TabLitIndex(cfg)
+    idx := lit.index
+    if (idx < 1) {
+        ; The per-tab counts ARE the diagnosis — all zeros means the colour or
+        ; region is wrong, two big numbers means TabPitch is wrong — and this is
+        ; the one place they were computed and then thrown away.
+        counts := ""
+        for i, c in lit.counts
+            counts .= (counts = "" ? "" : " ") "tab" i ":" c
+        LOG_Bail("model.resolve", "positional: no tab is clearly lit — per-tab pixel"
+                                . " counts [" counts "], MinGrey=" cfg.min ". All"
+                                . " zeros = wrong GreyColor/region (run the Tab"
+                                . " detector probe); two large = wrong TabPitch.")
         return {no: 0, name: "", state: "none"}      ; no tab clearly lit
+    }
 
     slot := TabModel(idx)
-    if (!slot)
+    if (!slot) {
+        LOGW("model.resolve", "positional: tab " idx " is lit but no model is mapped"
+                            . " to it ([Positional] Pos" idx " in mass_gui.cfg)."
+                            . " Press a 'active model = N' key while this tab is in"
+                            . " front to teach it.")
         return {no: 0, name: "tab " idx, state: "unknown"}
+    }
+    LOGV("model.resolve", "positional: tab " idx " is lit → model " slot)
     return {no: slot, name: "tab " idx, state: "ok"}
 }
 

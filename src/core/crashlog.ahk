@@ -1,28 +1,24 @@
 #Requires AutoHotkey v2.0
 #Include "paths.ahk"
 ; ═══════════════════════════════════════════════════════════════════════════════
-;  crashlog.ahk — every script's uncaught errors, in one place.
+;  crashlog.ahk — kept as a name, not as an implementation.
 ; ───────────────────────────────────────────────────────────────────────────────
-;  A script that "randomly dies" should leave a breadcrumb. Without this, an
-;  uncaught error shows AHK's dialog, the user dismisses it, the process is gone,
-;  and error_log.txt says nothing at all.
+;  This file used to own OnError: it caught uncaught errors and appended one line
+;  to error_log.txt. That job now belongs to core\log.ahk, which does it with the
+;  STACK attached and alongside everything else the process was doing at the time
+;  — the context being the part that actually ends a hunt.
 ;
-;  This lived inside utils.ahk, which meant only the scripts that include utils
-;  were covered — and main_window.ahk is not one of them. The GUI, the single most
-;  complicated script here, was the one thing that could die without a trace.
-;  Keeping it separate lets mass_gui have the logger without pulling in utils'
-;  hotstrings and send helpers, which it has no business registering.
+;  The file survives because two scripts name it in an #Include (utils.ahk and
+;  main_window.ahk) and because its reason for existing separately is unchanged
+;  and still correct: main_window.ahk must not include utils.ahk, so the crash
+;  logger could not live there. paths.ahk turned out to be the better answer to
+;  that same question — every script already includes it — so the hook moved
+;  there and this became a forwarder.
 ;
-;  Behaviour is otherwise unchanged: returning 0 keeps AHK's default dialog.
+;  Deleting it would mean editing those two #Include lines for no gain, and a
+;  one-line file that explains where the behaviour went is worth more to the next
+;  reader than one fewer file.
+;
+;  There is no OnError registration here any more. Two handlers would both fire
+;  and log the same crash twice.
 ; ═══════════════════════════════════════════════════════════════════════════════
-
-OnError(_MMA_LogError)
-_MMA_LogError(err, mode) {
-    try {
-        detail := IsObject(err) ? (err.HasProp("Message") ? err.Message : Type(err)) : err
-        line   := (IsObject(err) && err.HasProp("Line")) ? "  (line " err.Line ")" : ""
-        FileAppend(FormatTime(, "yyyy-MM-dd HH:mm:ss") "  [" A_ScriptName "]  " detail line "`n",
-                   MMA_ERRLOG, "UTF-8")
-    }
-    return 0   ; 0 = keep default behaviour (log only)
-}

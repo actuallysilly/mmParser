@@ -39,8 +39,16 @@ CaptureEnter() {
     Sleep 30
     Send "^c"
     ClipWait 0.3
-    if A_Clipboard != ""
+    if A_Clipboard != "" {
         _lastTyped := A_Clipboard
+        LOGV("nav.capture", "remembered " StrLen(A_Clipboard) " chars before Enter")
+    } else {
+        ; The Enter still goes through, so the message sends either way — but
+        ; util.recoverMsg will hand back the PREVIOUS message, or nothing, and
+        ; that only becomes apparent at the moment you need it most.
+        LOGW("nav.capture", "could not copy the message before sending it —"
+                          . " 'recover last message' will not have this one")
+    }
     A_Clipboard := saved
     Send "{Enter}"
 }

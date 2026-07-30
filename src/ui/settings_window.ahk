@@ -2,8 +2,14 @@
 #Include "hotkeys_panel.ahk"
 #Include "features_panel.ahk"
 #Include "debug_panel.ahk"
+; Its own include, not its host's. This file used THEME_WindowBg() while relying on
+; main_window.ahk having included theme.ahk first — which worked in the app and
+; broke settings_build_test.ahk, the one thing that builds this window on its own.
+; A file that names a function includes the file that defines it; AHK loads any
+; given file once, so saying so twice costs nothing.
+#Include "../core/theme.ahk"
 ; ═══════════════════════════════════════════════════════════════════════════════
-;  settings_window.ahk — every setting in MMA, in one window, on five tabs.
+;  settings_window.ahk — every setting in MMA, in one window, on seven tabs.
 ; ───────────────────────────────────────────────────────────────────────────────
 ;  This replaces three windows: Settings (one 570-line function producing a single
 ;  620px column you scrolled with your eyes), "Mode & features" behind a button
@@ -54,12 +60,33 @@ OpenSettings(*) {
     CH := SW_H - SW_BAR_H - SW_MARGIN - CY              ; content height
 
     sg := Gui("+Owner" g.Hwnd " +Resize +MinSize900x600", "MMA Settings")
-    sg.SetFont("s9", "Segoe UI")
+    ; Same theme as the main window. Read here rather than passed in, because this
+    ; window is rebuilt every time it is opened — so it picks up a theme change on
+    ; the next open with nothing to notify it.
+    _sgBg := THEME_WindowBg()
+    if (_sgBg != "")
+        sg.BackColor := _sgBg
+    ; Colour on the window font, before any control is added — the only way a
+    ; label on a tab page ends up readable. See THEME_ApplyTo.
+    sg.SetFont("s9" THEME_FontOpt(), "Segoe UI")
 
+    ; The Background option is what actually colours this window. A Tab3 paints its
+    ; own page interior, and that page covers everything but an 8px frame — so
+    ; sg.BackColor alone changes a border you cannot see and nothing else, which is
+    ; exactly how it looked when this was first tried.
     tab := sg.Add("Tab3", "x" SW_MARGIN " y" SW_MARGIN
                         . " w" (SW_W - SW_MARGIN * 2)
-                        . " h" (SW_H - SW_BAR_H - SW_MARGIN * 2),
-                  ["Models", "Sending", "Features", "Scripts", "Hotkeys", "Debug"])
+                        . " h" (SW_H - SW_BAR_H - SW_MARGIN * 2)
+                        . (_sgBg != "" ? " Background" _sgBg : ""),
+                  ["Models", "Sending", "Features", "Scripts", "Hotkeys", "GUI",
+                   "Debug"])
+    ; Exported so a tab can be opened directly — `tab` itself is a local, and the
+    ; only way in from outside was Ctrl+Tab, which needs the focus to be inside the
+    ; control and silently does nothing when it is not. Setting .Value switches the
+    ; page properly, which a TCM_SETCURSEL message does not: Tab3 swaps its pages
+    ; off the control's notification, so a message-only switch lights the tab you
+    ; asked for while still showing the previous page's controls.
+    global SW_TAB := tab
 
     ; ═══════════════════════════════════════════════════════════════════════════
     ;  Tab 1 — Models: who they are, and which one MMA thinks is on screen.
@@ -188,7 +215,7 @@ OpenSettings(*) {
     Loop modelCount {
         _p  := A_Index
         _dd := sg.Add("DropDownList", "x" (CX + 136 + (_p - 1) * 110) " y" y " w104", _posItems)
-        _cur := Integer(IniRead(CFG_FILE, "Positional", "Pos" _p, _p))
+        _cur := LOG_IniInt(CFG_FILE, "Positional", "Pos" _p, _p, "settings")
         _dd.Value := (_cur >= 1 && _cur <= modelCount) ? _cur : _p
         ddlPos.Push(_dd)
     }
@@ -252,10 +279,30 @@ OpenSettings(*) {
     sg.SetFont("s8")
     sg.Add("Text", "x" CX " y" y " w" CW " cGray",
            "Alt follow-ups and --Name branches are one list on the follow-up key:"
-         . " TAB moves through them, Enter sends, Esc cancels. Switch the whole"
-         . " thing off under Features.")
+         . " TAB moves through them, Shift+TAB goes back, Enter sends, Esc cancels."
+         . " Switch the whole thing off under Features.")
     sg.SetFont("s9")
     y += 30
+
+    ; The fallback for the picker window, and the reason it is phrased as an
+    ; opt-OUT: the window is the fix, not the option. Ticking this goes back to
+    ; previewing the variants inside the chat box, which is where they used to go —
+    ; and where, if Infloww swallows the Ctrl+A that clears them, ENTER SENDS ALL
+    ; OF THEM to the fan as one message. That is the bug the window removes, so the
+    ; box is here as a way out if the window misbehaves, not as a preference.
+    chkAltNoGui := sg.Add("Checkbox", "x" CX " y" y " w" CW,
+                          "Don't use a GUI for alt FUs (preview in the chat box"
+                        . " instead)")
+    chkAltNoGui.Value := IniRead(CFG_FILE, "Settings", "AltStageNoGui", "0") = "1"
+    y += 22
+    sg.SetFont("s8")
+    sg.Add("Text", "x" CX " y" y " w" CW " cGray",
+           "The chat-box preview can send every variant at once if Infloww ignores"
+         . " the keystroke that clears it. Leave this unticked unless the picker"
+         . " window itself gives you trouble.  Applies to the next follow-up key —"
+         . " no restart.")
+    sg.SetFont("s9")
+    y += 34
 
     ; Not a saved setting: _doubleMM is session state, and the checkbox applies the
     ; moment it is clicked. It sits here rather than in Features because Features
@@ -444,8 +491,9 @@ OpenSettings(*) {
     ; but a checkbox was the wrong fix, and the import broke again twice more:
     ; once because the DEFAULT StartupScripts is "general.ahk" alone, so a fresh
     ; install never ticked it, and once because a box you can untick is a box that
-    ; gets unticked. LaunchSequences() starts it unconditionally now; its real
-    ; switch is the "sequences" feature on the Features tab.
+    ; gets unticked. LaunchSequences() starts it unconditionally now, and it has no
+    ; switch anywhere — the Features tab entry is gone too, because Easy mode turned
+    ; that one off in bulk and killed the import a fourth time.
     ;
     ; The mass engine is deliberately NOT offered here. It is core, launched by
     ; LaunchEngine(); listing it would let one unticked box silently disable every
@@ -522,9 +570,94 @@ OpenSettings(*) {
     hkPanel := HotkeysPanel(sg, CX, CY, CW, CH)
 
     ; ═══════════════════════════════════════════════════════════════════════════
-    ;  Tab 6 — Debug: the tools\ scripts, without going to find them in Explorer.
+    ;  Tab 6 — GUI: what MMA looks like.
     ; ═══════════════════════════════════════════════════════════════════════════
     tab.UseTab(6)
+    y := CY
+
+    sg.SetFont("s10 Bold")
+    sg.Add("Text", "x" CX " y" y " w" CW, "Theme")
+    sg.SetFont("s9 Norm")
+    y += 26
+    sg.SetFont("s8")
+    sg.Add("Text", "x" CX " y" y " w" CW " cGray",
+           "Colours only — nothing here changes what MMA sends or which key does"
+         . " what. It covers this window, the main window, and the follow-up"
+         . " picker that appears over the chat.")
+    sg.SetFont("s9")
+    y += 32
+
+    ; Built from THEME_List() rather than hard-coded, so adding a theme is one
+    ; edit in core/theme.ahk and this tab grows a row on its own.
+    ;
+    ; ─── THE RADIOS ARE ADDED CONSECUTIVELY, AND THAT IS NOT A STYLE CHOICE ───
+    ; Windows decides which radio buttons belong to one group by CREATION ORDER:
+    ; a group runs from one radio until a control that is not a radio. Adding each
+    ; radio followed by its description Text — the obvious way to write this —
+    ; therefore put every radio in a group of its own, and a group of one never
+    ; unchecks anything. All three themes could be selected at the same time, and
+    ; Save then picked whichever it happened to find first.
+    ;
+    ; So the positions are worked out first, the radios go in as one run, and the
+    ; descriptions are placed afterwards at the coordinates already reserved for
+    ; them. Same layout, one group.
+    themes := THEME_List()
+    _rowY  := []
+    for _t in themes {
+        _rowY.Push(y)
+        y += 46                    ; 20 for the radio, 26 for its note
+    }
+    rdTheme := Map()
+    _curTheme := THEME_Name()
+    for _i, _t in themes {
+        ; Group on the first one states the intent rather than leaning on the
+        ; automatic behaviour that caused the bug in the first place.
+        _rd := sg.Add("Radio", "x" CX " y" _rowY[_i] " w" CW
+                             . (_i = 1 ? " Group" : "")
+                             . (_t.id = _curTheme ? " Checked" : ""), _t.label)
+        rdTheme[_t.id] := _rd
+    }
+    sg.SetFont("s8")
+    for _i, _t in themes
+        sg.Add("Text", "x" (CX + 18) " y" (_rowY[_i] + 20) " w" (CW - 18) " cGray",
+               _t.note)
+    sg.SetFont("s9")
+
+    y += 8
+    sg.SetFont("s8")
+    sg.Add("Text", "x" CX " y" y " w" CW " cGray",
+           "Applies when you press Save. The main window repaints straight away,"
+         . " this window on its next open, and the follow-up picker on the next"
+         . " follow-up key — nothing needs restarting. Buttons and list headers are"
+         . " drawn by Windows and stay light whatever you pick here.")
+    sg.SetFont("s9")
+    y += 44
+
+    sg.Add("Text", "x" CX " y" y " w" CW " h1 0x10")
+    y += 12
+    sg.SetFont("s9 Bold")
+    sg.Add("Text", "x" CX " y" y " w" CW, "Follow-up picker size")
+    sg.SetFont("s9 Norm")
+    y += 24
+    sg.Add("Text", "x" CX " y" (y + 3) " w130", "Width:")
+    edAltW := sg.Add("Edit", "x" (CX + 136) " y" y " w64",
+                     _IniInt(CFG_FILE, "Settings", "AltGuiWidth", 560))
+    sg.Add("Text", "x" (CX + 210) " y" (y + 3) " w130", "Sits above bottom by:")
+    edAltLift := sg.Add("Edit", "x" (CX + 346) " y" y " w64",
+                        _IniInt(CFG_FILE, "Settings", "AltGuiLift", 150))
+    y += 28
+    sg.SetFont("s8")
+    sg.Add("Text", "x" CX " y" y " w" CW " cGray",
+           "Both in pixels at 100% display zoom — the width is scaled up on a"
+         . " high-DPI screen so the window keeps its shape. The lift is how far"
+         . " above the chat window's bottom edge the picker sits; raise it if it"
+         . " covers your composer.")
+    sg.SetFont("s9")
+
+    ; ═══════════════════════════════════════════════════════════════════════════
+    ;  Tab 7 — Debug: the tools\ scripts, without going to find them in Explorer.
+    ; ═══════════════════════════════════════════════════════════════════════════
+    tab.UseTab(7)
     DebugPanel(sg, CX, CY, CW, CH)
 
     tab.UseTab()
@@ -538,6 +671,12 @@ OpenSettings(*) {
     btnClose := sg.Add("Button", "x" (SW_MARGIN + 108) " y" _by " w90 h30", "Close")
     btnClose.OnEvent("Click", (*) => CloseSettings())
     lblSaved := sg.Add("Text", "x" (SW_MARGIN + 210) " y" (_by + 8) " w" (SW_W - 230), "")
+
+    ; Colour the controls, now that all seven tabs' worth of them exist. Nothing to
+    ; do on a light theme; on dark this is what stops the labels being black text
+    ; on a black window. Rebuilt every time the window opens, so a theme change
+    ; lands on the next open with nothing to notify it.
+    THEME_ApplyTo(sg)
 
     sg.OnEvent("Close", (*) => StopSettingsTimers())
     sg.OnEvent("Size", OnSettingsSize)
@@ -712,12 +851,25 @@ OpenSettings(*) {
         _newWait  := SW_Num(edWT, waitTime, 50)
         waitChanged := (_newWait != waitTime)
         waitTime  := _newWait
-        _uPath    := MMA_SRC_UTILS
-        _uContent := FileRead(_uPath, "UTF-8")
-        _uContent := RegExReplace(_uContent, "\bwaitTime\b\s*:=\s*\d+", "waitTime     := " waitTime)
-        _f := FileOpen(_uPath, "w", "UTF-8")
-        _f.Write(_uContent)
-        _f.Close()
+        ; ── the riskiest write in the app, now guarded ────────────────────────
+        ; This REWRITES core/utils.ahk, a source file every message script and the
+        ; engine #Include. It was unguarded, and failed two ways:
+        ;
+        ;   1. FileRead throws (file missing, locked by antivirus, permissions) →
+        ;      the throw escapes the Save handler, so EVERY SETTING BELOW THIS
+        ;      LINE never saves. ModelMatch, the tab order, the open-in-new-tab
+        ;      boxes, the wallet check — silently discarded, while the settings
+        ;      above this line did save. Half-saved is worse than not saved.
+        ;   2. FileOpen(…, "w") TRUNCATES FIRST. A failure between the truncate
+        ;      and the write leaves utils.ahk empty, which breaks every message
+        ;      script and the engine at once.
+        ;
+        ; Both are contained here: the write goes to a temp file and is MOVED into
+        ; place (the pattern store.ahk and archive.ahk already use for exactly this
+        ; reason), and the whole thing is scoped so a failure costs you the wait
+        ; time and nothing else.
+        if waitChanged
+            SW_SaveWaitTime(waitTime)
         UpdateModelButtons()
 
         IniWrite(rdPos.Value ? "position" : rdMan.Value ? "manual" : "name",
@@ -735,6 +887,9 @@ OpenSettings(*) {
         IniWrite(openTabFu3, CFG_FILE, "Settings", "OpenTabFu3")
         IniWrite(openTabPpv, CFG_FILE, "Settings", "OpenTabPpv")
         IniWrite(chkWallet.Value ? 1 : 0, CFG_FILE, "Settings", "WalletCheckFu3")
+        ; Read per follow-up key by AltStageUseGui(), so this needs no broadcast and
+        ; no restart either — the next press picks it up.
+        IniWrite(chkAltNoGui.Value ? 1 : 0, CFG_FILE, "Settings", "AltStageNoGui")
         ; The model scripts re-read this on every f3 press, so no broadcast and no
         ; restart — saving is enough.
         IniWrite(_EncodeMultiline(edDefFu3.Value), CFG_FILE, "Settings", "DefaultFu3")
@@ -743,6 +898,25 @@ OpenSettings(*) {
         for _key, _ed in edNfu
             IniWrite(SW_Num(_ed, _IniInt(CFG_FILE, "NextFu", _key, 0)),
                      CFG_FILE, "NextFu", _key)
+
+        ; ── GUI ───────────────────────────────────────────────────────────────
+        ; Every window reads the theme from the cfg for itself (they are separate
+        ; processes — see core/theme.ahk), so writing the name IS the broadcast.
+        ; The one window that cannot re-read on its own is the one already on
+        ; screen, so it gets repainted here.
+        _themePick := ""
+        for _id, _rd in rdTheme
+            if _rd.Value
+                _themePick := _id
+        if (_themePick != "") {
+            IniWrite(_themePick, CFG_FILE, "Settings", "Theme")
+            ApplyWindowTheme()
+        }
+        ; Read per picker build, so these two need no restart either.
+        IniWrite(SW_Num(edAltW,    _IniInt(CFG_FILE, "Settings", "AltGuiWidth", 560), 260),
+                 CFG_FILE, "Settings", "AltGuiWidth")
+        IniWrite(SW_Num(edAltLift, _IniInt(CFG_FILE, "Settings", "AltGuiLift", 150), 0),
+                 CFG_FILE, "Settings", "AltGuiLift")
 
         ; ── Scripts ───────────────────────────────────────────────────────────
         defaultHotkeyFile := ddlDef.Text
@@ -843,6 +1017,67 @@ SW_Num(ctrl, fallback, min := 0) {
         return Max(min, Integer(Trim(ctrl.Value)))
     catch
         return fallback
+}
+
+; Write the new waitTime into core/utils.ahk, where it lives as a literal.
+;
+; The only setting in MMA that is stored as SOURCE CODE rather than as config, so
+; it is the only save that can break the app by succeeding partially. Three things
+; keep that contained:
+;
+;   • temp file + FileMove, so utils.ahk is either the old version or the new one
+;     and never a truncated one. FileOpen(…, "w") on the real path truncates
+;     before writing, which is how an interrupted save empties a file that every
+;     message script and the engine #Include.
+;   • the replacement is verified to have actually matched before anything is
+;     written. RegExReplace returns the input UNCHANGED when the pattern misses,
+;     so renaming or reformatting that line in utils.ahk would otherwise make this
+;     silently write the file back identical and report success, and the wait time
+;     would just never change — with the Settings field showing the new value.
+;   • it returns false rather than throwing, so a failure costs the wait time and
+;     leaves the rest of Save to finish.
+SW_SaveWaitTime(ms) {
+    path := MMA_SRC_UTILS
+    LOGD("settings.wait", "writing waitTime=" ms " into " _LOG_BaseName(path))
+
+    body := ""
+    try {
+        body := FileRead(path, "UTF-8")
+    } catch as e {
+        LOGE("settings.wait", "could not read utils.ahk — the wait time was NOT"
+                            . " saved. Every other setting still was.", LOG_Err(e))
+        return false
+    }
+
+    ; `hits`, not `n` — some script in the tree has a global by that name, and a
+    ; local shadowing a global is a #Warn warning in every file that includes both.
+    updated := RegExReplace(body, "\bwaitTime\b\s*:=\s*\d+", "waitTime     := " ms, &hits)
+    if (!hits) {
+        LOGE("settings.wait", "could not find the `waitTime := <number>` line in"
+                            . " utils.ahk — the wait time was NOT saved and the file"
+                            . " was left alone",
+                            "has that line been renamed or reformatted? " path)
+        return false
+    }
+
+    tmp := path ".tmp"
+    try {
+        f := FileOpen(tmp, "w", "UTF-8")
+        if !f
+            throw Error("could not open " tmp " for writing")
+        f.Write(updated)
+        f.Close()
+        FileMove(tmp, path, true)
+    } catch as e {
+        try FileDelete(tmp)
+        LOGE("settings.wait", "could not write utils.ahk — the wait time was NOT"
+                            . " saved. utils.ahk is untouched.", LOG_Err(e))
+        return false
+    }
+    LOG_Ok("settings.wait", "utils.ahk now has waitTime := " ms
+                          . " (" hits " occurrence(s) replaced); the engine picks it"
+                          . " up on its next restart")
+    return true
 }
 
 ; The probe is a tool, not a feature: it binds Ctrl+Alt+F10, reports, and exits. Run it

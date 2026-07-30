@@ -76,7 +76,12 @@ OL_LoadOne(trigger) {
     global OL_INI
     if !FileExist(OL_INI)
         return ""
-    nv := Integer(IniRead(OL_INI, trigger, "variants", "0"))
+    ; LOG_IniInt: OL_Load calls this for every section, and Overload_Register calls
+    ; OL_Load at LOAD time in every message script. So one malformed `variants=`
+    ; line in hotstring_overloads.ini did not disable one overload — it stopped
+    ; general.ahk and every account file from starting, taking all their hotstrings
+    ; with them.
+    nv := LOG_IniInt(OL_INI, trigger, "variants", 0, "overload.load")
     if (nv < 1)
         return ""
     file    := Trim(IniRead(OL_INI, trigger, "file", ""))
@@ -85,7 +90,7 @@ OL_LoadOne(trigger) {
     variants := []
     Loop nv {
         vi := A_Index
-        ns := Integer(IniRead(OL_INI, trigger, "v" vi ".steps", "0"))
+        ns := LOG_IniInt(OL_INI, trigger, "v" vi ".steps", 0, "overload.load")
         steps := []
         Loop ns {
             raw := IniRead(OL_INI, trigger, "v" vi "." A_Index, "")
@@ -106,8 +111,12 @@ OL_LoadOne(trigger) {
 OL_Load() {
     global OL_INI
     res := Map()
-    if !FileExist(OL_INI)
+    if !FileExist(OL_INI) {
+        LOGV("overload.load", "no " OL_INI " — no hotstring is overloaded, so every"
+                            . " trigger sends its one fixed message")
         return res
+    }
+    bad := ""
     for sec in StrSplit(IniRead(OL_INI), "`n", "`r") {
         sec := Trim(sec)
         if (sec = "")
@@ -115,7 +124,16 @@ OL_Load() {
         e := OL_LoadOne(sec)
         if e
             res[sec] := e
+        else
+            bad .= (bad = "" ? "" : ", ") sec
     }
+    ; A section that parses to nothing is silently dropped, and the trigger then
+    ; behaves as an ordinary hotstring — which looks like the overload having been
+    ; forgotten rather than rejected. Naming them is the difference.
+    if (bad != "")
+        LOGW("overload.load", "these sections in hotstring_overloads.ini have no"
+                            . " usable variants and were IGNORED: " bad)
+    LOGV("overload.load", res.Count " overloaded trigger(s) loaded")
     return res
 }
 

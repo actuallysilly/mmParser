@@ -119,8 +119,16 @@ MASS_Blank() {
 ; silently replacing a damaged message library with an empty one would destroy
 ; work that a text editor could still have recovered.
 MASS_Load() {
-    if !FileExist(MMA_MASSES)
+    if !FileExist(MMA_MASSES) {
+        ; On a fresh install this is right and harmless. On an existing one it
+        ; means every mass the user has written is gone from MMA's point of view,
+        ; and the first symptom is every follow-up key doing nothing — so it says
+        ; which file it looked for rather than starting empty in silence.
+        LOGW("mass.load", "masses.json does not exist — starting with an EMPTY"
+                        . " library. Normal on a first run; on an existing install"
+                        . " it means every mass is missing. Looked for " MMA_MASSES)
         return MASS_Default()
+    }
     try {
         raw := FileRead(MMA_MASSES, "UTF-8")
         ; FileRead strips a leading BOM, but a file written by some other tool may
@@ -132,16 +140,36 @@ MASS_Load() {
     } catch as e {
         bak := MMA_MASSES ".broken-" FormatTime(, "yyyyMMdd-HHmmss")
         try FileCopy(MMA_MASSES, bak, true)
-        try FileAppend(FormatTime(, "yyyy-MM-dd HH:mm:ss") "  [store] "
-                     . "masses.json is not valid JSON (" e.Message
-                     . ") — kept a copy at " bak "`n", MMA_ERRLOG, "UTF-8")
+        LOGE("mass.load", "masses.json is not valid JSON — started with an EMPTY"
+                        . " library and kept a copy of the broken file",
+                        LOG_Err(e) "   copy: " bak)
         MsgBox "masses.json could not be read:`n`n" e.Message
              . "`n`nA copy was kept at:`n" bak
              . "`n`nMMA has started with an empty library. Fix that file and "
              . "restart rather than saving over it.", "MMA", 0x10
         return MASS_Default()
     }
-    return MASS_Normalise(doc)
+    doc := MASS_Normalise(doc)
+    ; A summary of what actually loaded, per model: which slot is live and how
+    ; many of its slots have any text at all. This is the line that settles
+    ; "the hotkeys do nothing" — massNo pointing at an empty slot while the text
+    ; sits in another one is a known and repeat offender, and it is invisible
+    ; from the keyboard.
+    if LOG_On() {
+        summary := ""
+        Loop MASS_MODELS {
+            mi := A_Index
+            filled := ""
+            Loop MASS_SLOTS
+                if (Trim(MASS_Get(doc, mi, A_Index)["mass"]) != "")
+                    filled .= A_Index
+            summary .= (summary = "" ? "" : "   ")
+                     . "m" mi ": live=" MASS_MassNo(doc, mi)
+                     . " withText=" (filled = "" ? "none" : filled)
+        }
+        LOGI("mass.load", "loaded " MMA_MASSES " — " summary)
+    }
+    return doc
 }
 
 ; Write the library. Writes to a TEMP file and moves it into place, so a crash
@@ -161,11 +189,19 @@ MASS_Save(doc) {
         f := FileOpen(tmp, "w", "UTF-8-RAW")
         if !f
             throw Error("could not open " tmp " for writing")
-        f.Write(JSON.Stringify(doc, "  "))
+        body := JSON.Stringify(doc, "  ")
+        f.Write(body)
         f.Close()
         FileMove(tmp, MMA_MASSES, true)
+        LOGI("mass.save", "wrote " MMA_MASSES " (" StrLen(body) " chars) via "
+                        . "temp file + move")
     } catch as e {
         try FileDelete(tmp)
+        ; Losing a save is the worst outcome in the app — this file IS every mass
+        ; the user has written. FAIL so it pops up when popups are on, rather than
+        ; only living behind the MsgBox the user is about to dismiss.
+        LOGE("mass.save", "could not save masses.json — YOUR EDITS ARE NOT ON DISK."
+                        . " The previous library is intact.", LOG_Err(e))
         MsgBox "Could not save masses.json:`n`n" e.Message, "MMA", 0x10
         return false
     }

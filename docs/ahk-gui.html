@@ -1,0 +1,635 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>AHK v2 GUI — the advanced bits</title>
+<style>
+:root{
+  --bg:#fffafc; --bg-alt:#fdf4f8; --bg-code:#faeef4; --bd:#f0dde6;
+  --tx:#241a20; --tx-dim:#6b5560; --accent:#6b4ede;
+  --accent-soft:#efeafc; --warn-bg:#fff6e6; --warn-bd:#e8b04b;
+  --bad-bg:#fdeced; --bad-bd:#dc6b76; --ok-bg:#e9f7ee; --ok-bd:#4fa96b;
+  --kbd-bg:#fff; --kbd-bd:#e0ccd6; --kbd-sh:#eddae3;
+}
+@media (prefers-color-scheme:dark){
+  :root{
+    --bg:#16121a; --bg-alt:#1e1822; --bg-code:#221b28; --bd:#352b3a;
+    --tx:#eee4ec; --tx-dim:#a894a4; --accent:#b89cff;
+    --accent-soft:#241f38; --warn-bg:#2d2413; --warn-bd:#9a7a2e;
+    --bad-bg:#31191d; --bad-bd:#c4707e; --ok-bg:#16281d; --ok-bd:#3f7d55;
+    --kbd-bg:#2a2233; --kbd-bd:#443850; --kbd-sh:#100c14;
+  }
+}
+:root[data-theme="dark"]{
+  --bg:#16121a; --bg-alt:#1e1822; --bg-code:#221b28; --bd:#352b3a;
+  --tx:#eee4ec; --tx-dim:#a894a4; --accent:#b89cff;
+  --accent-soft:#241f38; --warn-bg:#2d2413; --warn-bd:#9a7a2e;
+  --bad-bg:#31191d; --bad-bd:#c4707e; --ok-bg:#16281d; --ok-bd:#3f7d55;
+  --kbd-bg:#2a2233; --kbd-bd:#443850; --kbd-sh:#100c14;
+}
+:root[data-theme="light"]{
+  --bg:#fffafc; --bg-alt:#fdf4f8; --bg-code:#faeef4; --bd:#f0dde6;
+  --tx:#241a20; --tx-dim:#6b5560; --accent:#6b4ede;
+  --accent-soft:#efeafc; --warn-bg:#fff6e6; --warn-bd:#e8b04b;
+  --bad-bg:#fdeced; --bad-bd:#dc6b76; --ok-bg:#e9f7ee; --ok-bd:#4fa96b;
+  --kbd-bg:#fff; --kbd-bd:#e0ccd6; --kbd-sh:#eddae3;
+}
+*{box-sizing:border-box}
+html{scroll-behavior:smooth; scroll-padding-top:1rem}
+body{
+  margin:0; background:var(--bg); color:var(--tx);
+  font:15.5px/1.62 "Segoe UI",system-ui,-apple-system,sans-serif;
+}
+.wrap{max-width:1180px; margin:0 auto; padding:0 1.2rem; display:flex; gap:2.2rem}
+nav{
+  flex:0 0 232px; position:sticky; top:0; align-self:flex-start;
+  max-height:100vh; overflow-y:auto; padding:2rem 0 2rem;
+}
+nav h2{font-size:.72rem; letter-spacing:.09em; text-transform:uppercase;
+  color:var(--tx-dim); margin:0 0 .6rem}
+nav a{display:block; padding:.26rem .5rem; border-radius:5px; font-size:.88rem;
+  color:var(--tx-dim); text-decoration:none; border-left:2px solid transparent}
+nav a:hover{background:var(--accent-soft); color:var(--accent);
+  border-left-color:var(--accent)}
+main{flex:1 1 auto; min-width:0; padding:2rem 0 5rem}
+h1{font-size:2.05rem; line-height:1.2; margin:0 0 .3rem; letter-spacing:-.02em}
+.sub{color:var(--tx-dim); margin:0 0 2rem; font-size:1.02rem}
+h2{font-size:1.32rem; margin:2.8rem 0 .5rem; padding-top:.4rem;
+  letter-spacing:-.01em; border-top:1px solid var(--bd)}
+h2:first-of-type{border-top:none}
+h3{font-size:1.02rem; margin:1.7rem 0 .35rem}
+p{margin:.55rem 0}
+code{font:.88em/1.5 "Cascadia Mono",Consolas,monospace;
+  background:var(--bg-code); padding:.1em .34em; border-radius:4px}
+pre{background:var(--bg-code); border:1px solid var(--bd); border-radius:8px;
+  padding:.85rem 1rem; overflow-x:auto; margin:.7rem 0}
+pre code{background:none; padding:0; font-size:.845rem; line-height:1.55}
+.cm{color:var(--tx-dim)}
+kbd{background:var(--kbd-bg); border:1px solid var(--kbd-bd); border-bottom-width:2px;
+  border-radius:4px; padding:.06em .38em; font:.84em "Cascadia Mono",Consolas,monospace;
+  box-shadow:0 1px 0 var(--kbd-sh)}
+.box{border-left:3px solid var(--bd); background:var(--bg-alt);
+  padding:.7rem .95rem; border-radius:0 7px 7px 0; margin:.9rem 0}
+.box.bad{border-left-color:var(--bad-bd); background:var(--bad-bg)}
+.box.warn{border-left-color:var(--warn-bd); background:var(--warn-bg)}
+.box.ok{border-left-color:var(--ok-bd); background:var(--ok-bg)}
+.box p:first-child{margin-top:0} .box p:last-child{margin-bottom:0}
+.tag{display:inline-block; font-size:.68rem; letter-spacing:.05em;
+  text-transform:uppercase; padding:.14em .48em; border-radius:4px;
+  background:var(--ok-bg); border:1px solid var(--ok-bd); color:var(--tx);
+  vertical-align:middle; margin-left:.5rem; font-weight:600}
+.tag.gen{background:var(--accent-soft); border-color:var(--accent); color:var(--accent)}
+table{border-collapse:collapse; width:100%; margin:.8rem 0; font-size:.92rem}
+th,td{border:1px solid var(--bd); padding:.44rem .6rem; text-align:left;
+  vertical-align:top}
+th{background:var(--bg-alt); font-size:.82rem; letter-spacing:.03em;
+  text-transform:uppercase; color:var(--tx-dim)}
+td code{white-space:nowrap}
+.scroll{overflow-x:auto}
+footer{margin-top:3.5rem; padding-top:1rem; border-top:1px solid var(--bd);
+  color:var(--tx-dim); font-size:.86rem}
+@media (max-width:860px){
+  .wrap{display:block} nav{position:static; max-height:none; flex:none;
+    padding:1.2rem 0 0} main{padding-top:1rem}
+}
+</style>
+</head>
+<body>
+<div class="wrap">
+<nav>
+  <h2>Contents</h2>
+  <a href="#styles">1 · Window styles</a>
+  <a href="#dpi">2 · Geometry &amp; DPI</a>
+  <a href="#layout">3 · Layout</a>
+  <a href="#restyle">4 · Restyling live</a>
+  <a href="#colour">5 · Colour &amp; theming</a>
+  <a href="#controls">6 · Controls worth knowing</a>
+  <a href="#events">7 · Events &amp; messages</a>
+  <a href="#hotkeys">8 · Hotkeys scoped to a window</a>
+  <a href="#alive">9 · Staying alive</a>
+  <a href="#testing">10 · Testing a GUI</a>
+  <a href="#traps">11 · Trap sheet</a>
+</nav>
+
+<main>
+<h1>AHK v2 GUI — the advanced bits</h1>
+<p class="sub">
+  The parts of <code>Gui</code> that do something other than put a button on a form:
+  windows that refuse focus, geometry that survives DPI scaling, live restyling,
+  scoped hotkeys, and how to check any of it without a pair of eyes on the screen.
+</p>
+
+<p>
+  Two kinds of claim appear below and they are marked, because they are not worth the
+  same:
+  <span class="tag">measured here</span> means it was demonstrated against
+  AutoHotkey 2.0.26 in this repo — usually because it cost an afternoon first.
+  <span class="tag gen">capability</span> means it is a documented feature this codebase
+  either uses or could; trust it, but check the numbers on your own machine.
+</p>
+
+<!-- ══════════════════════════════════════════════════════════════════════ -->
+<h2 id="styles">1 · Window styles that change behaviour, not looks</h2>
+
+<p>
+  Options passed to <code>Gui()</code> are not decoration. Four of them change what the
+  window <em>is</em> as far as Windows is concerned.
+</p>
+
+<h3><code>+E0x08000000</code> — WS_EX_NOACTIVATE <span class="tag">measured here</span></h3>
+<p>
+  The window can never become the active window. Click it, and focus stays where it was.
+  This is the single most useful style for an automation overlay: the app you are driving
+  stays focused, so <code>Send</code> keeps going to the right place and any
+  <code>HotIf</code> scoped to that app keeps matching.
+</p>
+<pre><code>ov := Gui("+AlwaysOnTop -Caption +ToolWindow +E0x08000000", "overlay")
+ov.Show("x100 y100 w200 h60 NoActivate")   <span class="cm">; NoActivate on Show too</span></code></pre>
+<div class="box warn">
+  <p>
+    The style and the <code>NoActivate</code> show-option are <strong>both</strong>
+    needed. The style stops clicks activating it; the option stops the
+    <em>first</em> <code>Show()</code> stealing focus. Miss the second and the window
+    steals focus exactly once — which is enough to break a picker whose keys are scoped
+    elsewhere.
+  </p>
+</div>
+
+<h3><code>-Caption</code>, <code>+ToolWindow</code>, <code>+AlwaysOnTop</code> <span class="tag gen">capability</span></h3>
+<p>
+  <code>-Caption</code> removes the title bar and border — which also means the client
+  area <em>is</em> the window, so <code>Show("w… h…")</code> and control coordinates
+  finally agree with each other. <code>+ToolWindow</code> keeps it out of the taskbar
+  and out of <kbd>Alt</kbd>+<kbd>Tab</kbd>. <code>+AlwaysOnTop</code> is topmost.
+</p>
+<div class="box bad">
+  <p>
+    A <code>-Caption</code> window has no close button. If its only way out is a key
+    and that key is scoped to a <em>different</em> window, a user who switches away is
+    stranded with a window that ignores them. See
+    <a href="#hotkeys">§8</a> — this is a real bug that shipped.
+  </p>
+</div>
+
+<h3><code>+Owner</code> and <code>+Owner&lt;HWND&gt;</code> <span class="tag gen">capability</span></h3>
+<p>
+  <code>+Owner</code> alone makes a window modal-ish: the owner is disabled while it is
+  up. <code>+Owner</code> followed by a handle makes it owned by <em>that</em> window —
+  it stays above the owner, minimises with it, and dies with it, without being topmost
+  over everything else on the machine. Good for dialogs belonging to your own main
+  window; risky against a foreign window (a browser), because you inherit its z-order
+  behaviour.
+</p>
+
+<h3>Transparency and click-through <span class="tag gen">capability</span></h3>
+<pre><code>WinSetTransparent(200, "ahk_id " g.Hwnd)      <span class="cm">; 0-255 whole-window alpha</span>
+WinSetTransColor("FF00FF", "ahk_id " g.Hwnd)  <span class="cm">; that colour becomes holes</span>
+g.Opt("+E0x20")                                <span class="cm">; WS_EX_TRANSPARENT: clicks pass through</span></code></pre>
+<p>
+  <code>TransColor</code> plus <code>WS_EX_TRANSPARENT</code> is how you get a shaped,
+  non-interactive HUD — an outline drawn over another app that the mouse never notices.
+</p>
+
+<!-- ══════════════════════════════════════════════════════════════════════ -->
+<h2 id="dpi">2 · Geometry and DPI — where the time goes</h2>
+
+<div class="box bad">
+  <p>
+    <strong>The one that will get you.</strong> With DPI scaling on (the default), AHK
+    reports control geometry through <code>GetPos</code> in <em>logical</em> units, but
+    creates the window in <em>physical</em> pixels. On a 125% display the rows render
+    1.25× further down than the numbers say — so a window sized from its own
+    measurements, or from <code>AutoSize</code>, comes out a quarter too short and
+    <strong>clips its last control clean off</strong>.
+  </p>
+</div>
+
+<p>
+  Measured in this repo while building the follow-up picker: rows 67 px apart according
+  to <code>GetPos</code>, 86 px apart on screen. 86 ÷ 67 ≈ 1.28.
+  <span class="tag">measured here</span>
+</p>
+
+<p>The fix is one option, and then everything agrees:</p>
+<pre><code>g := Gui("+AlwaysOnTop -Caption +ToolWindow -DPIScale +E0x08000000", "picker")</code></pre>
+<p>
+  With <code>-DPIScale</code>, <code>GetPos</code>, <code>Show</code>'s <code>w</code>/
+  <code>h</code>/<code>x</code>/<code>y</code>, <code>WinGetPos</code> on other windows
+  and <code>MonitorGetWorkArea</code> are all in the same physical pixels. Fonts still
+  scale with the display, so scale any fixed width yourself or the window shrinks
+  relative to its own text:
+</p>
+<pre><code>w := w * A_ScreenDPI // 96   <span class="cm">; the ini value now means "at 100%"</span></code></pre>
+
+<h3>Measuring before showing <span class="tag">measured here</span></h3>
+<p>
+  Controls have real positions <em>as soon as they are added</em> — you do not have to
+  show the window to measure it. So the tidiest way to size a window around variable
+  content is to add everything, ask the last control where it ended up, and show once:
+</p>
+<pre><code>hint := g.Add("Text", "xm y+10 w" tw, "TAB next   ENTER send   ESC cancel")
+hint.GetPos(, &amp;hy, , &amp;hh)
+g.Show("NoActivate x" x " y" y " w" w " h" (hy + hh + g.MarginY))</code></pre>
+
+<div class="box bad">
+  <p>
+    <strong>Do not reach for the <code>Show("Hide")</code> + <code>WinGetPos</code>
+    pattern.</strong> <code>WinGetPos</code> obeys <code>DetectHiddenWindows</code>,
+    which is <em>off</em> by default, so on a hidden window it neither finds anything nor
+    assigns its output variables. The script then dies on the next line with
+    <em>"This local variable has not been assigned a value"</em>, pointing at your
+    arithmetic instead of at the real cause.
+  </p>
+  <p>
+    <code>Gui.GetPos()</code> and <code>GuiCtrl.GetPos()</code> go at the handle
+    directly and do not care whether the window is visible.
+  </p>
+</div>
+
+<h3>Auto-height text <span class="tag">measured here</span></h3>
+<p>
+  Give a <code>Text</code> control a <code>w</code> and <strong>no</strong>
+  <code>h</code> and AHK sizes it to fit its content, including explicit newlines. That
+  is what makes a variable-height list of messages possible without measuring strings
+  yourself.
+</p>
+
+<h3>Staying on the monitor <span class="tag gen">capability</span></h3>
+<pre><code>Loop MonitorGetCount() {
+    MonitorGetWorkArea(A_Index, &amp;l, &amp;t, &amp;r, &amp;b)
+    if (cx >= l &amp;&amp; cx &lt; r &amp;&amp; cy >= t &amp;&amp; cy &lt; b)
+        break                       <span class="cm">; the monitor the window landed on</span>
+}</code></pre>
+<p>
+  Work area, not monitor bounds — it excludes the taskbar. Clamp after positioning, or a
+  tall window anchored to the bottom of a maximised app runs off the top of the screen.
+</p>
+
+<!-- ══════════════════════════════════════════════════════════════════════ -->
+<h2 id="layout">3 · Layout, without a layout engine</h2>
+
+<p>
+  There is no flexbox. There are four positioning shorthands, and between them they do
+  most of what you need:
+</p>
+<div class="scroll">
+<table>
+  <tr><th>Option</th><th>Means</th></tr>
+  <tr><td><code>xm</code> / <code>ym</code></td>
+      <td>Back to the left / top margin (<code>g.MarginX</code>, <code>g.MarginY</code>).</td></tr>
+  <tr><td><code>y+8</code></td>
+      <td>8&nbsp;px below the <em>previous control's bottom</em>. <code>y+0</code> flush
+          against it — which is how you build a contiguous coloured band out of several
+          controls.</td></tr>
+  <tr><td><code>x+12</code></td>
+      <td>12&nbsp;px right of the previous control — same row.</td></tr>
+  <tr><td><code>xs</code> / <code>ys</code></td>
+      <td>Relative to the last <code>Section</code> (a control added with the
+          <code>Section</code> option), for column layouts.</td></tr>
+</table>
+</div>
+<p>
+  Everything flows off the <em>most recently added</em> control, so the order you add in
+  is the layout. For resizing, register controls and move them in the <code>Size</code>
+  event — there is no anchoring built in:
+</p>
+<pre><code>g.OnEvent("Size", (gui, minMax, w, h) => Relayout(w, h))</code></pre>
+
+<!-- ══════════════════════════════════════════════════════════════════════ -->
+<h2 id="restyle">4 · Restyling a control after it exists</h2>
+
+<p>
+  You do not have to rebuild a window to change how it looks — and you should not, if it
+  is on screen, because destroy-and-recreate flickers. Controls take new options and
+  repaint:
+</p>
+<pre><code>for i, row in rows {
+    sel := (i = staged)
+    for _, c in row.ctrls
+        c.Opt("+Background" (sel ? "F2CFDF" : "F8E7EF"))
+    row.head.SetFont("c" (sel ? "8A2B57" : "A3778A"))
+    row.head.Text := (sel ? Chr(0x25B8) : " ") "  " i ".  " row.label
+    for _, c in row.ctrls
+        c.Redraw()
+}</code></pre>
+<p>
+  <code>Opt("+Background&lt;hex&gt;")</code>, <code>SetFont("c&lt;hex&gt;")</code> and
+  assigning <code>.Text</code> all work post-creation; <code>Redraw()</code> is what
+  makes the background change actually appear. <span class="tag">measured here</span>
+</p>
+<div class="box ok">
+  <p>
+    <strong>The band trick.</strong> A selectable "row" of wrapped text is four
+    controls, not one: a padding <code>Text</code> with <code>h5</code>, the label, the
+    body, another pad. All four carry the row's background, all four are stacked with
+    <code>y+0</code>, and the gap <em>between</em> rows is the window background. That
+    gives you a highlight bar around content of any height, with no owner-draw.
+  </p>
+</div>
+
+<!-- ══════════════════════════════════════════════════════════════════════ -->
+<h2 id="colour">5 · Colour and theming</h2>
+
+<p>
+  <code>g.BackColor := "FDF3F7"</code> repaints the window <em>and</em> the static
+  controls on it. Measured on 2.0.26: <span class="tag">measured here</span>
+</p>
+<div class="scroll">
+<table>
+  <tr><th>Control</th><th>Follows <code>BackColor</code>?</th></tr>
+  <tr><td><code>Text</code>, <code>Checkbox</code>, <code>Radio</code>, <code>GroupBox</code></td>
+      <td><strong>Yes</strong> — no white box behind them, nothing to do.</td></tr>
+  <tr><td><code>Edit</code>, <code>ListView</code>, <code>Button</code></td>
+      <td><strong>No</strong> — they keep their system colours.</td></tr>
+</table>
+</div>
+<p>
+  That split is usually what you want: tinting the window while leaving the typing
+  surfaces white is exactly the cue that separates "panel" from "somewhere you type".
+  When you <em>do</em> need a dark <code>Edit</code> or <code>ListView</code>, set them
+  individually with <code>+Background&lt;hex&gt;</code> and a <code>c&lt;hex&gt;</code>
+  font colour.
+</p>
+<p>
+  A dark <em>title bar</em> is not a Gui option — it is a DWM attribute:
+  <span class="tag gen">capability</span>
+</p>
+<pre><code>DllCall("dwmapi\DwmSetWindowAttribute", "ptr", g.Hwnd,
+        "int", 20, "int*", 1, "int", 4)   <span class="cm">; 20 = USE_IMMERSIVE_DARK_MODE</span></code></pre>
+
+<!-- ══════════════════════════════════════════════════════════════════════ -->
+<h2 id="controls">6 · Controls worth knowing about</h2>
+<div class="scroll">
+<table>
+  <tr><th>Control</th><th>Why you would reach for it</th></tr>
+  <tr><td><code>ListView</code></td>
+      <td>Rows with columns, checkboxes (<code>Checked</code>), sorting, icons via
+          <code>ImageList</code>, and <code>ItemEdit</code>/<code>DoubleClick</code>
+          events. The workhorse for anything list-shaped.</td></tr>
+  <tr><td><code>TreeView</code></td>
+      <td>Hierarchies. <code>Add(name, parent, options)</code> returns an item ID you
+          keep.</td></tr>
+  <tr><td><code>Tab3</code></td>
+      <td>Tabbed pages. Controls added after <code>tab.UseTab(2)</code> belong to page
+          2; <code>UseTab()</code> with no argument escapes the tab control — forget it
+          and your buttons end up buried on the last page.</td></tr>
+  <tr><td><code>Link</code></td>
+      <td>Inline clickable text with <code>&lt;a href="…"&gt;</code> markup inside a
+          label.</td></tr>
+  <tr><td><code>Progress</code></td>
+      <td>Also fine as a plain coloured bar — <code>Background&lt;hex&gt;</code> and a
+          value — when you want a meter, not a spinner.</td></tr>
+  <tr><td><code>Hotkey</code></td>
+      <td>Lets the user press a combination and hands you the string. The correct way to
+          build a key-rebinding screen.</td></tr>
+  <tr><td><code>StatusBar</code></td>
+      <td>Bottom strip with parts; <code>SetText(text, part)</code>.</td></tr>
+  <tr><td><code>Custom</code></td>
+      <td><code>Custom Class&lt;WinClass&gt;</code> embeds any registered window class —
+          the escape hatch when nothing built in fits.</td></tr>
+  <tr><td><code>ActiveX</code></td>
+      <td>Embeds a browser control. Heavyweight; a self-contained HTML file opened in the
+          real browser (what this page is) is usually the better answer.</td></tr>
+</table>
+</div>
+
+<!-- ══════════════════════════════════════════════════════════════════════ -->
+<h2 id="events">7 · Events, and the messages underneath them</h2>
+
+<pre><code>g.OnEvent("Close",       (*) => ExitApp())
+g.OnEvent("Escape",      (*) => g.Hide())
+g.OnEvent("Size",        (gui, mm, w, h) => Relayout(w, h))
+g.OnEvent("ContextMenu", ShowMenu)
+g.OnEvent("DropFiles",   (gui, ctrl, files, *) => Import(files))
+btn.OnEvent("Click",     (*) => DoThing())
+lv.OnEvent("DoubleClick",(lv, row) => Open(row))</code></pre>
+
+<p>
+  Below that there is <code>OnMessage</code>, which is how you get behaviour the event
+  model does not expose. Two this repo uses: <span class="tag gen">capability</span>
+</p>
+<pre><code>OnMessage(0x201, WM_LBUTTONDOWN)   <span class="cm">; drag a -Caption window from anywhere in it</span>
+OnMessage(0x232, WM_EXITSIZEMOVE)  <span class="cm">; persist position the moment a drag ends</span></code></pre>
+<p>
+  The drag trick is <code>PostMessage(0xA1, 2)</code> — tell Windows the click was on the
+  title bar it does not have. Saving position on <code>WM_EXITSIZEMOVE</code> rather than
+  on every <code>Size</code> means one write per drag instead of hundreds.
+</p>
+<div class="box warn">
+  <p>
+    <code>PostMessage</code>'s fourth parameter is <strong>Control</strong>, not a
+    message value. Passing <code>0</code> there throws <em>"Target window not found"</em>
+    — omit it instead.
+  </p>
+</div>
+
+<!-- ══════════════════════════════════════════════════════════════════════ -->
+<h2 id="hotkeys">8 · Hotkeys that belong to one window</h2>
+
+<p>
+  A GUI that hijacks <kbd>Tab</kbd>, <kbd>Enter</kbd> and <kbd>Esc</kbd> must hijack them
+  <em>somewhere</em>, not everywhere. <code>HotIf</code> takes a criterion
+  <em>function</em>:
+</p>
+<pre><code>HotIf StagingActive
+Hotkey "*Tab",    Next,   "On"
+Hotkey "*+Tab",   Prev,   "On"
+Hotkey "*Enter",  Commit, "On"
+Hotkey "*Escape", Cancel, "On"
+HotIf                                <span class="cm">; back to unscoped</span>
+
+StagingActive(*) {                   <span class="cm">; the (*) is REQUIRED</span>
+    return staged &amp;&amp; WinActive("ahk_id " chatHwnd)
+}</code></pre>
+<div class="box warn">
+  <p>
+    The <code>(*)</code> is not style. <code>HotIf</code> calls its criterion with the
+    hotkey name, and a zero-parameter function is rejected outright with
+    <em>"Invalid callback function."</em>
+  </p>
+</div>
+
+<h3>Wildcard vs exact modifiers <span class="tag">measured here</span></h3>
+<p>
+  <code>*Tab</code> fires on <kbd>Shift</kbd>+<kbd>Tab</kbd> as well — the <code>*</code>
+  ignores extra modifiers. So walking backwards needs its own <code>*+Tab</code>
+  binding, and <strong>it does win</strong>: with both registered, plain
+  <kbd>Tab</kbd> reaches the wildcard handler and <kbd>Shift</kbd>+<kbd>Tab</kbd>
+  reaches the exact one. Verified by registering both under a <code>HotIf</code> scoped
+  to the probe's own window, <code>SendLevel 1</code>, sending <code>{Tab}</code> then
+  <code>+{Tab}</code>, and recording which handler ran.
+</p>
+
+<div class="box bad">
+  <p>
+    <strong>The stranding bug.</strong> Scoping the keys to the chat window is correct —
+    and it means that when the user switches away, <kbd>Esc</kbd> no longer reaches your
+    window. With <code>-Caption</code> there is no close button either. They are stuck
+    looking at a topmost window that ignores them.
+  </p>
+  <p>
+    Fix it with a watchdog, not with a wider hotkey scope:
+  </p>
+</div>
+<pre><code>AltStageWatch() {                      <span class="cm">; SetTimer(…, 250) while staged</span>
+    if !WinExist("ahk_id " chatHwnd)   <span class="cm">; the anchor is gone …</span>
+        return EndStaging()            <span class="cm">;   … so the picker has no subject</span>
+    want := WinActive("ahk_id " chatHwnd) ? true : false
+    if (want != shown)                 <span class="cm">; hide while they are elsewhere,</span>
+        shown := want,                 <span class="cm">;   restore when they come back</span>
+        (want ? g.Show("NoActivate") : g.Hide())
+}</code></pre>
+<p>
+  Pair it with an absolute timeout that releases the keys no matter what. A key that is
+  claimed forever because a thread forgot to clean up is the worst failure this design
+  has.
+</p>
+
+<!-- ══════════════════════════════════════════════════════════════════════ -->
+<h2 id="alive">9 · Staying alive</h2>
+<div class="box bad">
+  <p>
+    A hidden <code>Gui</code> and an <code>OnMessage</code> handler do <strong>not</strong>
+    keep a v2 script running. The script needs a hotkey, a timer, a <em>visible</em>
+    window, or an explicit <code>Persistent</code>. A tool whose whole job is to sit
+    waiting for a message exits instantly and silently without one.
+  </p>
+</div>
+
+<!-- ══════════════════════════════════════════════════════════════════════ -->
+<h2 id="testing">10 · Testing a GUI without looking at it</h2>
+
+<h3>Does it build?</h3>
+<p>
+  Parsing clean and building are different questions. A control placed on the wrong tab,
+  a class constructed with the wrong arity, a <code>Map</code> indexed with a missing key
+  — none are syntax errors, and all of them throw the first time the window opens, in
+  front of a user. Include the real layout file, stub what it depends on, build it
+  headless and assert on the control census:
+</p>
+<pre><code>#Warn All, StdOut     <span class="cm">; a #Warn DIALOG is modal and looks exactly like a hang</span></code></pre>
+
+<h3>What does it look like?</h3>
+<p>
+  <code>PrintWindow</code> reads a window's pixels directly, without raising it and
+  without stealing focus — so it works on a window that is behind others, and on one that
+  must not be activated. <span class="tag">measured here</span>
+</p>
+<pre><code>PrintWindow(hwnd, hdc, 2)   <span class="cm">; 2 = PW_RENDERFULLCONTENT</span></code></pre>
+<div class="box warn">
+  <p>
+    Call <code>SetProcessDPIAware()</code> in the <em>capturing</em> process first.
+    Without it <code>GetWindowRect</code> hands back virtualised coordinates (divided by
+    the scale factor), your bitmap is created too small, and the capture clips — which
+    looks exactly like the window itself being clipped. That misdiagnosis cost an hour.
+  </p>
+</div>
+<p>
+  If the window is hidden when you capture it, you get a black rectangle.
+  <code>ShowWindow(hwnd, 8)</code> — <code>SW_SHOWNA</code> — makes it visible without
+  changing focus, which is enough to grab it and leaves the user's foreground window
+  alone.
+</p>
+
+<h3>Drive it without synthetic keys</h3>
+<p>
+  Sending <code>{Tab}</code> at a test window means sending it at whatever is actually
+  focused. Call the handler directly instead — <code>AltStageNext()</code> rather than
+  <code>Send "{Tab}"</code> — and you exercise the same repaint path with nothing
+  escaping into the rest of the machine.
+</p>
+
+<!-- ══════════════════════════════════════════════════════════════════════ -->
+<h2 id="traps">11 · Trap sheet</h2>
+<div class="scroll">
+<table>
+  <tr><th>Symptom</th><th>Cause</th></tr>
+  <tr>
+    <td>Window is a quarter too short; bottom control clipped</td>
+    <td>DPI scaling. <code>GetPos</code> is logical, the window is physical. Add
+        <code>-DPIScale</code>.</td>
+  </tr>
+  <tr>
+    <td><em>"This local variable has not been assigned a value"</em> on an arithmetic line</td>
+    <td>A <code>WinGetPos</code> above it silently assigned nothing — the window was
+        hidden and <code>DetectHiddenWindows</code> is off. Use
+        <code>Gui.GetPos</code>.</td>
+  </tr>
+  <tr>
+    <td><em>"Invalid callback function."</em> when setting <code>HotIf</code></td>
+    <td>The criterion takes no parameters. It must accept <code>(*)</code>.</td>
+  </tr>
+  <tr>
+    <td><kbd>Shift</kbd>+<kbd>Tab</kbd> moves forwards</td>
+    <td><code>*Tab</code> matches it. Register <code>*+Tab</code> separately.</td>
+  </tr>
+  <tr>
+    <td>A window with no title bar that ignores <kbd>Esc</kbd></td>
+    <td>Its keys are scoped to another window that is no longer active. Watchdog
+        timer.</td>
+  </tr>
+  <tr>
+    <td>Dark window, but every label sits on a pale box — or a black one</td>
+    <td>Statics on a <strong>tab page</strong> cannot be recoloured after
+        creation. <code>SetFont</code> on one makes it lose the inherited
+        background and repaint with the system colour; adding
+        <code>+Background</code> then renders it <code>#000000</code>. Measured:
+        the identical label <em>outside</em> the tab takes the colour correctly.
+        Set the colour on the <em>window font</em> before the controls are added
+        (<code>g.SetFont("s9 cFFFFFF")</code>) and give the tab control its own
+        <code>Background</code>; never touch the labels afterwards.</td>
+  </tr>
+  <tr>
+    <td>Dark window with a white title bar</td>
+    <td>DWM owns the title bar.
+        <code>DwmSetWindowAttribute(hwnd, 20, &amp;1, 4)</code> —
+        <code>DWMWA_USE_IMMERSIVE_DARK_MODE</code>, attribute 19 on pre-2004
+        builds.</td>
+  </tr>
+  <tr>
+    <td>Every radio button can be checked at once</td>
+    <td>They are not one group. Windows ends a radio group at the first control
+        that is not a radio, so a description <code>Text</code> between them makes
+        each a group of one — and a group of one never unchecks anything. Add the
+        radios consecutively and place the labels afterwards.</td>
+  </tr>
+  <tr>
+    <td>Overlay steals focus once, then behaves</td>
+    <td><code>+E0x08000000</code> is set but the first <code>Show()</code> lacks
+        <code>NoActivate</code>.</td>
+  </tr>
+  <tr>
+    <td>Script with a hidden GUI exits immediately</td>
+    <td>A hidden Gui does not keep v2 alive. Add <code>Persistent</code>.</td>
+  </tr>
+  <tr>
+    <td>Script exits 0 with no error and no window</td>
+    <td>Look for <code>{base: …}</code> — <code>base</code> is reserved and sets the
+        prototype.</td>
+  </tr>
+  <tr>
+    <td>Whole script fails to load, no useful message</td>
+    <td>A variable and a function sharing a name (matching is
+        case-<em>in</em>sensitive).</td>
+  </tr>
+  <tr>
+    <td>No output, no exit, nothing on stderr</td>
+    <td>A modal dialog you cannot see — often <code>#Warn</code>. Use
+        <code>#Warn All, StdOut</code>.</td>
+  </tr>
+</table>
+</div>
+
+<footer>
+  Written against AutoHotkey 2.0.26 on Windows 11, from the MMA codebase — the picker in
+  <code>src/core/utils.ahk</code>, the overlay in <code>src/screen/stats_overlay.ahk</code>,
+  the region sheets in <code>src/screen/ocr_grab.ahk</code>, and the headless build test in
+  <code>tools/settings_build_test.ahk</code>.
+  Items tagged <span class="tag">measured here</span> were demonstrated on this machine;
+  the rest are documented behaviour worth confirming before you lean on them.
+</footer>
+</main>
+</div>
+</body>
+</html>

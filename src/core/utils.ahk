@@ -1,5 +1,6 @@
 ﻿#Requires AutoHotkey v2.0
 #Include "paths.ahk"
+#Include "theme.ahk"
 #Include "hotkeys.ahk"
 #Include "../hotstrings/overloads.ahk"
 ; Model identity moved to its own file so the GUI can use it too — main_window
@@ -33,12 +34,32 @@ global topChat := 300
 ; ! ALT
 ; + shift
 
+; ── the one function that actually puts a message in the chat ─────────────────
+;  Everything else in MMA is a decision about WHICH message; this is the send.
+;
+;  ClipWait is the reason it is instrumented so heavily. If the clipboard does not
+;  take the text — another app owns it, a clipboard manager is holding it, the
+;  text is enormous — ClipWait returns false and the very next line presses Ctrl+V
+;  anyway. That does not send nothing. It sends WHATEVER WAS ON THE CLIPBOARD
+;  BEFORE, into a real fan's chat, and then presses Enter. There is no way to see
+;  that from the outside except by reading the sent message.
+;
+;  It is a FAIL rather than a warning for that reason: it is the one failure in
+;  this file with a consequence you cannot take back.
 Snd(arg){
-    if (arg = "")
+    if (arg = "") {
+        LOG_Bail("send.snd", "empty message — nothing sent")
         return
+    }
     A_Clipboard := ""
     A_Clipboard := arg
-    ClipWait(1)
+    if !ClipWait(1) {
+        LOGE("send.snd", "the clipboard never accepted the message — Ctrl+V is"
+                       . " about to paste WHATEVER WAS ON THE CLIPBOARD BEFORE"
+                       . " and press Enter",
+                       "wanted to send: " SubStr(arg, 1, 120))
+    }
+    LOGI("send.snd", "sending " StrLen(arg) " chars: " SubStr(arg, 1, 90))
     Send("^v")
     Send("{Enter}")
     Sleep(waitTime)
@@ -46,10 +67,17 @@ Snd(arg){
 
 ; you can also provide a time in milliseconds
 Sendt(arg,time){
-    if (arg = "")
+    if (arg = "") {
+        LOG_Bail("send.sendt", "empty message — nothing sent")
         return
+    }
     A_Clipboard := arg
-    ClipWait(0.1)
+    if !ClipWait(0.1)
+        LOGE("send.sendt", "the clipboard never accepted the message in 100ms —"
+                         . " about to paste the PREVIOUS clipboard and press Enter",
+                         "wanted to send: " SubStr(arg, 1, 120))
+    LOGI("send.sendt", "sending " StrLen(arg) " chars (wait " time "ms): "
+                    . SubStr(arg, 1, 90))
     Send("^v")
     Send("{Enter}")
     Sleep(time)
@@ -71,12 +99,21 @@ Sendt(arg,time){
 ; down three times, with nothing but that comment keeping them in step.
 _activeBranch := Map()   ; massNo -> chosen branch index, per model process
 
-_altStaged  := 0         ; index of the variant currently staged in the chatbox
+_altStaged  := 0         ; index of the variant currently staged
 _altVariants := []       ; [{parts, label, branch}, ...] while staging; [] when idle
 _altGroup   := 0         ; 1/2/3, or 0 for the PPV (which pastes, never sends)
 _altEditable := false
 _altWin     := 0         ; window staging began in; the hotkeys are scoped to it
 _altHotkeysOn := false
+_altGui     := 0         ; the picker window while staging; 0 in chat-box mode / idle
+_altGuiRows := []        ; one row of controls per variant, repainted on TAB
+_altGuiShown := false    ; is it on screen? false while you are in another app
+_altPal     := 0         ; the theme colours this picker was built with
+; Whether THIS staging pasted its preview into the chat box. Read at commit and at
+; cancel to decide whether the box has to be cleared — and captured when staging
+; BEGINS rather than re-read from the setting, or flipping the toggle mid-pick
+; would leave the preview sitting in the composer with nothing left to remove it.
+_altInBox   := false
 
 ; Called with the chosen variant's branch number the moment a staged choice is
 ; committed. mass/runtime.ahk installs the real one; anything that includes
@@ -202,31 +239,84 @@ SendAltVariant(group, parts, editable := false) {
     for _, p in parts
         if Trim(p) != ""
             combined .= (combined != "" ? "`n" : "") Trim(p)
-    if combined = ""
+    if (combined = "") {
+        LOG_Bail("alt.send", "the chosen variant has no non-empty parts —"
+                           . " nothing pasted")
         return
+    }
+    LOGI("alt.send", "pasting the chosen variant (" StrLen(combined) " chars,"
+                  . " no Enter — " (group = 0 ? "PPV always pastes"
+                                              : "this group is set to editable") ")")
     A_Clipboard := ""
     A_Clipboard := combined
-    ClipWait(1)
+    if !ClipWait(1)
+        LOGE("alt.send", "the clipboard never accepted the chosen variant — Ctrl+V"
+                       . " is about to paste the PREVIOUS clipboard",
+                       "wanted to paste: " SubStr(combined, 1, 120))
     Send "^v"                      ; paste only — editable means you review first
 }
 
 ; ── TAB staging ───────────────────────────────────────────────────────────────
-; Paste every variant into the chatbox with a marker on the current one, so they
-; can be read and compared in place. TAB moves the marker, Enter sends the marked
-; variant (the box is cleared first — what gets sent goes through sndFu, so a
-; multi-part variant still sends as separate messages), Esc cancels.
+; Show every variant with a marker on the current one, so they can be read and
+; compared before one goes out. TAB moves the marker, Enter sends the marked
+; variant (through sndFu, so a multi-part variant still sends as separate
+; messages), Esc cancels.
+;
+; ─── WHERE THE PREVIEW GOES, AND WHY THAT IS THE WHOLE BUG ───────────────────
+;  It went INTO THE CHAT BOX. That read beautifully — the variants in the font and
+;  width they would actually send at, no window taking focus off the chat — and it
+;  had one failure that costs a real message to a real person:
+;
+;    Enter → clear the box (Ctrl+A, Delete) → paste the chosen variant → Enter.
+;
+;  The clear is not reliable. Infloww's composer is a web editor, and Ctrl+A in one
+;  of those does not always mean "select what is in this box" — it can be swallowed
+;  outright, or select the page instead. When it misses, Delete removes nothing,
+;  the preview is STILL THERE, and the chosen variant is pasted onto the end of it.
+;  Then Enter sends the lot: every variant, the markers, the labels, as one message
+;  to the fan. That is the "it sent the whole sequence" report.
+;
+;  No amount of settling delay fixes that, because the failure is not a race — it
+;  is the composer refusing the keystroke. So the preview does not go in the box
+;  any more. It goes in a small always-on-top window that never takes focus, and
+;  the chat box is never written to and never cleared. The variants cannot be sent
+;  because they were never in the thing that sends.
+;
+;  The chat-box preview is still here, one checkbox away (Settings → Sending,
+;  "Don't use a GUI for alt FUs"), because a picker that does not draw on the
+;  machine it is running on is worse than one that occasionally over-sends, and
+;  that box is the way back if this window misbehaves on your setup.
+;
+;  What GUI mode deliberately does NOT do is clear the composer. Anything in it is
+;  yours — you typed it — and it stays, which does mean a chosen variant lands
+;  after text you left there. That is visible while you pick (the window sits above
+;  the composer, not over it), and it is the trade that keeps the send path free of
+;  the one keystroke that cannot be trusted.
 
 ; Staging separators live in mass_gui.cfg [Settings], not here:
 ;   AltStageVariantSep   between variants               default \n\n (a blank line)
-;   AltStagePartSep      between parts of one variant   default \s\s/\s\s
+;   AltStagePartSep      between parts of one variant   default \s\s|\s\s
 ;   AltStageMarker       marks the staged variant       default a filled triangle
 ;
 ; Escapes: \n newline, \t tab, \s SPACE. \s is not decoration — Windows strips
-; leading and trailing whitespace when reading an ini, so a literal "  /  " comes
-; back as "/" and the separator silently loses its padding.
+; leading and trailing whitespace when reading an ini, so a literal "  |  " comes
+; back as "|" and the separator silently loses its padding.
+;
+; ─── WHY THE PART SEPARATOR IS "|" AND MUST NOT BE "/" ───────────────────────
+;  It was "/", and that is not a cosmetic choice — it is a broken one. This text
+;  is PASTED INTO THE INFLOWW COMPOSER, and "/" is Infloww's command trigger: the
+;  moment the preview lands, Infloww opens its slash-command menu over the box.
+;  That menu then eats the TAB and ENTER the staging depends on, so the picker
+;  appears to hang and the wrong thing goes out when you finally escape it.
+;
+;  Any separator used here has to be inert in a chat composer. "|" is.
 ;
 ; Read per call — like sndFu reads FuSingle — so an edit applies without a restart.
 ALT_SEP_UNSET := Chr(1) "«unset»"
+
+; The original "/" separator, kept only so the migration below can recognise it.
+ALT_PSEP_STALE := "\s\s/\s\s"
+ALT_PSEP_DEFAULT := "\s\s|\s\s"
 
 AltDecodeEscapes(s) {
     s := StrReplace(s, "\n", "`n")
@@ -248,10 +338,41 @@ AltStageSetting(key, fallback) {
     return AltDecodeEscapes(v)
 }
 
+; Replace the ORIGINAL "/" part separator with "|", once.
+;
+; Changing the fallback above does nothing on its own. AltStageSetting SEEDS the
+; cfg the first time it reads a key, so every machine where a choice has ever been
+; staged already has `AltStagePartSep=\s\s/\s\s` written to disk — and a stored
+; value always wins over the fallback. Without this, the fix would only reach
+; brand-new installs, and the machines with the bug would keep it forever.
+;
+; ONLY the untouched original is replaced. A value somebody deliberately set is
+; left exactly as it is, slash or not — if they want it, that is their call, and
+; silently overwriting a customised setting is its own kind of bug.
+AltStageMigrateSep() {
+    global ALT_SEP_UNSET, ALT_PSEP_STALE, ALT_PSEP_DEFAULT
+    static done := false
+    if done
+        return
+    done := true
+    try {
+        v := IniRead(MMA_CFG, "Settings", "AltStagePartSep", ALT_SEP_UNSET)
+        if (v == ALT_SEP_UNSET)
+            return                      ; never seeded — the fallback is correct already
+        if (Trim(v) != ALT_PSEP_STALE)
+            return                      ; customised — hands off
+        IniWrite(ALT_PSEP_DEFAULT, MMA_CFG, "Settings", "AltStagePartSep")
+        LOGI("alt.stage", "migrated AltStagePartSep from '" ALT_PSEP_STALE "' to '"
+                        . ALT_PSEP_DEFAULT "' — a '/' in the staged preview opens"
+                        . " Infloww's slash-command menu and swallows TAB/ENTER")
+    }
+}
+
 AltStageText() {
-    global _altVariants, _altStaged
+    global _altVariants, _altStaged, ALT_PSEP_DEFAULT
+    AltStageMigrateSep()
     vsep := AltStageSetting("AltStageVariantSep", "\n\n")
-    psep := AltStageSetting("AltStagePartSep",    "\s\s/\s\s")
+    psep := AltStageSetting("AltStagePartSep",    ALT_PSEP_DEFAULT)
     mk   := AltStageSetting("AltStageMarker",     Chr(0x25B8))
     pad  := ""
     Loop StrLen(mk) + 1
@@ -271,13 +392,300 @@ AltStageText() {
     return out
 }
 
-AltPaintStage() {
+AltPaintChatbox() {
     A_Clipboard := ""
     A_Clipboard := AltStageText()
-    ClipWait(1)
+    ; Ctrl+A then Ctrl+V follows, so a clipboard that did not take the preview
+    ; SELECTS THE WHOLE CHAT BOX AND REPLACES IT with the previous clipboard.
+    ; Nothing has been sent at this point, but the box now contains something the
+    ; user did not put there and did not ask for.
+    if !ClipWait(1)
+        LOGE("alt.stage", "the clipboard never accepted the staged preview — the"
+                        . " chat box is about to be overwritten with the PREVIOUS"
+                        . " clipboard instead")
     Send "^a"
     Sleep 20
     Send "^v"
+}
+
+; Draw the current state, whichever way this staging is showing itself.
+AltPaintStage() {
+    global _altInBox
+    if _altInBox
+        AltPaintChatbox()
+    else
+        AltGuiPaint()
+}
+
+; ── the picker window ─────────────────────────────────────────────────────────
+;  Small, always on top, and WS_EX_NOACTIVATE so it NEVER takes focus: the chat
+;  window has to stay active or the Tab/Enter/Escape hotkeys — which are scoped to
+;  it — stop firing, and you would be left with a window you cannot dismiss.
+;  Same reason the stats overlay and the OCR region sheets carry that style.
+;
+;  ─── THE PALETTE ────────────────────────────────────────────────────────────
+;  Not here — core/theme.ahk, because the main window needs the same answer and it
+;  is a different process. THEME_Picker() returns all eight colours at once; see
+;  that file for why they are what they are.
+;
+;  Fetched ONCE per window, into _altPal, rather than per control. Reading the
+;  theme again on each repaint would mean a theme switched mid-pick redraws half
+;  the rows in the new palette and half in the old.
+
+; No more of a variant than fits a glance. A follow-up is a chat message, so this
+; is generous — but a mass field with a whole script pasted into it would push the
+; window off the screen, and the marked row is what matters, not the last 400
+; characters of the one below it.
+ALT_GUI_MAXCHARS := 320
+
+; Build the window, or repaint it if it is already up. Called on every TAB.
+AltGuiPaint() {
+    global _altGui
+    if _altGui
+        AltGuiRepaint()
+    else
+        AltGuiBuild()
+}
+
+; Everything that can go wrong here is cosmetic except one thing: if the window
+; fails to appear, the keys are still claimed and there is nothing on screen
+; saying so — a picker you cannot see, eating Enter in the chat. So a failure to
+; build falls back to the chat-box preview rather than leaving that state.
+AltGuiBuild() {
+    global _altGui, _altGuiRows, _altVariants, _altStaged, _altGroup, _altInBox
+    global _altPal
+    try {
+        _altPal := THEME_Picker()
+        pal := _altPal
+        w := _IniInt(MMA_CFG, "Settings", "AltGuiWidth", 560)
+        if (w < 260)
+            w := 260
+        ; -DPIScale below means w is real pixels, and the FONT is still sized by
+        ; the display — so a fixed 560 on a 150% screen is two thirds the window
+        ; with the same size text crammed into it. Scaling the width the way the
+        ; text scales keeps the shape of the thing the same everywhere. The ini
+        ; value is therefore "how wide at 100%".
+        w := w * A_ScreenDPI // 96
+        tw := w - 24                      ; text width inside the margins
+        ; -DPIScale is load-bearing, not tidiness. With scaling ON, AHK reports
+        ; control positions in LOGICAL units while the window is created in
+        ; PHYSICAL pixels, so on a 125% display the rows render 1.25× further down
+        ; than the measurements say and the window comes out a quarter too short —
+        ; the bottom variant and the key hints are simply cut off the end of it.
+        ; (Measured: rows 67 apart by GetPos, 86 apart on screen.) Off, every number
+        ; here — GetPos, Show's w/h, and WinGetPos on the chat window — is in the
+        ; same physical pixels, and the box fits what is in it on any display.
+        g := Gui("+AlwaysOnTop -Caption +ToolWindow -DPIScale +E0x08000000",
+                 "MMA pick")
+        g.BackColor := pal.bg
+        g.MarginX := 12, g.MarginY := 10
+        g.SetFont("s9", "Segoe UI")
+
+        g.SetFont("s9 Bold c" pal.hint)
+        g.Add("Text", "xm ym w" tw,
+              (_altGroup = 0 ? "PPV" : "Follow-up " _altGroup)
+            . "  —  " _altVariants.Length " ways to answer this")
+        g.SetFont("s9 Norm")
+
+        _altGuiRows := []
+        for i, v in _altVariants {
+            bg := (i = _altStaged) ? pal.sel : pal.row
+            ; A row is four controls, not one, so the marked one reads as a band:
+            ; a pad, the label, the text, a pad — each carrying the row's colour.
+            ; Gaps BETWEEN rows are the window background, which is what separates
+            ; them; that is why only the label has a y offset.
+            padT := g.Add("Text", "xm y+8 w" tw " h5 Background" bg, "")
+            g.SetFont("s8 Bold")
+            head := g.Add("Text", "xm y+0 w" tw " Background" bg, AltGuiHead(i, v))
+            g.SetFont("s9 Norm")
+            body := g.Add("Text", "xm y+2 w" tw " Background" bg, AltGuiBody(v))
+            padB := g.Add("Text", "xm y+0 w" tw " h6 Background" bg, "")
+            _altGuiRows.Push({head: head, body: body, ctrls: [padT, head, body, padB]})
+        }
+
+        g.SetFont("s8 c" pal.hint)
+        hint := g.Add("Text", "xm y+10 w" tw,
+                      "TAB next     SHIFT+TAB back     ENTER send     ESC cancel")
+
+        _altGui := g
+        AltGuiRepaint()                   ; sets the marked row's text colours
+        ; The height is measured off the last control rather than left to AutoSize,
+        ; which came up short: the bottom row's text and the hint line above were
+        ; clipped clean off the window. Clipping the LAST ROW is not cosmetic — TAB
+        ; wraps onto a variant you cannot see, and Enter sends it.
+        ;
+        ; The controls exist as soon as they are added, so this measures for real
+        ; rather than predicting; -Caption means there is no title bar or border, so
+        ; the client height IS the window height.
+        hint.GetPos(, &hy, , &hh)
+        gh := hy + hh + g.MarginY
+        LOGD("alt.stage", "picker window " w "x" gh " for " _altVariants.Length
+                       . " variants, marker on " _altStaged)
+        AltGuiShowPlaced(g, w, gh)
+    } catch as e {
+        LOGE("alt.stage", "the picker window would not build — falling back to the"
+                        . " chat-box preview for this pick",
+                        "error: " e.Message " @ " e.File ":" e.Line
+                      . (e.HasProp("What") && e.What != "" ? " in " e.What : ""))
+        _altGui := 0
+        _altGuiRows := []
+        _altInBox := true
+        AltPaintChatbox()
+    }
+}
+
+; The label line: the marker, the number, what it is called, and — only when it
+; matters — that picking it commits the next follow-ups to a branch.
+AltGuiHead(i, v) {
+    global _altStaged
+    return ((i = _altStaged) ? Chr(0x25B8) : " ") "  " i ".  " v.label
+         . (v.branch ? "      (branch — f2 and f3 will open here)" : "")
+}
+
+; One part per line. The chat-box preview has to squeeze them onto one line with a
+; separator; a window has room to show them the way they will actually arrive,
+; which is as separate messages.
+AltGuiBody(v) {
+    global ALT_GUI_MAXCHARS
+    out := ""
+    for _, p in v.parts {
+        p := Trim(p)
+        if (p = "")
+            continue
+        out .= (out != "" ? "`n" : "") p
+    }
+    if (StrLen(out) > ALT_GUI_MAXCHARS)
+        out := SubStr(out, 1, ALT_GUI_MAXCHARS) " …"
+    return out = "" ? "(empty)" : out
+}
+
+; Move the marker without rebuilding: the variants have not changed, only which
+; one is lit, and destroying the window on every TAB flickers it across the chat.
+AltGuiRepaint() {
+    global _altGui, _altGuiRows, _altVariants, _altStaged, _altPal
+    if !_altGui
+        return
+    ; The palette this window was BUILT with, not whatever the cfg says now — a
+    ; theme saved mid-pick would otherwise repaint the marked row in the new
+    ; colours and leave every other row in the old ones.
+    pal := _altPal ? _altPal : THEME_Picker()
+    for i, row in _altGuiRows {
+        sel := (i = _altStaged)
+        for _, c in row.ctrls
+            c.Opt("+Background" (sel ? pal.sel : pal.row))
+        row.head.SetFont("c" (sel ? pal.selHead : pal.head))
+        row.body.SetFont("c" (sel ? pal.selBody : pal.body))
+        row.head.Text := AltGuiHead(i, _altVariants[i])
+        for _, c in row.ctrls
+            c.Redraw()
+    }
+}
+
+; Show it over the chat it belongs to, above the composer rather than on it.
+;
+; One Show, with the size passed in. NoActivate is not optional: a Show without it
+; hands focus over, the chat window stops being active, and the Tab/Enter/Escape
+; hotkeys — scoped to that window — go dead with the picker still up.
+AltGuiShowPlaced(g, gw, gh) {
+    global _altWin, _altGuiShown
+    ; Anchor to the window staging began in. Falls back to the primary screen when
+    ; that window has gone away, which beats drawing at 0,0.
+    ax := 0, ay := 0, aw := A_ScreenWidth, ah := A_ScreenHeight
+    try WinGetPos(&ax, &ay, &aw, &ah, "ahk_id " _altWin)
+    lift := _IniInt(MMA_CFG, "Settings", "AltGuiLift", 150)
+    x := ax + (aw - gw) // 2
+    y := ay + ah - gh - lift
+    AltGuiClamp(x + gw // 2, y + gh // 2, gw, gh, &x, &y)
+    g.Show("NoActivate x" x " y" y " w" gw " h" gh)
+    _altGuiShown := true
+}
+
+; Keep the whole window on the monitor it landed on. A tall list lifted off the
+; bottom of a maximised window can run off the top of the screen, and the row you
+; cannot see is the one Enter is about to send.
+AltGuiClamp(cx, cy, gw, gh, &x, &y) {
+    ml := 0, mt := 0, mr := A_ScreenWidth, mb := A_ScreenHeight
+    try {
+        found := false
+        Loop MonitorGetCount() {
+            MonitorGetWorkArea(A_Index, &l, &t, &r, &b)
+            if (cx >= l && cx < r && cy >= t && cy < b) {
+                ml := l, mt := t, mr := r, mb := b
+                found := true
+                break
+            }
+        }
+        if !found
+            MonitorGetWorkArea(MonitorGetPrimary(), &ml, &mt, &mr, &mb)
+    }
+    if (x + gw > mr)
+        x := mr - gw
+    if (x < ml)
+        x := ml
+    if (y + gh > mb)
+        y := mb - gh
+    if (y < mt)
+        y := mt
+}
+
+AltGuiClose() {
+    global _altGui, _altGuiRows, _altGuiShown, _altPal
+    if _altGui {
+        try _altGui.Destroy()
+        _altGui := 0
+    }
+    _altGuiRows := []
+    _altGuiShown := false
+    ; Dropped with the window, so the NEXT pick reads the theme fresh — that is
+    ; what makes switching theme in Settings apply without restarting the engine.
+    _altPal := 0
+}
+
+; ── the picker must never outlive the chat it belongs to ──────────────────────
+;  Tab, Enter and Escape are scoped to the window staging began in. That is the
+;  right scope — they must not be hijacked machine-wide — but it has a hole, and
+;  it is nasty: switch away from the chat and ESCAPE STOPS REACHING THE PICKER.
+;  You are then looking at an always-on-top window, over another application, with
+;  no title bar, no close button, and a key that does nothing. The 45-second
+;  timeout eventually clears it, which is a long time to sit there wondering.
+;
+;  So while a choice is staged, this runs four times a second and:
+;
+;    the chat window is GONE      → end the staging. There is nothing left to send
+;                                   into, so the picker has no subject.
+;    the chat window is not ACTIVE → hide the picker, keep the staging. You alt-
+;                                   tabbed; come back and it is where you left it,
+;                                   marker and all. Meanwhile it is not floating
+;                                   over whatever you switched to.
+;    active again                 → show it again, same position.
+ALT_STAGE_WATCH_MS := 250
+
+AltStageWatch() {
+    global _altVariants, _altWin, _altGui, _altGuiShown
+    if !_altVariants.Length
+        return
+    if (!_altWin || !WinExist("ahk_id " _altWin)) {
+        LOGI("alt.stage", "the window this pick belongs to has closed — ending the"
+                        . " staging rather than leaving a picker on top of nothing")
+        AltStageEnd()
+        return
+    }
+    if !_altGui
+        return
+    want := WinActive("ahk_id " _altWin) ? true : false
+    if (want = _altGuiShown)
+        return
+    _altGuiShown := want
+    ; NoActivate on the way back too, or returning to the chat would hand focus to
+    ; the picker and kill the very hotkeys it is waiting for.
+    try (want ? _altGui.Show("NoActivate") : _altGui.Hide())
+}
+
+; Chat-box preview, or the window? Read per press like every other staging
+; setting, so the checkbox in Settings applies to the very next follow-up key
+; without restarting anything.
+AltStageUseGui() {
+    return Trim(IniRead(MMA_CFG, "Settings", "AltStageNoGui", "0")) != "1"
 }
 
 ; Tab/Enter/Escape are hijacked while a choice is staged, so they must be scoped
@@ -289,9 +697,18 @@ ALT_STAGE_TIMEOUT_MS := 45000
 ; The (*) is required, not stylistic: HotIf calls its criterion with the hotkey
 ; name, and a zero-parameter function is rejected with "Invalid callback function."
 ; That is why hotkeys.ahk declares every context as (*) => ... too.
+;
+; The picker window is in the criterion too, and that is a safety net rather than
+; a feature: it is WS_EX_NOACTIVATE and should never be the active window, but if
+; anything ever does activate it, without this line Escape stops working and the
+; only way out of a window with no title bar is the timeout below.
 AltStageActive(*) {
-    global _altVariants, _altWin
-    return _altVariants.Length > 0 && _altWin && WinActive("ahk_id " _altWin)
+    global _altVariants, _altWin, _altGui
+    if !_altVariants.Length
+        return false
+    if (_altWin && WinActive("ahk_id " _altWin))
+        return true
+    return _altGui && WinActive("ahk_id " _altGui.Hwnd)
 }
 
 ; `startAt` is which variant the marker opens on. Not always 1: once you have
@@ -300,47 +717,72 @@ AltStageActive(*) {
 ; three times. TAB still reaches every other variant, so nothing is locked in.
 AltStageBegin(group, variants, editable := false, startAt := 1) {
     global _altVariants, _altStaged, _altGroup, _altEditable, _altHotkeysOn
-    global _altWin, ALT_STAGE_TIMEOUT_MS
+    global _altWin, _altInBox, ALT_STAGE_TIMEOUT_MS, ALT_STAGE_WATCH_MS
     _altVariants := variants
     _altStaged   := (startAt >= 1 && startAt <= variants.Length) ? startAt : 1
     _altGroup    := group
     _altEditable := editable
+    ; Before the window exists, so this is the CHAT window and not the picker.
     _altWin      := WinExist("A")
+    _altInBox    := !AltStageUseGui()
     AltPaintStage()
     if !_altHotkeysOn {
         HotIf AltStageActive
+        ; *Tab fires on Shift+Tab too — the wildcard ignores extra modifiers — so
+        ; walking backwards needs its own binding. An exact modifier match wins
+        ; over a wildcard one, so +Tab reaches AltStagePrev and plain Tab does not.
         Hotkey "*Tab",    AltStageNext,   "On"
+        Hotkey "*+Tab",   AltStagePrev,   "On"
         Hotkey "*Enter",  AltStageCommit, "On"
         Hotkey "*Escape", AltStageCancel, "On"
         HotIf
         _altHotkeysOn := true
     }
     SetTimer(AltStageTimeout, -ALT_STAGE_TIMEOUT_MS)
+    SetTimer(AltStageWatch, ALT_STAGE_WATCH_MS)
 }
 
-; Give up rather than leave the keys claimed. The staged text is left in the box
-; — it is the user's chat window, so silently wiping it would be worse.
+; Give up rather than leave the keys claimed. In chat-box mode the staged text is
+; left in the box — it is the user's chat window, so silently wiping it would be
+; worse. The picker window closes, because a window with no title bar that has
+; stopped responding to Escape is not something to leave lying on top of the chat.
+;
+; A forgotten staging gives the keys back on its own. Worth a WARN: while staged,
+; Tab, Enter and Escape are hijacked in the staging window, so a user who walked
+; away mid-pick and came back to "Enter does not work in my chat" is looking at
+; this, and the timeout is what fixed it before they finished typing the message.
 AltStageTimeout() {
-    global _altVariants
-    if _altVariants.Length
+    global _altVariants, _altInBox, ALT_STAGE_TIMEOUT_MS
+    if _altVariants.Length {
+        LOGW("alt.stage", "timed out after " ALT_STAGE_TIMEOUT_MS "ms with a choice"
+                        . " still staged — releasing Tab/Enter/Escape."
+                        . (_altInBox ? " The staged text is left in the chat box on"
+                                     . " purpose." : " The picker window is closed."))
         AltStageEnd()
+    }
 }
 
 AltStageEnd() {
-    global _altVariants, _altStaged, _altGroup, _altWin, _altHotkeysOn
+    global _altVariants, _altStaged, _altGroup, _altWin, _altHotkeysOn, _altInBox
     SetTimer(AltStageTimeout, 0)
+    SetTimer(AltStageWatch, 0)
     if _altHotkeysOn {
         HotIf AltStageActive
         Hotkey "*Tab",    "Off"
+        Hotkey "*+Tab",   "Off"
         Hotkey "*Enter",  "Off"
         Hotkey "*Escape", "Off"
         HotIf
         _altHotkeysOn := false
     }
+    ; After the hotkeys are released, so the window cannot outlive them: a picker
+    ; still on screen with Tab and Enter handed back is a window that ignores you.
+    AltGuiClose()
     _altVariants := []
     _altStaged := 0
     _altGroup := 0
     _altWin := 0
+    _altInBox := false
 }
 
 AltStageNext(*) {
@@ -353,8 +795,19 @@ AltStageNext(*) {
     AltPaintStage()
 }
 
+; Shift+Tab. Wraps the other way, so the list has no ends to get stuck against.
+AltStagePrev(*) {
+    global _altVariants, _altStaged
+    if !_altVariants.Length {
+        AltStageEnd()
+        return
+    }
+    _altStaged := Mod(_altStaged - 2 + _altVariants.Length, _altVariants.Length) + 1
+    AltPaintStage()
+}
+
 AltStageCommit(*) {
-    global _altVariants, _altStaged, _altGroup, _altEditable, ALT_ON_PICK
+    global _altVariants, _altStaged, _altGroup, _altEditable, _altInBox, ALT_ON_PICK
     if !_altVariants.Length {
         AltStageEnd()
         return
@@ -362,10 +815,22 @@ AltStageCommit(*) {
     v     := _altVariants[_altStaged]
     grp   := _altGroup
     edit  := _altEditable
-    ; clear the staged preview before sending, or the variants would be sent too
-    Send "^a"
-    Sleep 20
-    Send "{Delete}"
+    LOGI("alt.stage", "committed variant " _altStaged " of " _altVariants.Length
+                   . " — '" v.label "'"
+                   . (v.branch ? "  (this commits the conversation to branch "
+                               . v.branch ", so f2/f3 will open on it)" : "")
+                   . "  group=" (grp = 0 ? "ppv" : grp)
+                   . "  parts=" v.parts.Length
+                   . "  shown=" (_altInBox ? "chat box" : "picker window"))
+    ; Only the chat-box preview needs clearing, and only because it is sitting in
+    ; the thing that is about to send. This is the unreliable step the picker
+    ; window exists to avoid — see the section header — so it runs on exactly the
+    ; mode that cannot do without it, and never on the one that can.
+    if _altInBox {
+        Send "^a"
+        Sleep 20
+        Send "{Delete}"
+    }
     AltStageEnd()
     ; Tell the engine which branch this commits to, BEFORE sending — so if the send
     ; throws, the next follow-up still knows where the conversation went.
@@ -380,9 +845,18 @@ AltStageCommit(*) {
 }
 
 AltStageCancel(*) {
-    Send "^a"
-    Sleep 20
-    Send "{Delete}"
+    global _altInBox
+    ; Escape means "put it back how it was". In the window there is nothing to put
+    ; back — the chat box was never written to — so clearing it would DELETE
+    ; whatever the user had typed there, which Escape has no business doing.
+    LOGI("alt.stage", "cancelled with Escape — nothing sent"
+                   . (_altInBox ? ", chat box cleared"
+                                : "; the chat box was never touched"))
+    if _altInBox {
+        Send "^a"
+        Sleep 20
+        Send "{Delete}"
+    }
     AltStageEnd()
 }
 
@@ -412,11 +886,28 @@ AltIntercept(m, group, editable := false, activeBranch := 0) {
     ; One gate for every caller. Returning false means "nothing intercepted", so
     ; the plain send runs exactly as it did before alts existed — which is what
     ; Easy mode is: a follow-up key that sends the follow-up, full stop.
-    if !FEAT("altFollowups")
+    if !FEAT("altFollowups") {
+        LOG_Bail("alt.intercept", "feature 'altFollowups' is off — follow-up "
+                                . group " sends its main wording, no picker")
         return false
+    }
     variants := AltVariants(m, group)
-    if variants.Length <= 1
+    if (variants.Length <= 1) {
+        ; The commonest confused report about this feature: "the alt picker did
+        ; not come up". With one variant there is nothing to pick BETWEEN, so it
+        ; correctly sends straight away — which is indistinguishable from the
+        ; feature being broken unless something says so.
+        LOG_Bail("alt.intercept", "follow-up " group " has " variants.Length
+                                . " variant(s) — nothing to choose between, so it"
+                                . " sends directly with no picker")
         return false
+    }
+    names := ""
+    for _, v in variants
+        names .= (names = "" ? "" : ", ") v.label (v.branch ? "*" : "")
+    LOGI("alt.intercept", "follow-up " group ": staging " variants.Length
+                       . " variants [" names "] — TAB to walk, Enter to send,"
+                       . " Esc to cancel")
     AltStageBegin(group, variants, editable, AltStartIndex(variants, activeBranch))
     return true
 }
@@ -424,11 +915,18 @@ AltIntercept(m, group, editable := false, activeBranch := 0) {
 ; The same, for the PPV. Separate entry point only because the PPV has no group
 ; number and pastes rather than sends; the list and the walk are identical.
 AltInterceptPpv(m, editable := true, activeBranch := 0) {
-    if !FEAT("altFollowups")
+    if !FEAT("altFollowups") {
+        LOG_Bail("alt.ppv", "feature 'altFollowups' is off — PPV pastes its main"
+                          . " wording, no picker")
         return false
+    }
     variants := AltPpvVariants(m)
-    if variants.Length <= 1
+    if (variants.Length <= 1) {
+        LOG_Bail("alt.ppv", "PPV has " variants.Length " variant(s) — nothing to"
+                          . " choose between, pasting directly")
         return false
+    }
+    LOGI("alt.ppv", "staging " variants.Length " PPV variants")
     AltStageBegin(0, variants, editable, AltStartIndex(variants, activeBranch))
     return true
 }
@@ -451,13 +949,25 @@ sndFu(group, parts*) {
     for p in parts
         if Trim(p) != ""
             nonEmpty.Push(p)
-    if !nonEmpty.Length
+    ; THE most reported "the key did nothing": the mass has no text in this slot.
+    ; Masses are legitimately sparse — f1-only and f1+f3 are both normal — so this
+    ; is correct behaviour and not a fault. It is still the answer to the question,
+    ; so it says which model and which follow-up was empty.
+    if !nonEmpty.Length {
+        LOG_Bail("send.fu", "model " MASS_CUR_MODEL " follow-up " group " is EMPTY"
+                          . " in the selected mass — nothing to send. (Sparse masses"
+                          . " are normal; check the mass in the GUI if you expected text.)")
         return
+    }
     ; FuSingle_<model>_<group>. The model number must be the one whose key was
     ; pressed — read from the wrong one and IniRead just returns its default, so
     ; the setting appears to do nothing and nothing says why.
     fuSingle := IniRead(MMA_CFG, "Settings",
                         "FuSingle_" MASS_CUR_MODEL "_" group, "0") = "1"
+    LOGI("send.fu", "model " MASS_CUR_MODEL " follow-up " group ": " nonEmpty.Length
+                 . " part(s), " (fuSingle ? "joined into ONE message (FuSingle_"
+                                          . MASS_CUR_MODEL "_" group "=1)"
+                                          : "sent as separate messages"))
     if !fuSingle {
         for p in nonEmpty
             snd(p)
@@ -468,7 +978,10 @@ sndFu(group, parts*) {
         combined .= (combined != "" ? "`n" : "") p
     A_Clipboard := ""
     A_Clipboard := combined
-    ClipWait(1)
+    if !ClipWait(1)
+        LOGE("send.fu", "the clipboard never accepted follow-up " group " — about to"
+                      . " paste the PREVIOUS clipboard and press Enter",
+                      "wanted to send: " SubStr(combined, 1, 120))
     Send("^v")
     Send("{Enter}")
     Sleep(waitTime)
@@ -497,14 +1010,27 @@ Overload_Mode() {
 ; Entry point an overloaded hotstring calls. `mode` is that trigger's own "ask" or
 ; "random" (each overload carries its own); blank falls back to the global default.
 Overload_Run(variants, mode := "") {
-    if !variants.Length
+    if !variants.Length {
+        LOG_Bail("overload", "an overloaded hotstring fired with NO variants —"
+                           . " nothing to send. Its entry in hotstring_overloads.ini"
+                           . " is probably empty or malformed.")
         return
+    }
     labels := []
     for v in variants
         labels.Push(Overload_Label(v))
     idx := Overload_Pick(labels, mode)
-    if (idx >= 1 && idx <= variants.Length)
+    if (idx >= 1 && idx <= variants.Length) {
+        LOGI("overload", "chose variant " idx " of " variants.Length
+                      . " (mode " (mode = "" ? Overload_Mode() : mode) ")")
         Overload_Send(variants[idx])
+        return
+    }
+    ; Esc in the chooser lands here, and so does an out-of-range pick. Both mean
+    ; the hotstring's trigger text has already been swallowed and nothing replaced
+    ; it — which reads as the hotstring being broken.
+    LOG_Bail("overload", "no variant chosen (cancelled, or index " idx " is out of"
+                       . " range 1-" variants.Length ") — nothing sent")
 }
 
 ; Which variant (1-based)? 0 = none/cancelled. `mode` blank → read the setting;
@@ -542,11 +1068,26 @@ Overload_Label(steps) {
 ; script picks up only the overloads whose owning file matches its own name, and a
 ; runtime Hotstring() replaces the statically defined trigger.
 Overload_Register() {
+    n := 0, skipped := 0
     for trg, e in OL_Load() {
-        if (StrLower(OL_BaseName(e.file)) != StrLower(A_ScriptName))
+        if (StrLower(OL_BaseName(e.file)) != StrLower(A_ScriptName)) {
+            skipped++
             continue
-        try Hotstring(":" e.options ":" trg, Overload_Handler.Bind(e))
+        }
+        ; A trigger that fails to register here keeps its STATIC definition, so it
+        ; still fires — it just sends the one fixed message instead of offering
+        ; the variants. "My overload stopped asking" with no error is exactly that.
+        LOG_Try("overload.register", "register " trg,
+                () => Hotstring(":" e.options ":" trg, Overload_Handler.Bind(e)), &ok)
+        if ok
+            n++
     }
+    if n
+        LOGI("overload.register", n " overloaded hotstring(s) re-pointed at the"
+                              . " picker (" skipped " belong to other scripts)")
+    else
+        LOGV("overload.register", "no overloads own this script (" skipped
+                                . " belong to others)")
 }
 
 Overload_Handler(entry, *) {

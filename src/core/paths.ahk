@@ -64,7 +64,12 @@ global MMA_VERSION     := MMA_ROOT "\version.txt"
 ; the one failure you cannot debug from the log. One idempotent DirCreate, in the
 ; file every script already includes, removes the possibility.
 try DirCreate(MMA_DEBUGLOGS)
+; error_log.txt is now the SHORT list — failures only, so it stays openable and
+; readable top to bottom. mma.log is the full timeline every process appends to;
+; see core\log.ahk. Both are written by LOGE, deliberately: the question "what
+; broke" and the question "what was happening when it broke" want different files.
 global MMA_ERRLOG       := MMA_DEBUGLOGS "\error_log.txt"
+global MMA_LOGFILE      := MMA_DEBUGLOGS "\mma.log"
 global MMA_PROBE_DETECT := MMA_DEBUGLOGS "\detector_probe.txt"
 global MMA_PROBE_NEXTFU := MMA_DEBUGLOGS "\nextfu_probe.txt"
 
@@ -110,14 +115,43 @@ MMA_ModelNames() {
 ; how "engine.ahk" silently did not run after it moved to src\mass\.
 MMA_ScriptPath(name) {
     global MMA_ACC_DIR, MMA_CONTENT, MMA_SRC
-    if InStr(name, "\") || InStr(name, "/")     ; already a path — leave it alone
+    if InStr(name, "\") || InStr(name, "/") {   ; already a path — leave it alone
+        LOGV("paths.resolve", name " is already a path")
         return name
+    }
     for dir in [MMA_ACC_DIR, MMA_CONTENT,
                 MMA_SRC "\mass", MMA_SRC "\chat", MMA_SRC "\sequences",
                 MMA_SRC "\screen", MMA_SRC "\ui", MMA_SRC] {
         p := dir "\" name
-        if FileExist(p)
+        if FileExist(p) {
+            LOGV("paths.resolve", name " → " p)
             return p
+        }
     }
+    ; The failure this function's header is about, now audible. A name that
+    ; resolves nowhere returns a path that does not exist, LaunchStartupScripts
+    ; skips it, and the script never starts — which is how engine.ahk silently
+    ; stopped running after it moved to src\mass\. WARN rather than FAIL: the
+    ; caller still gets a usable path and decides for itself whether it matters.
+    LOGW("paths.resolve", "'" name "' is in none of the searched folders —"
+                        . " falling back to " MMA_CONTENT "\" name
+                        . " which does not exist. Anything launching it will do"
+                        . " nothing, silently.")
     return MMA_CONTENT "\" name        ; best guess, so callers still get a path
 }
+
+; ─── the logger ───────────────────────────────────────────────────────────────
+;  LAST, and from here rather than from each script.
+;
+;  This is the one file every entry point in the tree already includes, which
+;  makes it the only place a logger can be added once and reach everything —
+;  including the scripts nobody remembers exist. Each process therefore gets its
+;  boot line, its exit line and its uncaught-error hook with no wiring of its own
+;  and no way to drift out of step.
+;
+;  At the END because log.ahk's own load-time code writes that boot line, and it
+;  needs MMA_LOGFILE and MMA_DEBUGLOGS above to exist first. The include is
+;  circular — log.ahk names this file too, since it may equally be included
+;  directly — and that is fine: AHK loads a given file once however many times it
+;  is named, so whichever is reached first wins and the other is a no-op.
+#Include "log.ahk"

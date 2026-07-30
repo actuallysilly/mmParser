@@ -49,3 +49,53 @@ HotstringOCR (featureName + hotkey binding) = Ctrl+Shift+O rename to "Add hotstr
 currently isnt working
 
 OneClickImport (Ctrl+leftClick) currently isnt working
+
+
+## BUG: follow-up part suffixes only accept .5 and .7 — .1/.2/.3 are silently dropped
+
+WRONG BEHAVIOUR. Both spellings should work. `.1 .2 .3` is the obvious way to write
+"part 1, part 2, part 3" and it is what anyone would try first.
+
+What happens today: a prefixed paste containing
+
+    f1 first part
+    f1.1 second part
+    f1.2 third part
+
+parses `f1` and **throws the other two away without a word**. No error, no log line, no
+missing-field marker — the parts simply are not there when you press the key. It looks
+exactly like the parser not handling multi-part follow-ups at all.
+
+Where it is:
+
+* `FPrefixToSlot()` in `src/mass/parser.ahk` — matches `^[Ff][Uu]?\s?(\d+)(?:\.(\d+))?`,
+  then tests only `SubStr(d,1,1) = "5"` → `_5` and `= "7"` → `_7`. Anything else falls
+  through to `return ""`, and the caller's `if slot = ""` → `continue` drops the line.
+* `StripPrefix()` matches the same shape, so the prefix IS recognised — it is only the
+  slot mapping that refuses it. That is why it fails silently rather than treating the
+  line as message text.
+* `keyMap` in `src/ui/main_window.ahk` has the same gap: it lists `f1.5`/`f1.7` and no
+  `f1.1`/`f1.2`, so **keyword mode** drops them too.
+
+Wanted: `.1`/`.2`/`.3` and `.5`/`.7` both map onto the same three underlying fields
+(`fuN`, `fuN_5`, `fuN_7`).
+
+    f1      -> fuN          f1.1 -> fuN     (or should .1 mean the 2nd part? DECIDE)
+    f1.5    -> fuN_5        f1.2 -> fuN_5
+    f1.7    -> fuN_7        f1.3 -> fuN_7
+
+The one thing to settle before implementing: does `f1.1` mean the FIRST part (same as
+bare `f1`) or the SECOND? `.5`/`.7` are the 2nd and 3rd, so `.1/.2/.3` reading as
+1st/2nd/3rd is the intuitive mapping — but then `f1` and `f1.1` are the same slot and a
+paste containing both silently overwrites. Probably: `f1.1` = 2nd part, `f1.2` = 3rd,
+i.e. `.1/.2` are aliases of `.5/.7`, and `.3` is a no-op — OR widen the record to a real
+4th part. Decide, then make the field count follow from `store.ahk` rather than a
+hard-coded three.
+
+While in there: anything the parser REFUSES should leave a `LOGW`, not vanish. A dropped
+line is the exact class of silent failure the logging pass exists to kill, and this one
+survived it because the drop is a `continue` with no else.
+
+Docs note: `docs/guide.html` and `docs/mass-format.md` currently document `.5`/`.7` as
+the only accepted form, flagged as a known bug rather than as intended design. Update
+both when this is fixed.

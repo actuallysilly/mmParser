@@ -1,5 +1,6 @@
 ﻿#Requires AutoHotkey v2.0
 #Include "../core/paths.ahk"
+#Include "../core/theme.ahk"
 #SingleInstance Force
 #Include "../core/crashlog.ahk"
 #Include "../core/hotkeys.ahk"
@@ -17,6 +18,24 @@
 #Include "../screen/ocr_grab.ahk"
 #Include "actions_menu.ahk"
 DetectHiddenWindows true
+
+; ─── The two children that own hotkeys, started FIRST ─────────────────────────
+;  The mass engine (every mass hotkey) and sequences.ahk (the Discord Ctrl+click
+;  import and the other seq.* keys). Neither is optional and neither is a startup
+;  script — see LaunchEngine/LaunchSequences in core/processes.ahk.
+;
+;  Up HERE rather than after the GUI is built, which is where these used to sit.
+;  Everything between this line and g.Show() is window construction: three tabs,
+;  the variants window, the archive, the settings tabs. That is hundreds of
+;  milliseconds during which MMA is on screen — or worse, still painting — with
+;  every hotkey it owns dead. Ctrl+clicking a Discord message in that gap does
+;  nothing at all, which is indistinguishable from the import being broken, and
+;  it is exactly when you would do it: the moment MMA comes up.
+;
+;  Nothing below depends on these having run, and neither script needs the GUI
+;  window to exist — sequences.ahk only looks for it when you actually import.
+LaunchEngine()
+LaunchSequences()
 
 ; ─── Data ─────────────────────────────────────────────────────────────────────
 
@@ -238,19 +257,19 @@ _verFile     := MMA_VERSION
 APP_VER      := FileExist(_verFile) ? Trim(FileRead(_verFile, "UTF-8")) : "?"
 _codePath    := EnvGet("LOCALAPPDATA") "\Programs\Microsoft VS Code\Code.exe"
 CODE_CMD     := FileExist(_codePath) ? _codePath : "C:\Program Files\Microsoft VS Code\Code.exe"
-modelCount        := Integer(IniRead(CFG_FILE, "Settings", "ModelCount",        "2"))
+modelCount        := LOG_IniInt(CFG_FILE, "Settings", "ModelCount", 2)
 _utilsRaw         := FileExist(MMA_SRC_UTILS) ? FileRead(MMA_SRC_UTILS, "UTF-8") : ""
 waitTime          := RegExMatch(_utilsRaw, "\bwaitTime\b\s*:=\s*(\d+)", &_wm) ? Integer(_wm[1]) : 350
 model1Name        := IniRead(CFG_FILE, "Settings", "Model1",            "Model 1")
 model2Name        := IniRead(CFG_FILE, "Settings", "Model2",            "Model 2")
 model3Name        := IniRead(CFG_FILE, "Settings", "Model3",            "Model 3")
 defaultHotkeyFile := IniRead(CFG_FILE, "Settings", "DefaultHotkeyFile", "TEMP.ahk")
-mouseControl      := Integer(IniRead(CFG_FILE, "Settings", "MouseControl",      "1"))
-openTabFu2        := Integer(IniRead(CFG_FILE, "Settings", "OpenTabFu2",        "0"))
-openTabFu3        := Integer(IniRead(CFG_FILE, "Settings", "OpenTabFu3",        "0"))
-openTabPpv        := Integer(IniRead(CFG_FILE, "Settings", "OpenTabPpv",        "0"))
-walletCheckFu3    := Integer(IniRead(CFG_FILE, "Settings", "WalletCheckFu3",    "0"))
-fastParseAutosave := Integer(IniRead(CFG_FILE, "Settings", "FastParseAutosave", "0"))
+mouseControl      := LOG_IniInt(CFG_FILE, "Settings", "MouseControl", 1)
+openTabFu2        := LOG_IniInt(CFG_FILE, "Settings", "OpenTabFu2", 0)
+openTabFu3        := LOG_IniInt(CFG_FILE, "Settings", "OpenTabFu3", 0)
+openTabPpv        := LOG_IniInt(CFG_FILE, "Settings", "OpenTabPpv", 0)
+walletCheckFu3    := LOG_IniInt(CFG_FILE, "Settings", "WalletCheckFu3", 0)
+fastParseAutosave := LOG_IniInt(CFG_FILE, "Settings", "FastParseAutosave", 0)
 ; On by default: the follow-up keys keep sending the main branch as they always
 ; have, and ctrl+key is what opens the alt chooser. Off makes the plain key prompt.
 _hiddenRaw        := IniRead(CFG_FILE, "Settings", "HiddenScripts", "")
@@ -263,22 +282,22 @@ startupScripts    := []
 for _s in StrSplit(IniRead(CFG_FILE, "Settings", "StartupScripts", "general.ahk"), ",")
     if Trim(_s) != ""
         startupScripts.Push(Trim(_s))
-autoRestart       := Integer(IniRead(CFG_FILE, "Settings", "AutoRestart", "0"))
+autoRestart       := LOG_IniInt(CFG_FILE, "Settings", "AutoRestart", 0)
 ; The Python automation listener (automation\automation.py) runs the
 ; [automation] hotkeys. On by default: those keys are declared in hotkeys.ahk and
 ; shown in the Hotkeys GUI, so if the listener isn't up they'd look bound but do
 ; nothing. See LaunchAutomationListener().
-automationListener := Integer(IniRead(CFG_FILE, "Settings", "AutomationListener", "1"))
+automationListener := LOG_IniInt(CFG_FILE, "Settings", "AutomationListener", 1)
 ; The pinger (pinger\pinger.pyw) beeps when an Infloww fan tab goes unread. Off by
 ; default — it makes noise, so it should be an opt-in. See LaunchPinger().
-pinger            := Integer(IniRead(CFG_FILE, "Settings", "Pinger", "0"))
+pinger            := LOG_IniInt(CFG_FILE, "Settings", "Pinger", 0)
 ; The model detector (model_detector.ahk) reads the active Infloww tab's name and
 ; writes it to detector_status.ini, so one set of f1/f2/f3 keys serves whichever
 ; model is on screen. Off by default. See LaunchDetector().
-autoDetect        := Integer(IniRead(CFG_FILE, "Settings", "AutoDetectModel", "0"))
+autoDetect        := LOG_IniInt(CFG_FILE, "Settings", "AutoDetectModel", 0)
 ; The stats overlay (stats_overlay.ahk) OCRs the Infloww stats page and shows a
 ; toggleable overlay of Sales + the PPVs-sent/Fans-chatted ratio. See LaunchStatsOverlay().
-statsOverlay      := Integer(IniRead(CFG_FILE, "Settings", "StatsOverlay", "0"))
+statsOverlay      := LOG_IniInt(CFG_FILE, "Settings", "StatsOverlay", 0)
 UPDATE_URL   := IniRead(CFG_FILE, "Update",   "URL",       "https://raw.githubusercontent.com/actuallysilly/mmParser/main")
 ; Hotkeys used to be mirrored here as hk1_f1..hk3_ppvfu and written into the mass
 ; files as literal `F9::` lines. They now live in hotkeys.ini and are read by the
@@ -321,7 +340,46 @@ btnSaveM := []
 ; is roughly what the two panels side by side actually need — see LEFT_MIN /
 ; RIGHT_MIN below. The field list still wants ~700 tall to show every row.
 g := Gui("+Resize +MinSize900x640", "MMA v" APP_VER)
-g.SetFont("s9", "Segoe UI")
+; Off-white with a little pink in it, rather than the system white this used to
+; be. Kept this pale on purpose: the window is mostly TEXT — mass bodies, field
+; labels, the follow-up boxes — and a real pink behind black text is tiring to
+; read for a whole shift. At this lightness it reads as "warm white" and the
+; contrast against the text is within a hair of what plain white gave.
+;
+; Only the window itself. Edit boxes and the field list keep their own white, and
+; that is deliberate too: it is what separates "somewhere you type" from the panel
+; around it, and tinting those would take the distinction away.
+; The colour itself lives in core/theme.ahk, because the follow-up picker — drawn
+; by a DIFFERENT PROCESS — has to answer the same question, and a constant here
+; could never reach it. Settings → GUI picks the theme; this reads it.
+ApplyWindowTheme()
+; The theme's ink goes on the window font, HERE, before a single control exists —
+; that is how every label gets its colour. Colouring them afterwards does not
+; work: a static on a tab page loses its background the moment you touch it. See
+; THEME_ApplyTo.
+g.SetFont("s9" THEME_FontOpt(), "Segoe UI")
+
+; Paint the main window in whatever theme is set. Called once while building it,
+; and again by Settings the moment the theme changes — switching is not worth a
+; restart, and a restart mid-shift costs whatever was half-typed.
+;
+; Only the window. Edit boxes and the field list keep their own colours, which is
+; deliberate: it is what separates "somewhere you type" from the panel around it.
+ApplyWindowTheme() {
+    global g
+    bg := THEME_WindowBg()
+    ; "Default" restores the SYSTEM colour rather than a hard-coded white. That is
+    ; the whole point of the classic theme — it follows Windows, including a
+    ; high-contrast scheme somebody may actually need to read the screen.
+    g.BackColor := (bg = "") ? "Default" : bg
+    ; The controls, for the themes that need it. Harmless before any exist, which
+    ; is the case on the first call — this runs at the top of the file, before the
+    ; window is built, so that the background is right from the first paint rather
+    ; than flashing white and then correcting itself.
+    try THEME_ApplyTo(g)
+    ; Fails harmlessly on the first call, when the window has not been shown yet.
+    try WinRedraw("ahk_id " g.Hwnd)
+}
 
 ; ── Right panel helpers ────────────────────────────────────────────────────────
 
@@ -595,6 +653,11 @@ lblCredit := g.Add("Text", "x10 y" (TOGG_Y0 + 38), "made by actually.silly")
 lblCredit.GetPos(, , &lblCreditW)
 
 ApplyLayout(INIT_W, INIT_H)
+; Again, now that every control exists. The call at the top of the file set the
+; background before the first paint; this one reaches the controls, which is what
+; a dark theme needs and a light one does not. Cheap enough to do both ways round
+; rather than reason about which themes need which.
+ApplyWindowTheme()
 g.Show("w" INIT_W " h" INIT_H)
 g.OnEvent("Size", OnResize)
 g.OnEvent("Close", OnGuiClose)
@@ -681,16 +744,11 @@ gVar.Add("Text", "x240 y771 w720",
        . "The follow-up key stages them all; TAB moves, Enter sends, Esc cancels.")
 ArchiveDarkTheme(gVar, [])
 
-; The mass engine first, and unconditionally: it carries every mass hotkey, so
-; without it MMA looks like it does nothing. Not part of StartupScripts — that
-; list is rebuilt from checkboxes, and it lost the engine exactly once, silently.
-LaunchEngine()
-
-; And sequences.ahk, for the same reason — it carries the Discord Ctrl+click
-; import and the other seq.* keys. It reached here through StartupScripts, whose
-; DEFAULT is "general.ahk" alone, so a fresh install never started it and the
-; import was dead on arrival. See LaunchSequences in core/processes.ahk.
-LaunchSequences()
+; LaunchEngine() and LaunchSequences() ran here until now. They run at the TOP of
+; this file instead — both own hotkeys, and waiting for the whole GUI to be built
+; left those keys dead for the first few hundred ms of every launch. The rest below
+; can only run here: LaunchStartupScripts needs the `startupScripts` list, and the
+; background services need the settings this file has now finished reading.
 
 ; auto-start configured startup scripts (defaults to general.ahk) if not already running
 LaunchStartupScripts()
@@ -1030,8 +1088,16 @@ PromptSaveTarget(detectedName := "") {
 
 ParseCurrent(*) {
     global
+    LOGD("gui.parse", "Parse fired")
     raw := StrReplace(StrReplace(edPaste.Value, "`r`n", "`n"), "`r", "`n")
     mNo := tabs.Value
+    ; Parsing into the WRONG TAB is the classic version of "it did not work": the
+    ; text lands in model 3's boxes while you are looking at model 1's, so the
+    ; fields you can see stay empty and it reads as the parser failing outright.
+    LOGI("gui.parse", "parsing " StrLen(raw) " chars of pasted text into model "
+                    . mNo "'s fields"
+                    . (Trim(raw) = "" ? "  — THE PASTE BOX IS EMPTY, so this will"
+                                      . " clear the fields and fill nothing" : ""))
     pfx := "m" mNo "_"
     for k, c in edCtrls
         if SubStr(k, 1, 3) = pfx
@@ -1079,6 +1145,7 @@ ModelNoOf(fname) {
 LoadFile(fname) {
     global
     modelNo := ModelNoOf(fname)
+    LOGD("gui.load", "Load fired for " fname " → model " modelNo)
     doc     := MASS_Load()
     ; `slot := A_Index` before the inner loop, NOT A_Index inside it. A_Index
     ; always refers to the INNERMOST loop, so inside the for-each it counts
@@ -1098,11 +1165,15 @@ LoadFile(fname) {
     VarRefresh()
     _nameMap := Map(1, model1Name, 2, model2Name, 3, model3Name)
     lblLoaded.Text := (_nameMap.Has(modelNo) ? _nameMap[modelNo] : fname) " loaded"
+    LOGI("gui.load", "loaded model " modelNo " (" fname ") into the edit boxes —"
+                   . " live mass slot is " MASS_MassNo(doc, modelNo))
 }
 
 ApplyFile(fname, silent := false) {
     global
     modelNo := ModelNoOf(fname)
+    LOGD("gui.save", "Save fired for " fname " → model " modelNo
+                   . (silent ? " (silent)" : ""))
     allEmpty := true
     for _, c in edCtrls {
         if Trim(c.Value) != "" {
@@ -1111,10 +1182,22 @@ ApplyFile(fname, silent := false) {
         }
     }
     if allEmpty {
-        if silent
+        if silent {
+            ; Not harmless. A silent save with every box blank is how a loaded-but-
+            ; not-displayed tab gets written out empty — the "save blanks unloaded
+            ; tabs" trap. Refusing is right; saying nothing about it is not.
+            LOG_Bail("gui.save", "silent save of model " modelNo " SKIPPED — every"
+                               . " field on screen is empty, and writing that would"
+                               . " blank this model's masses on disk")
             return
-        if MsgBox("All fields are empty. Save anyway?", "Confirm Save", 0x24) != "Yes"
+        }
+        if MsgBox("All fields are empty. Save anyway?", "Confirm Save", 0x24) != "Yes" {
+            LOG_Bail("gui.save", "save of model " modelNo " cancelled at the"
+                               . " all-fields-empty prompt")
             return
+        }
+        LOGW("gui.save", "saving model " modelNo " with EVERY FIELD EMPTY —"
+                       . " confirmed at the prompt. This blanks its masses on disk.")
     }
 
     ; Read-modify-write the WHOLE library, not just this model: the file holds all
@@ -1133,6 +1216,9 @@ ApplyFile(fname, silent := false) {
     if !MASS_Save(doc)
         return
     engineUp := NotifyMassesChanged()
+    LOGI("gui.save", "saved model " modelNo " (" MASS_SLOTS " slots)"
+                   . (engineUp ? "" : "  — but THE ENGINE IS NOT RUNNING, so no"
+                                    . " hotkey can send it"))
     if silent
         return
     if engineUp {
@@ -1154,7 +1240,12 @@ ApplyFile(fname, silent := false) {
 ; but the thing the user is about to go and press does not exist.
 NotifyMassesChanged() {
     try HK_Broadcast(MMA_MSG_MASSES_CHANGED)
-    return EngineRunning()
+    up := EngineRunning()
+    if !up
+        LOGW("gui.save", "the mass engine is not running — masses.json was written"
+                       . " but nothing is listening, so every mass hotkey is dead"
+                       . " until it starts")
+    return up
 }
 
 
@@ -1240,9 +1331,22 @@ PromptUnmappedModel(detected) {
 ; Was a `massNo := 1` line rewritten inside a RUNNING script's source, which then
 ; had to be relaunched to take effect. It is state, so it lives with the data.
 
+; This one line decides which of a model's three masses EVERY hotkey sends, and
+; getting it wrong is the commonest false "the hotkeys are broken": the keys work
+; perfectly and send slot 2, which is empty, because the text is in slot 1.
+;
+; So it logs the switch AND whether the slot it just switched to has any text —
+; the second half being the part that would otherwise take twenty minutes and a
+; probe to discover.
 SetMassNo(fname, n, *) {
     doc := MASS_Load()
-    MASS_SetMassNo(doc, ModelNoOf(fname), n)
+    modelNo := ModelNoOf(fname)
+    MASS_SetMassNo(doc, modelNo, n)
+    empty := (Trim(MASS_Get(doc, modelNo, n)["mass"]) = "")
+    LOGI("gui.massno", "model " modelNo " now sends mass slot " n
+                     . (empty ? "  — WARNING: that slot has no mass text, so the"
+                              . " mass keys will do nothing until you fill it in"
+                              . " or pick another slot" : ""))
     if MASS_Save(doc)
         NotifyMassesChanged()
 }
@@ -1453,9 +1557,15 @@ OpenAddHotkey(prefill := "", *) {
         }
         CheckCollisions()
         ah.Destroy()
+        LOG_Ok("gui.addhotkey", "appended the new hotstring to " path
+                             . " — restarting that script so it takes effect")
+        ; TOCTOU, same as WipeTemp: a throw here would skip the Run below, so the
+        ; hotstring would be in the file and the script would not be running it.
         if WinExist(path " ahk_class AutoHotkey") {
-            pid := WinGetPID(path " ahk_class AutoHotkey")
-            ProcessClose pid
+            try {
+                pid := WinGetPID(path " ahk_class AutoHotkey")
+                ProcessClose pid
+            }
         }
         Run path
     }
@@ -1485,24 +1595,65 @@ NewAccScript(*) {
             return
         }
         content := "#Requires AutoHotkey v2.0`n#SingleInstance Force`n#Include " Chr(34) "../../src/core/utils.ahk" Chr(34) "`n"
-        f := FileOpen(path, "w", "UTF-8")
-        f.Write(content)
-        f.Close()
+        ; Guarded: FileOpen returns "" on failure and `.Write` on that threw "no
+        ; method named Write" — an error dialog naming a method, for what is really
+        ; "content\accounts\ is not writable". The Destroy and the reload prompt
+        ; below never ran either, so the window just sat there.
+        try {
+            f := FileOpen(path, "w", "UTF-8")
+            if !f
+                throw Error("could not open the file for writing")
+            f.Write(content)
+            f.Close()
+        } catch as e {
+            LOGE("gui.newacc", "could not create " name ".ahk", LOG_Err(e) "   " path)
+            MsgBox("Could not create " name ".ahk:`n`n" e.Message "`n`n" path,
+                   "New script", 0x10)
+            return
+        }
+        LOG_Ok("gui.newacc", "created " path)
         ns.Destroy()
         if MsgBox("Created " name ".ahk`nReload to show toggle button?", "Done", 0x24) = "Yes"
             Reload
     }
 }
 
+; ── How to Use ────────────────────────────────────────────────────────────────
+;  Opens docs\guide.html in the default browser.
+;
+;  This used to dump docs\mass-format.md into a read-only Edit control, which was
+;  the worst of both worlds: no formatting, no links, no search beyond Ctrl+F in a
+;  textbox that did not wrap, and a 600x480 window you could not usefully resize.
+;  The content had also gone stale in a way nobody noticed for exactly that reason
+;  — it still told you to open "1_mass and 2_mass" and set your hotkeys there, and
+;  neither of those files has existed since the v2 tree.
+;
+;  A browser gives navigation, real tables, search, zoom, printing and a back
+;  button for free. The guide is one self-contained HTML file with its CSS inline,
+;  so there is nothing to install and nothing to load from the network.
+;
+;  Run(), not ShellRun: a bare Run on an .html goes through the file association,
+;  which is a browser on every machine this will ever run on. If it somehow is not,
+;  the catch falls back to revealing the file in Explorer so the user can still get
+;  at it — better than a dialog saying it could not open.
 OpenGuide(*) {
-    global SCRIPT_DIR, g
-    _guide := MMA_ROOT "\docs\mass-format.md"
-    content := FileExist(_guide) ? FileRead(_guide) : "docs\mass-format.md not found."
-    gg := Gui("+Owner" g.Hwnd, "How to Use")
-    gg.SetFont("s10", "Segoe UI")
-    gg.Add("Edit", "x10 y10 w580 h420 Multi ReadOnly -Wrap", content)
-    gg.Add("Button", "x10 y440 w80 h28", "Close").OnEvent("Click", (*) => gg.Destroy())
-    gg.Show("w600 h480")
+    guide := MMA_ROOT "\docs\guide.html"
+    LOGD("gui.guide", "How to Use clicked")
+    if !FileExist(guide) {
+        LOGE("gui.guide", "the guide is missing — cannot show it", guide)
+        MsgBox("The guide is missing:`n`n" guide
+             . "`n`nIt ships in docs\. Re-run an update to restore it.",
+               "How to Use", 0x30)
+        return
+    }
+    try {
+        Run(guide)
+        LOG_Ok("gui.guide", "opened " guide " in the default browser")
+    } catch as e {
+        LOGW("gui.guide", "could not open the guide in a browser (" LOG_Err(e)
+                        . ") — revealing it in Explorer instead")
+        try Run('explorer.exe /select,"' guide '"')
+    }
 }
 
 MakeFuToggle(m, f) => (*) => ToggleFuCell(m, f)
@@ -1536,12 +1687,30 @@ WipeTemp(*) {
     global ACC_DIR
     path    := ACC_DIR "\TEMP.ahk"
     headers := "#Requires AutoHotkey v2.0`n#SingleInstance Force`n#Include " Chr(34) "../../src/core/utils.ahk" Chr(34) "`n"
-    f := FileOpen(path, "w", "UTF-8")
-    f.Write(headers)
-    f.Close()
+    LOGD("gui.wipetemp", "wiping " path " back to its headers")
+    ; TEMP.ahk is the scratch target for Add Hotkey, so this is a deliberate
+    ; destructive write — but it must still either work or say so. Unguarded, a
+    ; failed FileOpen threw before the restart below, leaving TEMP.ahk running the
+    ; OLD content while the button reported nothing at all.
+    try {
+        f := FileOpen(path, "w", "UTF-8")
+        if !f
+            throw Error("could not open the file for writing")
+        f.Write(headers)
+        f.Close()
+    } catch as e {
+        LOGE("gui.wipetemp", "could not wipe TEMP.ahk — it still holds its old"
+                           . " hotstrings", LOG_Err(e) "   " path)
+        MsgBox("Could not wipe TEMP.ahk:`n`n" e.Message, "Wipe Temp", 0x10)
+        return
+    }
     if WinExist(path " ahk_class AutoHotkey") {
-        pid := WinGetPID(path " ahk_class AutoHotkey")
-        ProcessClose pid
+        ; TOCTOU: the script can exit between WinExist and WinGetPID, and then
+        ; WinGetPID throws "Target window not found".
+        try {
+            pid := WinGetPID(path " ahk_class AutoHotkey")
+            ProcessClose pid
+        }
     }
     Run path
 }

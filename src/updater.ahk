@@ -34,9 +34,12 @@ FetchURL(url) {
     return xhr.ResponseText
 }
 
+LOGI("update", "fetching the file list from " apiUrl)
 try {
     treeJson := FetchURL(apiUrl)
-} catch {
+} catch as e {
+    LOGE("update", "could not fetch the file list from GitHub — nothing was"
+                 . " changed on disk", LOG_Err(e))
     g.Destroy()
     MsgBox "Could not fetch file list from GitHub.",, 0x10
     ExitApp
@@ -85,6 +88,12 @@ while RegExMatch(treeJson, '"path":"([^"]+)","mode":"[^"]+","type":"blob"', &m, 
         updatePaths.Push(path)
 }
 
+; An update REWRITES THE TREE THE USER IS RUNNING, so what it touched is worth
+; keeping a record of — a "MMA broke after I updated" report is answerable only if
+; something wrote down which files changed and which of them did not land.
+LOGI("update", "updating " updatePaths.Length " file(s); user files skipped:"
+             . " mass_gui.cfg, hotkeys.ini, masses.json, and all of content\\")
+
 failed := []
 for i, path in updatePaths {
     lblStatus.Text := "(" i "/" updatePaths.Length ")  " path
@@ -101,7 +110,9 @@ for i, path in updatePaths {
             f.Write(content)
             f.Close()
         }
-    } catch {
+        LOGV("update", "wrote " path)
+    } catch as e {
+        LOGW("update", "FAILED to download " path " — " LOG_Err(e))
         failed.Push(path)
     }
 }
@@ -109,11 +120,26 @@ for i, path in updatePaths {
 g.Destroy()
 
 if failed.Length {
+    ; A partial update is the worst state MMA can be in: some files are the new
+    ; release and some are the old one, and the symptoms are arbitrary. This has
+    ; to be findable afterwards, because by then the progress window is long gone.
+    ; Built inline, NOT with ArrJoin: that lives in main_window.ahk and this is a
+    ; separate entry point, so calling it would be a load-time "nonexistent
+    ; function" — in the updater, of all places, which is the one script that must
+    ; not be broken by a refactor.
+    flist := ""
+    for _, f in failed
+        flist .= (flist = "" ? "" : ", ") f
+    LOGE("update", failed.Length " of " updatePaths.Length " file(s) did not"
+                 . " download — THIS INSTALL IS NOW PART OLD AND PART NEW."
+                 . " Re-run the update.",
+                 "failed: " flist)
     msg := "Some files failed to download:`n"
     for _, f in failed
         msg .= "  " f "`n"
     MsgBox msg "`nPartial update — please retry.",, 0x10
 } else {
+    LOGI("update", "all " updatePaths.Length " file(s) updated — restarting MMA")
     Run MMA_SRC_GUI
 }
 ExitApp
