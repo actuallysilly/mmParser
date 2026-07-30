@@ -983,6 +983,33 @@ MatchModelName(name) {
     return 0
 }
 
+; A slot number that is safe to assign to a DropDownList holding `count` items.
+;
+; A DDL rejects any Value outside 1..count with "Invalid value.", and that throw is
+; UNCAUGHT: the window never opens, and from Discord the import looks like it did
+; nothing — the mass is on the clipboard, tagged, with nowhere to go. Reported from a
+; fresh install, on the import prompt, which is the one window whose whole job is to
+; handle a name MMA does not know yet. Crashing there takes out the only path a new
+; user has.
+;
+; Guarded rather than reasoned about, because every caller derives a slot from
+; something that can outlive the list it indexes: an alias saved in the cfg, the model
+; count in Settings, or _lastImportModel from before either was changed. Each of those
+; is bounded by modelCount *at the time it was written*, which is not the same number.
+SafeSlot(want, count, where) {
+    if (count < 1) {
+        LOGE("gui.slot", where ": the model list is EMPTY, so no slot can be selected"
+                       . " — check [Settings] ModelCount", "wanted slot " want)
+        return 0
+    }
+    if (want >= 1 && want <= count)
+        return want
+    LOGW("gui.slot", where ": slot " want " is outside the " count " model(s) on offer"
+                   . " — falling back to 1. (Left unguarded this threw 'Invalid value'"
+                   . " and killed the window.)")
+    return 1
+}
+
 RememberModelName(name, slot) {
     global CFG_FILE
     name := Trim(name)
@@ -1039,20 +1066,38 @@ PromptSaveTarget(detectedName := "") {
     modelItems := []
     Loop modelCount
         modelItems.Push(A_Index ": " ModelNameForSlot(A_Index))
+    ; A prompt with nothing to pick is not a prompt. modelCount comes from the cfg,
+    ; and a 0 there is read as a number, so it arrives here without a murmur.
+    if !modelItems.Length {
+        LOGE("gui.import", "modelCount is " modelCount ", so the import prompt had no"
+                         . " models to offer — showing model 1 so the mass can still"
+                         . " be routed", "[Settings] ModelCount in mass_gui.cfg")
+        modelItems.Push("1: " ModelNameForSlot(1))
+    }
 
     pg := Gui("+Owner" g.Hwnd, "Import — route to model")
     pg.SetFont("s9", "Segoe UI")
 
     pg.Add("Text", "x10 y14 w45", "Name:")
-    cbName := pg.Add("ComboBox", "x60 y11 w150", KnownModelNames())
+    cbName := pg.Add("ComboBox", "x60 y11 w190", KnownModelNames())
     cbName.Text := detectedName
 
     pg.Add("Text", "x10 y46 w45", "Model:")
-    ddlModel := pg.Add("DropDownList", "x60 y43 w150", modelItems)
+    ddlModel := pg.Add("DropDownList", "x60 y43 w190", modelItems)
     _pre := MatchModelName(detectedName)
-    ddlModel.Value := _pre ? _pre : (_lastImportModel ? _lastImportModel : 1)
+    _want := _pre ? _pre : (_lastImportModel ? _lastImportModel : 1)
+    ddlModel.Value := SafeSlot(_want, modelItems.Length, "import prompt")
+    ; The routing decision as the user is asked to confirm it. "It imported into the
+    ; wrong model" is answered here: whether the NAME matched, or whether this is just
+    ; the last model an import went to being offered again.
+    LOGI("gui.import", "import prompt for '" (detectedName = "" ? "(no name)" : detectedName)
+                     . "' — " (_pre ? "name matches model " _pre
+                                    : _lastImportModel ? "name unknown, offering last import's model "
+                                                       . _lastImportModel
+                                                       : "name unknown, offering model 1")
+                     . "   (" modelItems.Length " model(s) on offer)")
 
-    chkRemember := pg.Add("Checkbox", "x60 y72", "Remember this name for the model")
+    chkRemember := pg.Add("Checkbox", "x60 y72 w230", "Remember this name for the model")
 
     pg.Add("Text", "x10 y100 w45", "Mass #:")
     rd1 := pg.Add("Radio", "x60 y98 Group", "1")
@@ -1064,16 +1109,27 @@ PromptSaveTarget(detectedName := "") {
     pg.Add("Button", "x130 y130 w80 h26", "Cancel").OnEvent("Click", (*) => pg.Destroy())
 
     cbName.OnEvent("Change", NameChanged)   ; auto-pick the model when the name is known
-    pg.Show("w230 h172")
+    ; w230 clipped the "Remember this name for the model" checkbox mid-word — the one
+    ; control that tells you the prompt will not ask again. The widths above are fixed
+    ; rather than AutoSize on purpose (see the GUI geometry notes: AutoSize and
+    ; -DPIScale both undersize this window).
+    pg.Show("w310 h172")
 
     NameChanged(*) {
         s := MatchModelName(cbName.Text)
         if s
-            ddlModel.Value := s
+            ddlModel.Value := SafeSlot(s, modelItems.Length, "import prompt (name typed)")
     }
 
     DoSave(*) {
         slot := ddlModel.Value
+        ; 0 = nothing selected, which _mFiles[slot] turns into a throw at the moment
+        ; you click Save — i.e. after you have already answered the prompt.
+        if !slot {
+            LOGE("gui.import", "Parse + Save clicked with no model selected — nothing"
+                             . " saved. Pick a model in the dropdown.")
+            return
+        }
         if (chkRemember.Value && Trim(cbName.Text) != "")
             RememberModelName(cbName.Text, slot)
         _lastImportModel := slot
@@ -1288,6 +1344,13 @@ PromptUnmappedModel(detected) {
     items := []
     Loop modelCount
         items.Push(A_Index ": " ModelNameForSlot(A_Index))
+    ; Same guard as the import prompt: `Choose1` against an empty list is a window you
+    ; cannot answer, on the path that exists to teach MMA a name it does not know.
+    if !items.Length {
+        LOGE("gui.unmapped", "modelCount is " modelCount ", so there was nothing to map"
+                           . " '" detected "' to — offering model 1")
+        items.Push("1: " ModelNameForSlot(1))
+    }
 
     ; " +AlwaysOnTop" must be INSIDE the string. Written bare it is the unary +
     ; applied to a variable named AlwaysOnTop, which does not exist — an unset-
