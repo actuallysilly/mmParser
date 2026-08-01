@@ -1562,9 +1562,20 @@ TabDiffersFromSlot(modelNo, slot) {
         if !edCtrls.Has(ck)
             continue
         stored := rec.Has(field) ? rec[field] : ""
-        if (edCtrls[ck].Value != stored)
+        cur    := edCtrls[ck].Value
+        if (cur != stored) {
+            ; Which field, and both values. This decides whether you get a modal
+            ; asking to discard your work, so when it is WRONG — and it was: it
+            ; refused to leave a slot nobody had edited — the log has to name the
+            ; field rather than leave you bisecting forty of them by hand.
+            LOGI("gui.massno", "model " modelNo " differs from mass " slot
+                             . " at field '" field "': on screen '"
+                             . SubStr(cur, 1, 40) "' vs stored '"
+                             . SubStr(stored, 1, 40) "'")
             return true
+        }
     }
+    LOGV("gui.massno", "model " modelNo " matches mass " slot " — no unsaved changes")
     return false
 }
 
@@ -1595,9 +1606,20 @@ PickMassSlot(modelNo, slot, *) {
     }
     doc := MASS_Load()
     FillTabFromSlot(modelNo, slot, doc)
+
+    ; The radio is this model's mass, full stop: what you SEE, what a save writes,
+    ; and what the hotkeys SEND. The old "-- Set massNo --" grid wrote the live slot
+    ; the moment you clicked it, and dropping that half made the row look broken —
+    ; Aliw sat on mass 3 because that was its live slot, and clicking mass 1 changed
+    ; the boxes while every key went on sending 3. One control, one meaning.
+    MASS_SetMassNo(doc, modelNo, slot)
     empty := (Trim(MASS_Get(doc, modelNo, slot)["mass"]) = "")
-    LOGI("gui.massno", "model " modelNo " tab now showing mass " slot
-                     . (empty ? " — which is empty, so the boxes are blank" : ""))
+    if MASS_Save(doc)
+        NotifyMassesChanged()
+    LOGI("gui.massno", "model " modelNo " is now on mass " slot
+                     . " — shown in its tab, and what the keys send"
+                     . (empty ? ". That slot is EMPTY, so the mass keys will do"
+                              . " nothing for this model until you fill it in" : ""))
 }
 
 ; The mass slot picked on a model's tab, or 1 if that row is somehow unanswered.
