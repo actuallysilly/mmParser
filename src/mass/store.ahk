@@ -38,7 +38,43 @@
 ; ═══════════════════════════════════════════════════════════════════════════════
 
 global MASS_SCHEMA     := 1
-global MASS_MODELS     := 3      ; model slots (was 1_mass.ahk … 3_mass.ahk)
+
+; ── how many models the tree supports ─────────────────────────────────────────
+;  This was `:= 3`, and it was the ONE number that pinned MMA to three models —
+;  everything downstream already looped over it. It now follows the user's own
+;  [Settings] ModelCount, so adding a model is a setting rather than a release.
+;
+;  Two guards, and both matter:
+;
+;    • never below 3. Every existing library on disk has three model entries and
+;      three sets of numbered hotkeys ([mass.1]-[mass.3]) declared against them.
+;      Dropping below that would orphan both.
+;    • never above MASS_MODELS_MAX. Not arbitrary timidity: each model is a row in
+;      Settings, a tab in the panel and an entry in every masses.json, and a cfg
+;      typo of 400 should not produce a 400-tab window and a megabyte of blank
+;      records. The cap is where the GUI stops being usable, not where the data
+;      stops working.
+;
+;  MASS_MODELS is the CEILING — the slots that exist. [Settings] ModelCount is
+;  also what the GUI shows, so in practice they are the same number; the two stay
+;  distinct because the library must never be smaller than the file it is loading
+;  (see MASS_Normalise).
+global MASS_MODELS_MAX := 12
+global MASS_MODELS     := _MASS_SlotCount()
+
+_MASS_SlotCount() {
+    global MASS_MODELS_MAX
+    n := 3
+    try n := Integer(Trim(IniRead(MMA_CFG, "Settings", "ModelCount", 3)))
+    catch
+        n := 3
+    if (n < 3)
+        n := 3
+    if (n > MASS_MODELS_MAX)
+        n := MASS_MODELS_MAX
+    return n
+}
+
 global MASS_SLOTS      := 3      ; masses per model (was m1 / m2 / m3)
 global MASS_ALT_MAX    := 3      ; alt wordings per follow-up
 global MASS_BRANCH_MAX := 3      ; --Name branches per mass
@@ -231,7 +267,14 @@ MASS_Normalise(doc) {
         doc := Map()
     out := Map("schema", MASS_SCHEMA, "models", [])
     src := (doc.Has("models") && doc["models"] is Array) ? doc["models"] : []
-    Loop MASS_MODELS {
+    ; Max, not MASS_MODELS. Now that the slot count follows a SETTING, a plain
+    ; `Loop MASS_MODELS` would make "set Active models back to 3" a data-destroying
+    ; action: models 4-8 would be dropped on the next normalise and written out on
+    ; the next save, with no warning and no undo, taking every mass in them. Keeping
+    ; whatever the file already holds means lowering the count HIDES models rather
+    ; than deleting them, and raising it again brings the text back.
+    keep := Max(MASS_MODELS, src.Length)
+    Loop keep {
         mi  := A_Index
         sm  := (mi <= src.Length && src[mi] is Map) ? src[mi] : Map()
         sMs := (sm.Has("masses") && sm["masses"] is Array) ? sm["masses"] : []

@@ -94,13 +94,16 @@ OpenSettings(*) {
     tab.UseTab(1)
     y := CY
 
+    ; A dropdown, not three radios. The radios were the count's own ceiling — one
+    ; control per possible answer does not survive a twelfth model, and it was also
+    ; the shape that made `newCount := rdMC1.Value ? 1 : rdMC2.Value ? 2 : 3` the
+    ; only way to read it, which silently answers 3 when nothing is checked.
     sg.Add("Text", "x" CX " y" (y + 4) " w96", "Active models:")
-    rdMC1 := sg.Add("Radio", "x" (CX + 100) " y" (y + 2) " w36 Group", "1")
-    rdMC2 := sg.Add("Radio", "x" (CX + 140) " y" (y + 2) " w36",       "2")
-    rdMC3 := sg.Add("Radio", "x" (CX + 180) " y" (y + 2) " w36",       "3")
-    rdMC1.Value := modelCount = 1
-    rdMC2.Value := modelCount = 2
-    rdMC3.Value := modelCount = 3
+    _mcItems := []
+    Loop MASS_MODELS_MAX
+        _mcItems.Push(String(A_Index))
+    ddlMC := sg.Add("DropDownList", "x" (CX + 100) " y" y " w60", _mcItems)
+    ddlMC.Value := (modelCount >= 1 && modelCount <= MASS_MODELS_MAX) ? modelCount : 3
     sg.SetFont("s8")
     sg.Add("Text", "x" (CX + 232) " y" (y + 6) " w" (CW - 240) " cGray",
            "Changing this restarts MMA.")
@@ -126,19 +129,31 @@ OpenSettings(*) {
     _platItems := ["Infloww (detect)", "Manual (Fansly, …)"]
     edModel := []
     ddlPlat := []
-    _mNames := [model1Name, model2Name, model3Name]
-    Loop 3 {
-        _i := A_Index
-        sg.Add("Text", "x" CX " y" (y + 3) " w66 Right", "Model " _i ":")
-        _ed := sg.Add("Edit", "x" (CX + 76) " y" y " w150", _mNames[_i])
-        _dp := sg.Add("DropDownList", "x" (CX + 236) " y" y " w160", _platItems)
-        _dp.Value   := IsManualPlatform(_i) ? 2 : 1
-        _ed.Enabled := (_i <= modelCount)
-        _dp.Enabled := (_i <= modelCount)
+    ; One row per model the user actually has, rather than three fixed rows with
+    ; the unused ones greyed out. Past six they go into two columns: twelve rows at
+    ; 28px is 336px of a 720px window, and it would have pushed the detector
+    ; section — the part of this tab you come here to read — off the bottom.
+    _mcRows := modelCount
+    _mcCols := (_mcRows > 6) ? 2 : 1
+    _mcPer  := Ceil(_mcRows / _mcCols)
+    _mcColW := 420
+    _yTop   := y
+    Loop _mcRows {
+        _i   := A_Index
+        _col := (_i - 1) // _mcPer
+        _row := Mod(_i - 1, _mcPer)
+        _x   := CX + _col * _mcColW
+        _ry  := _yTop + _row * 28
+        sg.Add("Text", "x" _x " y" (_ry + 3) " w66 Right", "Model " _i ":")
+        _ed := sg.Add("Edit", "x" (_x + 76) " y" _ry " w150",
+                      _i <= modelNames.Length ? modelNames[_i] : "Model " _i)
+        _dp := sg.Add("DropDownList", "x" (_x + 236) " y" _ry " w160", _platItems)
+        _dp.Value := IsManualPlatform(_i) ? 2 : 1
         edModel.Push(_ed)
         ddlPlat.Push(_dp)
-        y += 28
     }
+    ; The tallest column decides where the rest of the tab starts.
+    y := _yTop + _mcPer * 28
     y += 6
 
     sg.Add("Text", "x" CX " y" (y + 3) " w66 Right", "Wait time:")
@@ -834,14 +849,22 @@ OpenSettings(*) {
         featChanged := featPanel.Changed()
         featPanel.Apply()
 
-        newCount   := rdMC1.Value ? 1 : rdMC2.Value ? 2 : 3
-        model1Name := edModel[1].Value
-        model2Name := edModel[2].Value
-        model3Name := edModel[3].Value
-        IniWrite(newCount,   CFG_FILE, "Settings", "ModelCount")
-        IniWrite(model1Name, CFG_FILE, "Settings", "Model1")
-        IniWrite(model2Name, CFG_FILE, "Settings", "Model2")
-        IniWrite(model3Name, CFG_FILE, "Settings", "Model3")
+        ; The dropdown's index IS the count — 1-based list of 1..MASS_MODELS_MAX.
+        ; A 0 (nothing selected) would write a count of 0 and leave the panel with
+        ; no tabs at all, so it falls back to what is already in force.
+        newCount := ddlMC.Value ? ddlMC.Value : modelCount
+        Loop edModel.Length {
+            _i := A_Index
+            IniWrite(edModel[_i].Value, CFG_FILE, "Settings", "Model" _i)
+            if (_i <= modelNames.Length)
+                modelNames[_i] := edModel[_i].Value
+        }
+        ; Kept in step for the code that still reads them by name (the archive, the
+        ; main panel's own globals). They are views onto modelNames now.
+        model1Name := modelNames.Length >= 1 ? modelNames[1] : ""
+        model2Name := modelNames.Length >= 2 ? modelNames[2] : ""
+        model3Name := modelNames.Length >= 3 ? modelNames[3] : ""
+        IniWrite(newCount, CFG_FILE, "Settings", "ModelCount")
         for _i, _dp in ddlPlat
             SetModelPlatform(_i, _dp.Value = 2 ? "manual" : "infloww")
 
@@ -984,10 +1007,12 @@ OpenSettings(*) {
     ; Puts the model rows back to stock. Only the CONTROLS — nothing is written
     ; until Save, so this is undone by closing the window.
     ResetModelFields(*) {
-        Loop 3
+        Loop edModel.Length
             edModel[A_Index].Value := "Model " A_Index
-        edWT.Value  := "350"
-        rdMC2.Value := true
+        edWT.Value := "350"
+        ; The COUNT is deliberately left alone. Resetting it to 2 while the panel
+        ; behind this window has eight tabs open would be a reset that hides six
+        ; models, from a button labelled "Reset model fields".
     }
 }
 

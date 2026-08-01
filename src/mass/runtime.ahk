@@ -28,6 +28,10 @@
 #Include "../core/coords.ahk"
 #Include "../core/utils.ahk"
 #Include "next_fu.ahk"
+; The "I pick" picker window. Included here rather than by engine.ahk because it
+; is _RunOnActiveModel below that opens it, and a file that calls into another
+; should be the file that pulls it in.
+#Include "model_picker.ahk"
 
 ; ── the mass library ──────────────────────────────────────────────────────────
 ;  Declared HERE, by the file that reads it, rather than by engine.ahk.
@@ -487,13 +491,16 @@ MassBindActive() {
     for slot, fn in MassSlotHandlers() {
         id := "mass.active." slot
         if HK_META.Has(id)
-            HK_Bind(id, _ActiveFire(fn))
+            HK_Bind(id, _ActiveFire(fn, slot))
     }
     _MassApplyMouseControl("mass.active")
 }
 
-_ActiveFire(fn) {
-    return (*) => _RunOnActiveModel(fn)
+; The SLOT is carried through as well as the handler, because "I pick" mode needs
+; to know which follow-up the key means before it runs anything — see
+; _RunOnActiveModel.
+_ActiveFire(fn, slot := "") {
+    return (*) => _RunOnActiveModel(fn, slot)
 }
 ; Every [mass.active] key comes through here, and "no answer" means the key does
 ; nothing at all. That is the correct choice — guessing sends one model's message
@@ -503,7 +510,25 @@ _ActiveFire(fn) {
 ; ActiveModelStatus already logged WHY it has no answer (detector off, window not
 ; in front, name unclaimed, tabs ambiguous). This adds the consequence, so the two
 ; lines sit together in the log and the chain is readable end to end.
-_RunOnActiveModel(fn) {
+_RunOnActiveModel(fn, slot := "") {
+    ; ── "I pick" mode: ask, don't assume ──────────────────────────────────────
+    ; Manual mode never reads the screen — ActiveModelStatus always answers "ok"
+    ; with whatever model you last selected, however long ago that was. For a
+    ; follow-up key that is the worst possible shape of confident: it sends, to a
+    ; model nothing on screen names. So in this mode the follow-up keys open the
+    ; picker and the send happens on your answer.
+    ;
+    ; Only the follow-ups (PickGroupForSlot). PPV, __mm and next-follow-up keep
+    ; the remembered model — a window in front of every shared key would be a
+    ; window in front of everything.
+    if (ModelMatchMode() = "manual") {
+        group := PickGroupForSlot(slot)
+        if group {
+            MassPickThenFu(group)
+            return
+        }
+    }
+
     st := ActiveModelStatus()
     if !st.no {
         LOG_Bail("mass.active", "a shared [mass.active] key was pressed but MMA does"

@@ -1,5 +1,107 @@
 ﻿# Changelog
 
+## 2.0.2 — 2026-08-01
+
+### N models, not three
+
+`MASS_MODELS := 3` in `mass/store.ahk` was the one number pinning MMA to three
+models — everything downstream already looped over it. It follows `[Settings]
+ModelCount` now, clamped to `MASS_MODELS_MAX` (12), so adding a model is a setting
+rather than a release. Measured: `1→3, 2→3, 5→5, 12→12, 40→12, "abc"→3, absent→3`.
+
+**Lowering the count cannot delete masses.** `MASS_Normalise` looped `MASS_MODELS`,
+which was correct while that was a constant. With it following a setting, going from
+8 models back to 3 would have dropped models 4-8 on the next normalise and written
+that out on the next save — silently, taking every mass in them. It keeps
+`Max(MASS_MODELS, whatever the file already holds)`, so lowering the count HIDES
+models and raising it brings the text back. Nothing else migrates: the library pads
+itself on load, so an existing three-model `masses.json` opens at any count.
+
+The cap is where the GUI stops being usable, not where the data stops working.
+
+Everything that assumed three:
+
+* `ModelNameForSlot` ended `: model3Name` — slot 4 did not fail, it answered with
+  **model 3's name**, on every label, dropdown, import prompt and log line. A wrong
+  answer that looks right, so the `model1Name/2Name/3Name` triplet is gone rather
+  than extended; out of range now says so.
+* the load/save buttons were one row at `modelCount = 3 ? 143 : 175`px, which has no
+  answer for a fourth model. They wrap three to a row, and everything below shifts
+  by the rows added.
+* Settings' three "Active models" radios became a dropdown. They were also the only
+  way to read the count, via `rdMC1.Value ? 1 : rdMC2.Value ? 2 : 3` — which
+  silently answers 3 when nothing is checked. Name/platform rows go two-column past
+  six models so the detector section does not fall off the bottom of the window.
+* the model tabs, the variants window, `VarRefresh`, and `MMA_ModelNames`.
+
+Models 4+ have no numbered `[mass.N]` hotkeys and no `^!N` select key — `[mass.1]`
+to `[mass.3]` already spend F1-F15. They are driven by the shared `[mass.active]`
+keys and the picker below, which is what makes N models practical at all.
+
+### New: pick the model, then send — "I pick" mode has a window now
+
+`ModelMatch=manual` reads nothing off the screen: the active model is whatever you
+last said it was, remembered in the cfg. For a follow-up key that is the worst shape
+of confident — it sends, to a model nothing on screen names, and you find out
+afterwards.
+
+In that mode the shared follow-up keys now ask, and the answer sends. With the stock
+`[mass.active]` bindings that is XButton2, XButton1 and Ctrl+middle-click. No new
+hotkeys and nothing to rebind: this changes what the keys you already have DO in one
+mode, which is why there is no `[mass.pick]` section. Name and position modes are
+untouched — they know the answer, so asking would be an insult.
+
+Pick by mouse, by Tab and Enter, or by pressing 1-9 (10 is not a hotkey; past nine
+it is the mouse or Tab, and the hint line stops promising a key that does not exist).
+The number keys are scoped to the picker window — the engine owns a lot of keys and
+a global "1" would be a catastrophe. Only follow-ups ask; PPV, `__mm` and
+next-follow-up keep the remembered model, because a window in front of every shared
+key is a window in front of everything.
+
+Two things it has to get right, both learned the hard way:
+
+* **the window must not open under the cursor.** Centred, the pointer lands inside a
+  model button — the window opens with a live Send under the mouse, and the first
+  end-to-end test sent a real follow-up into a real conversation off the release of
+  the button that opened it. The cursor sits on the header strip now, clear of the
+  grid at every model count.
+* **focus.** The follow-up is typed, so the window that was in front is saved on open
+  and re-activated, with a `WinWaitActive`, before a character is sent.
+
+The picker lays out four to a row rather than one row of N: twelve models in a row is
+a 1.8-metre window.
+
+### Masses per model, edited in place
+
+A tab is a MODEL now, and each tab carries its own `mass #` radio row under the last
+field. It replaces the `-- Set massNo --` grid in the right-hand panel, which was one
+row of radios per model — 408px of them at twelve, off the bottom of the panel and
+out of reach.
+
+Picking a slot **loads it in place**, so mass 2 of a model that only has a mass 1
+comes up blank instead of leaving mass 1's text sitting there looking like it belongs
+to mass 2. Saving writes the boxes into the picked slot and makes it that model's
+live slot — otherwise you save into mass 2 and go on sending mass 1, which is the
+"the hotkeys are broken" report `SetMassNo` already warns about.
+
+Every model tab is filled from its live slot at startup. With a tab per model,
+leaving them blank until you press "load" is a window that lies about your library —
+and it made the first slot switch of every session falsely claim unsaved changes,
+since empty boxes against a stored mass IS a difference.
+
+### Fixed
+
+- `LoadFile` and `ApplyFile` indexed by mass slot while the tabs became models, so
+  loading a model scattered its three masses across the first three MODELS' tabs and
+  a save would have written model 2's and 3's text into model 1's masses.
+- the all-fields-empty guard scanned every control in the window. With a tab per
+  model that calls a blank model "not empty" because another tab has text — defeating
+  the check that exists to stop a save blanking a model.
+- the import prompt's "Mass #" radios set `tabs.Value`, which is now the model. The
+  model comes from the dropdown and the mass # from the radios, as the labels say.
+- a fast-parse import filled the tab that was in front and saved the model it had
+  matched, which are not necessarily the same one.
+
 ## 2.0.1 — 2026-07-30
 
 ### New: themes, and a Settings → GUI tab to switch them

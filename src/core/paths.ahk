@@ -93,9 +93,19 @@ global MMA_SRC_GUI       := MMA_SRC "\ui\main_window.ahk"
 ; call ModelNoOf() on them to get a slot number and read the mass out of
 ; userdata\masses.json. The old MMA_ModelFile/MMA_ModelFiles pointed into
 ; content\models\, which is deleted, and are gone with it.
+; Reads the count from the cfg rather than taking MASS_MODELS: store.ahk includes
+; THIS file, so the constant does not exist yet when this is defined, and paths.ahk
+; must stand alone for the scripts that include nothing else. Same clamp as
+; _MASS_SlotCount, deliberately — two readers of one setting must agree, and the
+; failure if they drift is a model whose load/save button has no slot behind it.
 MMA_ModelNames() {
+    n := 3
+    try n := Integer(Trim(IniRead(MMA_CFG, "Settings", "ModelCount", 3)))
+    catch
+        n := 3
+    n := Max(3, Min(n, 12))       ; MASS_MODELS_MAX, which we cannot see from here
     out := []
-    loop 3
+    loop n
         out.Push(A_Index "_mass.ahk")
     return out
 }

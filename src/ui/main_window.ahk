@@ -193,8 +193,8 @@ VarRenameBranch(mNo, k, *) {
 ; Echo each "main" box into the Variants window and retitle every branch row, so
 ; the window reads correctly after a Load or a parse. Called by both.
 VarRefresh() {
-    global edCtrls, varBaseEcho, ALT_GROUPS, MASS_BRANCH_MAX
-    Loop 3 {
+    global edCtrls, varBaseEcho, ALT_GROUPS, MASS_BRANCH_MAX, modelCount
+    Loop modelCount {
         mNo := A_Index
         for _, grp in ALT_GROUPS {
             key := mNo "_" grp
@@ -260,9 +260,22 @@ CODE_CMD     := FileExist(_codePath) ? _codePath : "C:\Program Files\Microsoft V
 modelCount        := LOG_IniInt(CFG_FILE, "Settings", "ModelCount", 2)
 _utilsRaw         := FileExist(MMA_SRC_UTILS) ? FileRead(MMA_SRC_UTILS, "UTF-8") : ""
 waitTime          := RegExMatch(_utilsRaw, "\bwaitTime\b\s*:=\s*(\d+)", &_wm) ? Integer(_wm[1]) : 350
-model1Name        := IniRead(CFG_FILE, "Settings", "Model1",            "Model 1")
-model2Name        := IniRead(CFG_FILE, "Settings", "Model2",            "Model 2")
-model3Name        := IniRead(CFG_FILE, "Settings", "Model3",            "Model 3")
+; One entry per slot, read in a loop rather than three named globals.
+;
+; model1Name/model2Name/model3Name were the shape that capped MMA at three models
+; more thoroughly than any loop did: ModelNameForSlot ended `: model3Name`, so slot
+; 4 did not fail — it silently answered with model 3's NAME, on every label,
+; dropdown, import prompt and log line. A wrong answer that looks right is worse
+; than a crash, so the triplet is gone rather than extended.
+;
+; The three globals are still assigned below, because settings_window.ahk and the
+; archive read them by name; they are now views onto the array, not the storage.
+modelNames := []
+Loop MASS_MODELS
+    modelNames.Push(IniRead(CFG_FILE, "Settings", "Model" A_Index, "Model " A_Index))
+model1Name        := modelNames[1]
+model2Name        := modelNames[2]
+model3Name        := modelNames[3]
 defaultHotkeyFile := IniRead(CFG_FILE, "Settings", "DefaultHotkeyFile", "TEMP.ahk")
 mouseControl      := LOG_IniInt(CFG_FILE, "Settings", "MouseControl", 1)
 openTabFu2        := LOG_IniInt(CFG_FILE, "Settings", "OpenTabFu2", 0)
@@ -466,68 +479,86 @@ c.OnEvent("Click", OpenArchive)
 FeatCtrl(c, "archive")
 RegBtn(c, 338, 48)
 
-_mNames := [model1Name, model2Name, model3Name]
+_mNames := modelNames
 _mFiles := MMA_ModelNames()
-_mW     := modelCount = 3 ? 143 : 175
-_mGap   := modelCount = 3 ? 8   : 10
-xA := PX0, xOff := 0
-Loop modelCount {
-    i := A_Index
-    btn := g.Add("Button", "x" xA " y" (BY+70) " w" _mW " h28", "load " _mNames[i])
-    btn.OnEvent("Click", MakeLoader(_mFiles[i]))
-    RegBtn(btn, xOff, 70)
-    btnLoadM.Push(btn)
-    xA += _mW + _mGap, xOff += _mW + _mGap
-}
+; Three per row, wrapping. The row used to be one line of `modelCount` buttons at
+; a width chosen by `modelCount = 3 ? 143 : 175`, which is a layout that has no
+; answer for a fourth model: it would have run off the right edge of the column
+; and taken the panel's whole right-hand side with it. Wrapping keeps the button
+; width — and so the label "load Bellarama" — readable at any count.
+_mPerRow := Min(modelCount, 3)
+_mW      := _mPerRow = 3 ? 143 : 175
+_mGap    := _mPerRow = 3 ? 8   : 10
+_mRowH   := 32
+_mRows   := Ceil(modelCount / _mPerRow)
+; Everything below these two blocks shifts down by the rows we added. Computed
+; once and applied to both the y AND the RegBtn offset, because those two drifting
+; apart is what makes a control jump on the first resize.
+_mExtra  := (_mRows - 1) * _mRowH
 
-c := g.Add("Text", "x" PX0 " y" (BY+108), "-- Apply to file --")
-RegBtn(c, 0, 108)
-
-xA := PX0, xOff := 0
-Loop modelCount {
-    i := A_Index
-    btn := g.Add("Button", "x" xA " y" (BY+126) " w" _mW " h28", "save " _mNames[i])
-    btn.OnEvent("Click", MakeSaver(_mFiles[i]))
-    RegBtn(btn, xOff, 126)
-    btnSaveM.Push(btn)
-    xA += _mW + _mGap, xOff += _mW + _mGap
-}
-
-c := g.Add("Text", "x" PX0 " y" (BY+164), "-- Set massNo --")
-RegBtn(c, 0, 164)
-
-Loop modelCount {
-    i := A_Index
-    _rowY := BY + 182 + (i - 1) * 34
-    _file := _mFiles[i]
-    c := g.Add("Text", "x" PX0 " y" (_rowY + 4), "M" i ":")
-    RegBtn(c, 0, _rowY - BY)
-    _curMassNo := ReadMassNo(_file)
-    xA := PX0 + 30, xOff := 30
-    Loop 3 {
-        n := A_Index
-        opt := (n = 1 ? "Group " : "") "x" xA " y" _rowY " w40 h24"
-        c := g.Add("Radio", opt, n)
-        c.Value := (n = _curMassNo)
-        c.OnEvent("Click", SetMassNo.Bind(_file, n))
-        RegBtn(c, xOff, _rowY - BY)
-        xA += 44, xOff += 44
+_MassBtnRow(yBase, label, makeHandler, store) {
+    global g, modelCount, _mNames, _mFiles, _mW, _mGap, _mPerRow, _mRowH, PX0
+    Loop modelCount {
+        i    := A_Index
+        row  := (i - 1) // _mPerRow
+        col  := Mod(i - 1, _mPerRow)
+        xOff := col * (_mW + _mGap)
+        yOff := yBase + row * _mRowH
+        btn  := g.Add("Button", "x" (PX0 + xOff) " y" (BY + yOff) " w" _mW " h28",
+                      label " " _mNames[i])
+        btn.OnEvent("Click", makeHandler(_mFiles[i]))
+        RegBtn(btn, xOff, yOff)
+        store.Push(btn)
     }
 }
 
+_MassBtnRow(70, "load", MakeLoader, btnLoadM)
+
+c := g.Add("Text", "x" PX0 " y" (BY+108+_mExtra), "-- Apply to file --")
+RegBtn(c, 0, 108+_mExtra)
+
+; The mass slot a save writes into is the "mass #" radio row at the bottom of that
+; model's own tab — not a control here. See the note beside it.
+_MassBtnRow(126 + _mExtra, "save", MakeSaver, btnSaveM)
+
+; The "-- Set massNo --" grid stood here: one row of 1/2/3 radios per MODEL. It is
+; replaced by the single "Mass #" field above — see the note there for why a
+; per-model grid could not come along to N models. SetMassNo() itself survives and
+; is still what ApplyFile calls, so the live slot is still recorded per model; you
+; just set it by saving into it rather than by clicking a separate radio.
+c := g.Add("Text", "x" PX0 " y" (BY+164+_mExtra*2) " w300 c808080",
+           "Saving writes the mass # picked on that model's tab.")
+RegBtn(c, 0, 164+_mExtra*2)
+
 ; ── Left: tabs ─────────────────────────────────────────────────────────────────
 
+; One tab per model, generated. These were the literal ["Mass 1","Mass 2","Mass 3"]
+; — note they are MODEL tabs despite the label; the number is the model slot, not
+; the massNo (that is the radio row above). Labelled with the model's name where it
+; has one, because "Mass 4" tells you nothing once there are five of them.
+_tabLabels := []
+Loop modelCount
+    _tabLabels.Push(Trim(modelNames[A_Index]) != "" ? modelNames[A_Index] : "Mass " A_Index)
 tabs := g.Add("Tab3", "x" TAB_X " y" TAB_Y " w" INIT_TAB_W " h" (INIT_H - TAB_Y - 10 - TOGGLE_H),
-              ["Mass 1", "Mass 2", "Mass 3"])
+              _tabLabels)
 
 ; Follow-up toggles live in a left column, stacked per f-group (see the fu branch).
 ;   editFuChks[f] = [one mirror per mass]  — global "editable" toggle, kept in sync
 ;   fuChks[m][f]  = per-mass "single" toggle
 ; They sit at a fixed left x, so they need no repositioning on resize.
-editFuChks := [[], [], []]
+editFuChks := []
+Loop modelCount
+    editFuChks.Push([])
 fuChks     := []
+; massNoRadios[model] = [radio per mass slot]. One group per tab, built with the
+; fields below, read by ApplyFile and set by LoadFile.
+massNoRadios := []
+; The slot each model's tab is currently SHOWING. Not the same as the live slot on
+; disk: this tracks what is in the boxes, so switching the radio knows what it is
+; switching away from (and can put the radio back if you cancel).
+massNoCurrent := []
 
-Loop 3 {
+Loop modelCount {
     mNo := A_Index
     tabs.UseTab(mNo)
     fuChks.Push([])
@@ -565,8 +596,61 @@ Loop 3 {
         }
     }
 
+    ; ── which of this model's masses these boxes are ──────────────────────────
+    ;  Below the last field, inside the model's own tab, because that is the only
+    ;  place it can be unambiguous: the tab tells you the model, this row tells you
+    ;  the mass, and the boxes between them are what you are editing.
+    ;
+    ;  It replaces the old "-- Set massNo --" grid in the right-hand panel, which
+    ;  was one row of radios PER MODEL — 408px of them at twelve models, off the
+    ;  bottom of the panel and out of reach. One row per tab costs nothing per model.
+    ;
+    ;  Read at save time (ApplyFile), set at load time (LoadFile).
+    y += 10
+    g.Add("Text", "x" LABEL_X " y" y " w65 Right", "mass #:")
+    massNoRadios.Push([])
+    massNoCurrent.Push(1)
+    _rx := EDIT_X
+    Loop MASS_SLOTS {
+        _s   := A_Index
+        _opt := (_s = 1 ? "Group " : "") "x" _rx " y" (y - 2) " w46 h22"
+        _rb  := g.Add("Radio", _opt, String(_s))
+        _rb.Value := (_s = 1)          ; default 1; LoadFile corrects it per model
+        ; Picking a slot SHOWS that slot, so it can be edited in place. .Bind, not a
+        ; closure over mNo/_s — one function body means one of each, and every radio
+        ; in the window would have picked the last model's last slot.
+        _rb.OnEvent("Click", PickMassSlot.Bind(mNo, _s))
+        massNoRadios[mNo].Push(_rb)
+        _rx += 50
+    }
 }
 tabs.UseTab()
+
+; ── fill every model's tab from its live slot, now ────────────────────────────
+;  A tab per model means every model is on screen at once, so leaving them all
+;  blank until you press "load" is just a window that lies about your library.
+;
+;  It also fixes a prompt that would otherwise fire on the first click of every
+;  session: the unsaved-changes check compares the boxes against the slot they are
+;  showing, and empty boxes against a stored mass IS a difference. Loading up front
+;  makes the two agree, so the warning means what it says.
+;
+;  Guarded as a whole: a library that cannot be read must not stop the window from
+;  opening — without a window there is no way to fix anything.
+try {
+    _startDoc := MASS_Load()
+    Loop modelCount {
+        _mi := A_Index
+        _sl := MASS_MassNo(_startDoc, _mi)
+        if (_sl < 1 || _sl > MASS_SLOTS)
+            _sl := 1
+        FillTabFromSlot(_mi, _sl, _startDoc)
+    }
+    LOGI("gui.load", "opened with all " modelCount " model tab(s) filled from their"
+                   . " live mass slots")
+} catch as e
+    LOGE("gui.load", "could not pre-fill the model tabs — they will be blank until"
+                   . " you press load", LOG_Err(e))
 
 ; ── Script toggle section (below mass tabs) ────────────────────────────────────
 
@@ -704,9 +788,12 @@ VAR_ROW2_Y  := 420                      ; a follow-up cell is 312 tall
 gVar := Gui("+Resize +MinSize720x520", "Variants — alts and branches")
 gVar.BackColor := "15141C"
 gVar.SetFont("s9 cE6E4EE", "Segoe UI")
-varTabs := gVar.Add("Tab3", "x10 y10 w" (VAR_W-20) " h745", ["M1", "M2", "M3"])
+_varLabels := []
+Loop modelCount
+    _varLabels.Push("M" A_Index)
+varTabs := gVar.Add("Tab3", "x10 y10 w" (VAR_W-20) " h745", _varLabels)
 
-Loop 3 {
+Loop modelCount {
     mNo := A_Index
     varTabs.UseTab(mNo)
 
@@ -919,11 +1006,16 @@ AutoParseFromClipboard(wParam, lParam, msg, hwnd) {
     slot := detected != "" ? MatchModelName(detected) : 0
     ; Fast mode auto-saves only when we know the model: a matched name, or the model
     ; the last import was routed to. Otherwise ask — never silently dump into mass 1.
+    ; tabs.Value first, every time. ParseCurrent fills the tab that is IN FRONT and
+    ; ApplyFile saves the model it is given — the same number, or the import lands
+    ; in one model's boxes and is written to another's file.
     if (fastParseAutosave && slot) {
+        tabs.Value := slot
         ParseCurrent()
         ApplyFile(_mFiles[slot], true)
         _lastImportModel := slot
     } else if (fastParseAutosave && detected = "" && _lastImportModel) {
+        tabs.Value := _lastImportModel
         ParseCurrent()
         ApplyFile(_mFiles[_lastImportModel], true)
     } else {
@@ -963,9 +1055,19 @@ OnClipboardChange(WebImportFromClipboard)
 ; [ModelAliases] (name -> slot) so the import prompt can match a known name to its
 ; model automatically, or remember a new one.
 
+; The name of a model slot, for any slot the tree supports.
+;
+; The ternary this replaces (`slot = 1 ? … : slot = 2 ? … : model3Name`) answered
+; for slot 4, 5 and 40 with model 3's name — confidently and wrongly. Out of range
+; now says so instead of guessing.
 ModelNameForSlot(slot) {
-    global model1Name, model2Name, model3Name
-    return slot = 1 ? model1Name : slot = 2 ? model2Name : model3Name
+    global modelNames
+    if (slot < 1 || slot > modelNames.Length) {
+        LOGW("model.name", "slot " slot " is outside the " modelNames.Length
+                         . " model slot(s) that exist — no name for it")
+        return ""
+    }
+    return modelNames[slot]
 }
 
 ; Returns the slot (1..modelCount) a name maps to, or 0 if unknown.
@@ -1133,7 +1235,12 @@ PromptSaveTarget(detectedName := "") {
         if (chkRemember.Value && Trim(cbName.Text) != "")
             RememberModelName(cbName.Text, slot)
         _lastImportModel := slot
-        tabs.Value := rd1.Value ? 1 : rd2.Value ? 2 : 3
+        ; The prompt's two answers now go to two different places. `tabs.Value` is
+        ; the MODEL, because a tab is a model — this line used to put the "Mass #"
+        ; radio into it, which under the new tabs would have parsed the text into
+        ; model 2's boxes and then saved model 3.
+        tabs.Value := slot
+        SetMassNoRadio(slot, rd1.Value ? 1 : rd2.Value ? 2 : 3)
         ParseCurrent()
         ApplyFile(_mFiles[slot], true)
         pg.Destroy()
@@ -1209,20 +1316,22 @@ LoadFile(fname) {
     ; "m17_fu1" that match nothing, and for the few that did exist wrote one
     ; slot's value into another's box. Saving was always fine; this is why it
     ; would not come back. ApplyFile below captures it the same way.
-    Loop MASS_SLOTS {
-        slot := A_Index
-        rec  := MASS_Get(doc, modelNo, slot)
-        for field, val in rec {
-            ck := "m" slot "_" field
-            if edCtrls.Has(ck)
-                edCtrls[ck].Value := val
-        }
-    }
-    VarRefresh()
-    _nameMap := Map(1, model1Name, 2, model2Name, 3, model3Name)
-    lblLoaded.Text := (_nameMap.Has(modelNo) ? _nameMap[modelNo] : fname) " loaded"
-    LOGI("gui.load", "loaded model " modelNo " (" fname ") into the edit boxes —"
-                   . " live mass slot is " MASS_MassNo(doc, modelNo))
+    ; The control keys are "m<MODEL>_<field>" now, because a tab is a MODEL. They
+    ; were "m<SLOT>_<field>" when the tabs were the three masses and one model was
+    ; on screen at a time — and leaving this loop indexing by slot while the tabs
+    ; became models is precisely how the three-masses-per-model editing was lost:
+    ; loading a model wrote its masses 1-3 across the first three MODELS' tabs.
+    ;
+    ; Which mass comes in is the model's own live slot, and the Mass # field is set
+    ; to match, so the box always says what you are looking at.
+    slot := MASS_MassNo(doc, modelNo)
+    if (slot < 1 || slot > MASS_SLOTS)
+        slot := 1
+    FillTabFromSlot(modelNo, slot, doc)   ; also moves the radio and refreshes variants
+    try tabs.Value := modelNo             ; bring the model you loaded to the front
+    lblLoaded.Text := ModelNameForSlot(modelNo) " loaded (mass " slot ")"
+    LOGI("gui.load", "loaded model " modelNo " (" fname ") mass slot " slot
+                   . " into its tab")
 }
 
 ApplyFile(fname, silent := false) {
@@ -1230,9 +1339,14 @@ ApplyFile(fname, silent := false) {
     modelNo := ModelNoOf(fname)
     LOGD("gui.save", "Save fired for " fname " → model " modelNo
                    . (silent ? " (silent)" : ""))
+    ; Only THIS model's boxes. It used to scan every control in the window, which
+    ; was right when the window held one model; with a tab per model it would call
+    ; a blank model "not empty" because a different model's tab has text — and the
+    ; whole point of the check is to refuse a save that would blank this one.
+    _pfx := "m" modelNo "_"
     allEmpty := true
-    for _, c in edCtrls {
-        if Trim(c.Value) != "" {
+    for k, c in edCtrls {
+        if (SubStr(k, 1, StrLen(_pfx)) = _pfx && Trim(c.Value) != "") {
             allEmpty := false
             break
         }
@@ -1259,20 +1373,33 @@ ApplyFile(fname, silent := false) {
     ; Read-modify-write the WHOLE library, not just this model: the file holds all
     ; three, and the GUI only has this one on screen. Writing a document built from
     ; the edit boxes alone would blank the other two.
-    doc := MASS_Load()
-    Loop MASS_SLOTS {
-        slot := A_Index
-        rec  := MASS_Blank()
-        for field in MASS_Fields() {
-            ck := "m" slot "_" field
-            rec[field] := edCtrls.Has(ck) ? edCtrls[ck].Value : ""
-        }
-        MASS_Set(doc, modelNo, slot, rec)
+    ; ONE mass slot, chosen in the Mass # field, into THIS model.
+    ;
+    ; This wrote all MASS_SLOTS at once, reading "m1_/m2_/m3_" as the three masses —
+    ; correct while the tabs WERE the three masses. Now a tab is a model, so those
+    ; same keys mean three different models, and the old loop would have written
+    ; model 2's and model 3's text into model 1's masses 2 and 3.
+    slot := MassNoForModel(modelNo)
+    doc  := MASS_Load()
+    rec := MASS_Blank()
+    for field in MASS_Fields() {
+        ck := "m" modelNo "_" field
+        rec[field] := edCtrls.Has(ck) ? edCtrls[ck].Value : ""
     }
+    MASS_Set(doc, modelNo, slot, rec)
+    ; What you just saved is what the keys should send. Without this you would save
+    ; into mass 2 and go on sending mass 1, which is the "hotkeys are broken" report
+    ; that SetMassNo's own comment describes.
+    MASS_SetMassNo(doc, modelNo, slot)
+    ; The tab is now in step with the slot on disk, so a later switch away from it
+    ; must not claim there are unsaved changes.
+    if (modelNo >= 1 && modelNo <= massNoCurrent.Length)
+        massNoCurrent[modelNo] := slot
     if !MASS_Save(doc)
         return
     engineUp := NotifyMassesChanged()
-    LOGI("gui.save", "saved model " modelNo " (" MASS_SLOTS " slots)"
+    LOGI("gui.save", "saved model " modelNo " into mass slot " slot
+                   . " (now the live slot for this model)"
                    . (engineUp ? "" : "  — but THE ENGINE IS NOT RUNNING, so no"
                                     . " hotkey can send it"))
     if silent
@@ -1401,6 +1528,102 @@ PromptUnmappedModel(detected) {
 ; So it logs the switch AND whether the slot it just switched to has any text —
 ; the second half being the part that would otherwise take twenty minutes and a
 ; probe to discover.
+; Put one model's mass slot into that model's tab.
+;
+; The one place edit boxes are filled from the library. Every field of the record is
+; written, INCLUDING the empty ones — that is the whole point of loading a slot you
+; have not written yet: mass 2 of a model that only has a mass 1 must come up blank,
+; not leave mass 1's text sitting in the boxes looking like it belongs to mass 2.
+FillTabFromSlot(modelNo, slot, doc := 0) {
+    global edCtrls, massNoCurrent
+    if !doc
+        doc := MASS_Load()
+    rec := MASS_Get(doc, modelNo, slot)
+    for field in MASS_Fields()
+        if edCtrls.Has("m" modelNo "_" field)
+            edCtrls["m" modelNo "_" field].Value := rec.Has(field) ? rec[field] : ""
+    if (modelNo >= 1 && modelNo <= massNoCurrent.Length)
+        massNoCurrent[modelNo] := slot
+    SetMassNoRadio(modelNo, slot)
+    VarRefresh()
+}
+
+; Has this tab been edited away from what is stored in the slot it is showing?
+;
+; Asked before a slot switch throws the boxes away. Compares against the SLOT the
+; tab is showing, not the live one, so it is true only when there is genuinely
+; unsaved text — a switch that would cost you nothing must not put a dialog up.
+TabDiffersFromSlot(modelNo, slot) {
+    global edCtrls
+    doc := MASS_Load()
+    rec := MASS_Get(doc, modelNo, slot)
+    for field in MASS_Fields() {
+        ck := "m" modelNo "_" field
+        if !edCtrls.Has(ck)
+            continue
+        stored := rec.Has(field) ? rec[field] : ""
+        if (edCtrls[ck].Value != stored)
+            return true
+    }
+    return false
+}
+
+; Clicking a "mass #" radio.
+;
+; Loads that slot in place so it can be edited — which necessarily discards what is
+; in the boxes. Unsaved text is the one thing in this window that exists nowhere
+; else, so it asks first, and only when there is something to lose.
+PickMassSlot(modelNo, slot, *) {
+    global massNoCurrent, MASS_SLOTS
+    if (slot < 1 || slot > MASS_SLOTS)
+        return
+    prev := (modelNo >= 1 && modelNo <= massNoCurrent.Length) ? massNoCurrent[modelNo] : 1
+    if (slot = prev) {
+        FillTabFromSlot(modelNo, slot)      ; re-click = reload, a free undo
+        return
+    }
+    if TabDiffersFromSlot(modelNo, prev) {
+        if (MsgBox("Mass " prev " has unsaved changes.`n`nSwitch to mass " slot
+                 . " and lose them?", "Unsaved changes", 0x24) != "Yes") {
+            SetMassNoRadio(modelNo, prev)   ; put the radio back where it was
+            LOG_Bail("gui.massno", "switch from mass " prev " to " slot " on model "
+                                 . modelNo " cancelled — unsaved edits kept")
+            return
+        }
+        LOGW("gui.massno", "model " modelNo ": unsaved edits to mass " prev
+                         . " discarded, confirmed at the prompt")
+    }
+    doc := MASS_Load()
+    FillTabFromSlot(modelNo, slot, doc)
+    empty := (Trim(MASS_Get(doc, modelNo, slot)["mass"]) = "")
+    LOGI("gui.massno", "model " modelNo " tab now showing mass " slot
+                     . (empty ? " — which is empty, so the boxes are blank" : ""))
+}
+
+; The mass slot picked on a model's tab, or 1 if that row is somehow unanswered.
+;
+; A radio group with nothing selected is a real state — a `Group` run reads 0 for
+; every button until one is clicked — so this never assumes and never throws.
+MassNoForModel(modelNo) {
+    global massNoRadios, MASS_SLOTS
+    if (modelNo < 1 || modelNo > massNoRadios.Length)
+        return 1
+    for i, rb in massNoRadios[modelNo]
+        if rb.Value
+            return (i >= 1 && i <= MASS_SLOTS) ? i : 1
+    LOGW("gui.massno", "model " modelNo " has no mass # selected on its tab —"
+                     . " defaulting to 1")
+    return 1
+}
+
+SetMassNoRadio(modelNo, slot) {
+    global massNoRadios
+    if (modelNo < 1 || modelNo > massNoRadios.Length)
+        return
+    for i, rb in massNoRadios[modelNo]
+        rb.Value := (i = slot)
+}
+
 SetMassNo(fname, n, *) {
     doc := MASS_Load()
     modelNo := ModelNoOf(fname)
@@ -1421,12 +1644,17 @@ ReadMassNo(fname) {
 ; ─── Settings ─────────────────────────────────────────────────────────────────
 
 UpdateModelButtons() {
-    global modelCount, model1Name, model2Name, model3Name, btnLoadM, btnSaveM
-    _mNames := [model1Name, model2Name, model3Name]
-    Loop modelCount {
+    global modelCount, modelNames, btnLoadM, btnSaveM
+    ; Guarded on the arrays rather than modelCount: a rename applies live, but a
+    ; CHANGE of model count restarts MMA (Settings does that deliberately), so
+    ; between the write and the restart modelCount can be ahead of the buttons
+    ; that exist. Indexing past them would throw inside a settings save.
+    Loop Min(modelCount, Min(btnLoadM.Length, btnSaveM.Length)) {
         i := A_Index
-        btnLoadM[i].Text := "load " _mNames[i]
-        btnSaveM[i].Text := "save " _mNames[i]
+        if (i > modelNames.Length)
+            break
+        btnLoadM[i].Text := "load " modelNames[i]
+        btnSaveM[i].Text := "save " modelNames[i]
     }
 }
 
