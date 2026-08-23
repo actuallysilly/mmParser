@@ -63,10 +63,66 @@ global _HK_BOUND := Map()     ; id -> {fn, key}  (what THIS script actually regi
 ; "Send" = the model message keys (mass.* — follow-ups, PPV, branches); navigation
 ; and utility keys are exempt, so fast chat-hopping is never eaten. The window is
 ; tunable in hotkeys.ini [meta] DoubleFireWindowMs (0 disables all of it); see HK_Init.
+;
+; All three see only KEYS. The mouse equivalent — clicking the next conversation
+; while f1.7 is still going out — is guarded by screen\click_wall.ahk, off the
+; send hooks published below.
 global _HK_LAST := Map()        ; id -> last-fire tick (every hotkey)
 global _HK_LAST_SEND := 0       ; last-fire tick across all send hotkeys
 global _HK_SENDING := false     ; a send handler is currently running
 global HK_WINDOW_MS := 200
+
+; ── the send edges, for anything that is not a hotkey ─────────────────────────
+;  All three guards above only ever see HOTKEYS, because that is all _HK_Fire is
+;  given. A mouse click on the conversation list mid-send is the same fumble with
+;  the same cost — half a follow-up in one fan's chat and half in another's — and
+;  not one of them can see it coming.
+;
+;  So the two edges are published. Anything that needs to know a send is running
+;  installs a pair here and gets told:
+;
+;      HK_OnSend(CW_Arm, CW_Release)
+;
+;  A registry rather than a direct call, for the reason ALT_ON_PICK in utils.ahk
+;  is a callback: this file is included by EVERY process, and the thing that
+;  currently listens (screen\click_wall.ahk) is loaded by exactly one of them.
+;  Naming it here would be a load-time "nonexistent function" in the GUI, the
+;  account scripts and every background service.
+;
+;  Hooks are wrapped in try. A hook that throws must not take the send down with
+;  it — the message is the job, the hook is a courtesy — and `end` in particular
+;  runs from a `finally` that is already unwinding.
+global HK_SEND_HOOKS := []      ; [{begin, end}]
+
+HK_OnSend(begin, end) {
+    global HK_SEND_HOOKS
+    HK_SEND_HOOKS.Push({begin: begin, end: end})
+}
+
+HK_SendBegin() {
+    global HK_SEND_HOOKS
+    ; `hook` and `err` rather than the h and e this file uses elsewhere: both of
+    ; those are globals somewhere in the tree, and #Warn prints a line per shadow.
+    ; The existing ones are noise nobody can act on; there is no reason to add to
+    ; the pile in code being written today.
+    for hook in HK_SEND_HOOKS {
+        try
+            hook.begin.Call()
+        catch as err
+            LOGE("hk.sendhook", "a send-begin hook threw; the send continues",
+                                LOG_Err(err))
+    }
+}
+
+HK_SendEnd() {
+    global HK_SEND_HOOKS
+    for hook in HK_SEND_HOOKS {
+        try
+            hook.end.Call()
+        catch as err
+            LOGE("hk.sendhook", "a send-end hook threw", LOG_Err(err))
+    }
+}
 
 ; A sentinel no real key could equal, so "absent from the ini" is distinguishable
 ; from "present but blank" (= deliberately disabled).
@@ -97,7 +153,23 @@ HK_Def(id, label, when := "", owner := "") {
 }
 
 ; "mass.1.fu1" -> section "mass.1", key "fu1"  (split at the LAST dot)
+;
+; ─── EXCEPT FOR [hotstring], WHICH SPLITS AT THE FIRST ────────────────────────
+; Those ids end in a hotstring TRIGGER, and a trigger is text the user chose, not
+; an identifier this file made up: `..intro`, `..ppv4f2`, `..1stkiss`. A fifth of
+; the message library starts with two dots.
+;
+; Splitting those at the last dot gave section "hotstring...intro" minus its tail
+; — a section that does not exist — so the key was written in one place and read
+; from another and simply never fired. The first version of this "solved" that by
+; REFUSING to bind any trigger with a dot in it, which is a rule about MMA's id
+; format dressed up as a rule about your triggers, and it turned away 23 of them.
+;
+; [hotstring] has no sub-sections, so everything after the first dot is the key
+; and the ini reads exactly as the trigger is written: `..intro = ^!1`.
 HK_Split(id) {
+    if (SubStr(id, 1, 10) = "hotstring.")
+        return {section: "hotstring", key: SubStr(id, 11)}
     p := InStr(id, ".", , -1)
     return {section: SubStr(id, 1, p - 1), key: SubStr(id, p + 1)}
 }
@@ -242,6 +314,12 @@ HK_Def("mass.select.next", "Next model (cycle)",  , "engine.ahk")
 HK_Def("mass.select.m1",   "Active model = 1",    , "engine.ahk")
 HK_Def("mass.select.m2",   "Active model = 2",    , "engine.ahk")
 HK_Def("mass.select.m3",   "Active model = 3",    , "engine.ahk")
+; Lock mode. In "I pick" mode the shared keys ask WHICH MODEL on every press, which
+; is right when you do not know and wrong for the way a shift is actually worked —
+; one model's messages, all of them, then the next model's. This key answers once:
+; the shared keys send that model, the picker stops opening, and a badge sits on
+; screen naming it until you press this again. See core/active_model.ahk.
+HK_Def("mass.select.lock", "Lock / unlock the active model", , "engine.ahk")
 
 HK_Section("chat", "Chat")
 HK_Def("chat.captureEnter", "Send + remember last message", "chrome", "engine.ahk")
@@ -265,8 +343,31 @@ HK_Def("gui.addHotkeyGrab",  "Grab selection → Add Hotkey",  ,              "m
 HK_Def("gui.ocrGrab",        "Add hotstring with OCR",       ,              "main_window.ahk")
 HK_Def("gui.toggleDoubleMM", "Toggle double-MM",             "mouseControl", "main_window.ahk")
 HK_Def("gui.toggleStats",    "Toggle stats overlay",         ,              "stats_overlay.ahk")
+; Show/hide the reply-timer frames without stopping the service, so turning them
+; back on is instant. Owned by the overlay itself, like the stats one above.
+HK_Def("gui.toggleReplyBox", "Toggle reply timers",          "replyBox",    "reply_box.ahk")
+; Owned by the TRACKER, not by the main window: the chart is only reachable when
+; something has been recorded, and the tracker running is exactly that condition.
+HK_Def("gui.activity",       "Activity chart (typing stats)", ,            "tracker.ahk")
+HK_Def("gui.branchBuilder",  "Branch builder (draw a conversation)", ,     "main_window.ahk")
 HK_Def("gui.actions",        "Actions menu (what can I do?)", ,             "actions_menu.ahk")
 HK_Def("gui.quickActions",   "Quick actions (pinned buttons)", ,            "actions_menu.ahk")
+
+; --- Marks: vertical divider bars drawn on your own tab strip ------------------
+;  Decoration, and nothing but: a bar means whatever you decided it means when you
+;  put it there. MMA never moves one, never reads one, and never infers a model from
+;  one — see the header of screen/tab_marks.ahk for why that is stated so firmly.
+;
+;  ONE key, and that is the whole keyboard surface of the feature. A bar is an
+;  ordinary little window: LEFT-DRAG moves it, RIGHT-CLICK opens its menu — remove,
+;  colour, size, add another, hide the lot. Placing is the only verb that needs a
+;  key, because it is the only one with no bar to click on yet.
+;
+;  marks.star, marks.sep, marks.edit, marks.remove and marks.visible were all real
+;  bindings at some point and are all gone (v2.1). An old hotkeys.ini keeps their
+;  lines; nothing reads them and nothing breaks.
+HK_Section("marks", "Tab bars (dividers on the tab strip)")
+HK_Def("marks.bar", "Place a divider bar at the pointer", , "engine.ahk")
 
 HK_Section("recorder", "Recorder")
 HK_Def("recorder.toggle", "Start / stop recording", , "recorder.ahk")
@@ -280,6 +381,15 @@ HK_Section("automation", "Automation (automation.py)")
 HK_Def("automation.hopKebabs", "Hop cursor over model kebabs (test)", , "automation.py")
 HK_Def("automation.unsendLast", "Unsend last message (again = whole run)", , "automation.py")
 HK_Def("automation.countSales", "Total your sales in Notifications > Purchases", , "automation.py")
+
+; One key, python-bound, same arrangement as [automation] above: DECLARED here so
+; the Hotkeys GUI lists, edits and conflict-checks it, but no AHK HK_Bind touches
+; it. src/services/typelog/typelog.pyw reads it from hotkeys.ini and registers it
+; with pynput (converting ^!F9 → <ctrl>+<alt>+<f9>), so it only fires while the
+; recorder is running. Pause is the safeguard — press it before typing anything
+; you would not want the recorder to keep.
+HK_Section("typelog", "Typelog (typelog.pyw)")
+HK_Def("typelog.pause", "Pause / resume recording", , "typelog.pyw")
 
 HK_Section("general", "General")
 HK_Def("general.openFast",    "Open-fast pitch",     , "general.ahk")
@@ -379,6 +489,7 @@ _HK_Fire(id, fn) {
     if (isSend) {
         _HK_LAST_SEND := now
         _HK_SENDING := true
+        HK_SendBegin()
     }
     LOGI("hk.fire", id " → running" (isSend ? "  (send)" : ""))
     try
@@ -394,6 +505,12 @@ _HK_Fire(id, fn) {
         _HK_LAST[id] := A_TickCount
         if (isSend) {
             _HK_LAST_SEND := A_TickCount
+            ; The hooks run BEFORE the flag clears, so the whole guarded window —
+            ; including a click the wall plays back — is one unbroken "still
+            ; sending". Clearing first would open a several-millisecond gap in
+            ; which a real keypress could land between the last Enter and the
+            ; playback, which is the fumble, just narrower.
+            HK_SendEnd()
             _HK_SENDING := false
         }
         LOGV("hk.fire", id " finished in " (A_TickCount - now) "ms")
@@ -736,3 +853,151 @@ HK_Summary(what := "") {
 }
 
 HK_Init()
+
+; ══════════════════════════════════════════════════════════════════════════════
+;  [hotstring] — a key for a message you send too often to type
+; ──────────────────────────────────────────────────────────────────────────────
+;  Every declaration above this line is written in this file. These are not: they
+;  come from the ini, one line per bound hotstring, and the set changes while MMA
+;  is running.
+;
+;      [hotstring]
+;      _gns1 = ^!1
+;      Fu1   = !9
+;
+;  The ini KEY is the trigger you would otherwise type; the value is a key, in
+;  exactly the format every other section uses. They are bound in the message
+;  script that defines the trigger — see HotstringKeys_Register in core/utils.ahk.
+;
+;  ─── WHY THIS IS IN THE REGISTRY AT ALL ─────────────────────────────
+;  It would have been less code to bind these off to one side with a plain
+;  Hotkey() call and never tell hotkeys.ahk. Two things are worth the wiring: the
+;  Hotkeys tab lists them, so a key bound in the Hotstrings window is not
+;  invisible from the window that claims to show every key — and the conflict
+;  report covers them, which matters more. Binding ^!1 to a hotstring while
+;  [mass.select] m1 already owns it is exactly the quiet collision that report
+;  exists to catch, and the guide promises "silence means you're fine".
+;
+;  ─── DECLARED LAST, AND THAT IS LOAD-BEARING ────────────────────────
+;  The Actions menu fires an action by broadcasting its INDEX in HK_ORDER
+;  (ActionsDispatch), so every process must agree on what index N is. The static
+;  declarations guarantee that, because they are the same source read by every
+;  process. These are not static: a script started before you bound a hotstring
+;  has a shorter HK_ORDER than one started after it.
+;
+;  Appending them AFTER every static id is what keeps that safe. Indices
+;  1..static mean the same thing in every process however long it has been
+;  running, and a stale process handed an index in the dynamic tail finds it out
+;  of range and ignores it (ActionsDispatch bails on `idx > HK_ORDER.Length`).
+;  The Actions menu also skips these rows outright, so no action it DISPLAYS ever
+;  has an index that can shift.
+;
+;  Sorted, for the same reason: every process has to build the tail in the same
+;  order, and ini enumeration order is the file's line order — which changes the
+;  moment a line is rewritten.
+HK_Section("hotstring", "Hotstrings")
+
+; The bound triggers, sorted. Empty when nothing is bound.
+HK_HotstringTriggers() {
+    out := []
+    for line in StrSplit(IniRead(HK_INI, "hotstring", , ""), "`n", "`r") {
+        eq := InStr(line, "=")
+        if !eq
+            continue
+        trg := Trim(SubStr(line, 1, eq - 1))
+        if (trg = "")
+            continue
+        ; Dots are fine — these ids split at the FIRST one, see HK_Split.
+        ;
+        ; An `=` in a trigger is the one thing that cannot work, and it CANNOT BE
+        ; CAUGHT HERE, which is worth writing down because a guard on this line is
+        ; the obvious place to put one and it would be dead code. `=` is what
+        ; separates a key from its value, so IniWrite of the trigger `a=b` emits
+        ; `a=b=^!1`, which reads back as the trigger "a" with the value "b=^!1" —
+        ; mangled before anything downstream ever sees it, and indistinguishable
+        ; from someone having written a trigger called "a". The guard therefore
+        ; belongs at the two places that WRITE a binding: the Hotstrings window's
+        ; Hotkey button and the Add Hotstring dialog's Record button, both of
+        ; which refuse the trigger and say why. No trigger in the library has one.
+        out.Push(trg)
+    }
+    ; Insertion sort. The list is a handful of entries, and AHK v2 has no
+    ; Array.Sort to lean on.
+    Loop out.Length {
+        i := A_Index
+        v := out[i]
+        j := i - 1
+        while (j >= 1 && StrCompare(out[j], v) > 0) {
+            out[j + 1] := out[j]
+            j--
+        }
+        out[j + 1] := v
+    }
+    return out
+}
+
+HK_HotstringId(trigger) {
+    return "hotstring." Trim(trigger)
+}
+
+; ── who already owns this key? ────────────────────────────────────────────────
+;  Returns the id, or several separated by ", ", or "" when the key is free.
+;  `exceptId` is the binding being edited, which must not report itself.
+;
+;  Reads the INI, not HK_META, and that is the whole point. HK_META holds what
+;  the calling process happened to declare, and the processes differ — the GUI
+;  has never heard of an id declared only in a message script. A duplicate check
+;  that only knows about one process's ids goes quiet exactly when it matters,
+;  and the ini is the one place every key in MMA is written down.
+;
+;  Compared case-insensitively and after trimming, because "^!1" and " ^!1 " are
+;  the same key and the ini is hand-editable. NOT normalised beyond that: `^!1`
+;  and `!^1` are the same chord to Windows and different strings here, so this
+;  will miss that pair. Living with it is deliberate — the alternative is a
+;  modifier parser that has to agree with AHK's own in every corner, and the two
+;  UIs that write these both produce modifiers in a fixed order.
+HK_KeyOwner(key, exceptId := "") {
+    key := StrLower(Trim(key))
+    if (key = "")
+        return ""
+    hits := ""
+    for section in StrSplit(Trim(IniRead(HK_INI)), "`n", "`r") {
+        section := Trim(section)
+        ; [meta] is settings, not keys — DoubleFireWindowMs is not a hotkey and
+        ; must never be reported as one.
+        if (section = "" || section = "meta")
+            continue
+        for line in StrSplit(IniRead(HK_INI, section, , ""), "`n", "`r") {
+            eq := InStr(line, "=")
+            if !eq
+                continue
+            k := Trim(SubStr(line, 1, eq - 1))
+            v := StrLower(Trim(SubStr(line, eq + 1)))
+            if (v = "" || v != key)          ; blank = declared but disabled
+                continue
+            id := section "." k
+            if (id = exceptId)
+                continue
+            hits .= (hits = "" ? "" : ", ") id
+        }
+    }
+    return hits
+}
+
+; True for the ids declared below. Callers that must not treat these as ordinary
+; actions have one place to ask instead of matching the prefix themselves.
+HK_IsHotstringId(id) {
+    return SubStr(id, 1, 10) = "hotstring."
+}
+
+HK_DefHotstrings() {
+    n := 0
+    for trg in HK_HotstringTriggers() {
+        HK_Def(HK_HotstringId(trg), "Send hotstring  " trg, , "message script")
+        n++
+    }
+    if n
+        LOGV("hk.init", n " hotstring(s) have a key bound ([hotstring] in"
+                      . " hotkeys.ini)")
+}
+HK_DefHotstrings()

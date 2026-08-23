@@ -1,4 +1,14 @@
 #Requires AutoHotkey v2.0
+; THEME_ChooseColour logs when the system colour dialog refuses to open, so this
+; file now NAMES LOGW and LOG_Err and therefore includes the file that defines
+; them — the same rule settings_window.ahk states at its own top. It is not
+; bookkeeping: without it, parsing theme.ahk on its own stops on a #Warn dialog
+; that no /ErrorStdOut ever reaches, so the check HANGS rather than failing, and
+; the file quietly stops being one you can validate by itself.
+;
+; log.ahk includes paths.ahk, which includes log.ahk. That cycle already exists
+; and resolves, because AHK loads any given file once.
+#Include "log.ahk"
 ; ═══════════════════════════════════════════════════════════════════════════════
 ;  theme.ahk — what colour everything is, in one place.
 ; ───────────────────────────────────────────────────────────────────────────────
@@ -90,6 +100,23 @@ THEME_WindowBg() {
     return THEME_Set().win
 }
 
+; The one accent colour: the SELECTED model's label in the main window's tab strip.
+; It answers "which model am I typing into", so it deliberately is not the ink
+; everything else is drawn in — a tab strip's own highlight is a few pixels of
+; shading, and on the dark theme that is not enough to notice while working.
+;
+; One violet for both coloured themes, and a deeper one than the Variants window's
+; B89CFF, because of WHERE it lands: the tab shapes are drawn by the visual style
+; and stay light whatever the theme is (see THEME_ApplyTo on what the system
+; draws), so this has to read against a pale tab, not against the panel.
+;
+; "" on classic, where the system owns every colour: a hard-coded hue could land
+; unreadably on somebody's high-contrast scheme. The caller falls back to the
+; system's own text colour and marks the selection with bold alone.
+THEME_Accent() {
+    return THEME_Is("classic") ? "" : "6D28D9"
+}
+
 ; The colour part of a SetFont option string, to be appended to a window's font
 ; BEFORE its controls are added:
 ;
@@ -106,6 +133,25 @@ THEME_WindowBg() {
 THEME_FontOpt() {
     pal := THEME_Set()
     return (pal.text = "") ? "" : " c" pal.text
+}
+
+; ── bold button labels ────────────────────────────────────────────────────────
+;  Applied AFTER the controls exist, and only to buttons, which is what makes it
+;  safe: a button is drawn by the system and takes a font change without argument.
+;  The statics are the ones that must never be touched after creation — see the
+;  long note in THEME_ApplyTo — so this deliberately skips everything else.
+;
+;  Not part of THEME_ApplyTo, and not gated on the theme: that function returns
+;  early on classic (where the system owns the colours), and a classic window
+;  should still have readable buttons. Bold is about weight, not palette.
+;
+;  "Bold" alone keeps the size and the typeface each control already has, so a
+;  window whose buttons are s8 stays s8.
+THEME_BoldButtons(gui) {
+    for _hwnd, ctrl in gui {
+        if (ctrl.Type = "Button")
+            try ctrl.SetFont("Bold")
+    }
 }
 
 ; ── painting a window that already exists ─────────────────────────────────────
@@ -222,6 +268,60 @@ THEME_Picker() {
             selHead: "8A2B57",   ; deep rose — the label of the one going out
             selBody: "3A1F2B",   ; nearly black, the highest contrast in the window
             hint:    "9C7186"}
+}
+
+; ── picking a colour that is NOT part of a theme ──────────────────────────────
+;  The system colour dialog, for the places where the colour is the user's own
+;  choice rather than something the theme decides: a tab-strip divider, a reply
+;  timer tier. Worth the DllCall rather than a longer palette — "change the
+;  colour" means the colour you want, and a fixed list is only ever an
+;  approximation of it.
+;
+;  It lives HERE, in the file that owns every colour in MMA, because two callers
+;  in two processes need it: screen/tab_marks.ahk runs inside the mass engine and
+;  ui/settings_window.ahk inside the main window. Both reach theme.ahk already —
+;  the engine through mass/runtime.ahk → core/utils.ahk — so neither pays an
+;  include for it, and there is one dialog to fix rather than a copy per caller.
+;
+;  Returns "RRGGBB", or "" if the user cancelled.
+;
+;  COLORREF is BGR and hex colours are RGB, so both ends are byte-swapped — see
+;  THEME_SwapRB. The struct is laid out for x64: DWORD, pad, two pointers, DWORD,
+;  pad, pointer, DWORD, pad, then three more pointers. 72 bytes.
+THEME_ChooseColour(startHex, fallback := "FF6B7A") {
+    static custom := Buffer(64, 0)      ; the dialog's 16 custom slots, kept per run
+    cc := Buffer(72, 0)
+    NumPut("uint", 72, cc, 0)                                        ; lStructSize
+    NumPut("uint", THEME_SwapRB(THEME_HexVal(startHex, fallback)), cc, 24) ; rgbResult
+    NumPut("ptr",  custom.Ptr, cc, 32)                               ; lpCustColors
+    NumPut("uint", 0x03, cc, 40)        ; CC_RGBINIT | CC_FULLOPEN
+    ok := 0
+    try ok := DllCall("comdlg32\ChooseColorW", "ptr", cc, "int")
+    catch as e {
+        LOGW("theme", "the system colour dialog could not be opened — " LOG_Err(e))
+        return ""
+    }
+    if !ok
+        return ""
+    return Format("{:06X}", THEME_SwapRB(NumGet(cc, 24, "uint")))
+}
+
+; RGB ↔ BGR. The same swap both ways, which is why there is one function.
+THEME_SwapRB(v) {
+    return ((v & 0xFF) << 16) | (v & 0xFF00) | ((v >> 16) & 0xFF)
+}
+
+; "RRGGBB" → 0xRRGGBB, or the caller's fallback for anything that is not six hex
+; digits. Never 0: black is a real colour and would look like a deliberate choice
+; rather than like the parse having failed.
+THEME_HexVal(hex, fallback := "FF6B7A") {
+    h := Trim(hex)
+    if (SubStr(h, 1, 1) = "#")
+        h := SubStr(h, 2)
+    if !RegExMatch(h, "^[0-9A-Fa-f]{6}$")
+        h := fallback
+    try return Integer("0x" h)
+    return 0xFF6B7A
 }
 
 ; Name → what the radio button says. Kept here rather than in the Settings window

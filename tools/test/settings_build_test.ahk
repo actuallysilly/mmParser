@@ -21,7 +21,7 @@
 ; That is exactly how the MASS_DOC declaration bug presented.
 #Warn All, StdOut
 
-; A third argument previews a theme — `settings_build_test.ahk hold 6 dark`.
+; A third argument previews a theme — `settings_build_test.ahk hold 7 dark`.
 ;
 ; Through the environment, NOT by writing Theme into mass_gui.cfg: a tool that
 ; leaves your settings changed is a tool that has broken something, and this one
@@ -30,11 +30,15 @@
 if (A_Args.Length > 2)
     EnvSet("MMA_THEME", A_Args[3])
 
-#Include "../src/core/paths.ahk"
-#Include "../src/core/hotkeys.ahk"
-#Include "../src/core/active_model.ahk"
-#Include "../src/mass/archive.ahk"
-#Include "../src/core/processes.ahk"
+#Include "../../src/core/paths.ahk"
+#Include "../../src/core/hotkeys.ahk"
+#Include "../../src/core/active_model.ahk"
+#Include "../../src/mass/archive.ahk"
+#Include "../../src/core/processes.ahk"
+; The GUI tab's "Corner picture" section lists what is in assets\ and its Save
+; applies the choice live. Included for real rather than stubbed: CREDIT_AssetList
+; runs while the window BUILDS, which is the thing under test.
+#Include "../../src/ui/credit.ahk"
 
 ; `try`, because "*" is stdout and there ISN'T one when this is launched without a
 ; redirect — FileAppend then throws "the handle is invalid", which kills the run at
@@ -68,6 +72,13 @@ global SCRIPT_DIR   := MMA_ROOT
 global ACC_DIR      := MMA_ACC_DIR
 global CFG_FILE     := MMA_CFG
 global modelCount   := Integer(IniRead(CFG_FILE, "Settings", "ModelCount", "2"))
+; Tab 1 builds one row per model out of this array; model1Name..3 are views onto
+; it in the real window. Without it the build died on line one of that loop, which
+; is a missing stub and not a layout bug — but it stopped the test before it had
+; checked anything at all.
+global modelNames := []
+Loop MASS_MODELS
+    modelNames.Push(IniRead(CFG_FILE, "Settings", "Model" A_Index, "Model " A_Index))
 global model1Name   := IniRead(CFG_FILE, "Settings", "Model1", "Model 1")
 global model2Name   := IniRead(CFG_FILE, "Settings", "Model2", "Model 2")
 global model3Name   := IniRead(CFG_FILE, "Settings", "Model3", "Model 3")
@@ -78,19 +89,28 @@ global openTabFu2 := 0, openTabFu3 := 1, openTabPpv := 0
 global walletCheckFu3 := 0, fastParseAutosave := 1, promptAltCtrl := 1
 global autoRestart := 1, _doubleMM := false
 global startupScripts := []
-global hiddenScripts  := Map()
+; The Scripts tab's "Open with Code" button reads this; main_window.ahk resolves
+; the real path.
+global CODE_CMD := "C:\Program Files\Microsoft VS Code\Code.exe"
 ; archive.ahk reaches for these three when it loads a mass back into the editor.
 ; Never called here — declared only so #Warn does not stop the run with a modal
 ; "appears to never be assigned a value" dialog, which produces no output at all.
 global edPaste := 0, tabs := 0, edCtrls := Map()
 
+; Off modelNames, not off the model1/2/3 triplet — that triplet was the shape that
+; capped MMA at three models, and here it made the test throw "Invalid index" on
+; any config with four, which reads as the window being broken and is not.
 ModelNameForSlot(slot) {
-    global model1Name, model2Name, model3Name
-    return [model1Name, model2Name, model3Name][slot]
+    global modelNames
+    return (slot >= 1 && slot <= modelNames.Length) ? modelNames[slot] : "Model " slot
 }
 _EncodeMultiline(s) => StrReplace(StrReplace(s, "`r`n", "`n"), "`n", "``n")
 _DecodeMultiline(s) => StrReplace(s, "``n", "`n")
 UpdateModelButtons() {
+}
+; Save re-runs the main window's layout after changing the corner picture. Real one
+; lives in main_window.ahk, and this test does not save.
+RelayoutNow() {
 }
 ; Save calls this when the theme changes. Real one lives in main_window.ahk, since
 ; it repaints that window; theme.ahk itself is included for real, so the COLOURS
@@ -98,6 +118,9 @@ UpdateModelButtons() {
 ApplyWindowTheme() {
 }
 WipeTemp(*) {
+}
+; The Scripts tab's "How to Use" button. Real one lives in main_window.ahk.
+OpenGuide(*) {
 }
 CheckUpdate(silent := false, *) {
 }
@@ -109,7 +132,7 @@ ToggleDoubleMM() {
 ; The owner window OpenSettings hangs itself off. Never shown.
 global g := Gui("+Resize", "stub main")
 
-#Include "../src/ui/settings_window.ahk"
+#Include "../../src/ui/settings_window.ahk"
 
 ; ── build it ──────────────────────────────────────────────────────────────────
 OpenSettings()
@@ -153,22 +176,25 @@ Ck("one tab control", Cnt("SysTabControl"), 1)
 ; Two lists: the hotkey editor's, and the Debug tab's self-test results.
 Ck("both list views",  Cnt("SysListView"),  2)
 
-; TCM_GETITEMCOUNT. Seven tabs is the contract this window is built around; six
+; TCM_GETITEMCOUNT. Eight tabs is the contract this window is built around; seven
 ; means a UseTab call went missing and a whole page's controls landed on its
 ; neighbour, which looks like a layout bug and is not one.
 ;
-; Was six until the GUI tab went in between Hotkeys and Debug — and inserting
-; rather than appending renumbered Debug from 6 to 7, which is exactly the kind of
-; edit this assertion exists to catch.
-Ck("seven tabs", SendMessage(0x1304, 0, 0, "SysTabControl321", "ahk_id " hwnd), 7)
+; It has been renumbered twice now, both times by INSERTION rather than appending:
+; the GUI tab went in between Hotkeys and Debug (Debug 6 -> 7), and General went in
+; ahead of Models, which shifted every tab in the window by one. That is exactly
+; the kind of edit this assertion exists to catch.
+Ck("eight tabs", SendMessage(0x1304, 0, 0, "SysTabControl321", "ahk_id " hwnd), 8)
 
 ; Three model names, the wait time, the four NextFu region fields, OCR scale,
 ; needle length, needle minimum, the default-FU3 box and the hotkey search box —
 ; plus the GUI tab's picker width and lift.
 Ck("every edit field present", Cnt("Edit") >= 15, 1)
 
-; 3 platform + "I pick" + the default hotkey file, then one per model for tab order.
-Ck("every dropdown present", Cnt("ComboBox") >= 5 + modelCount, 1)
+; The model count and the default hotkey file, then THREE per model: its platform,
+; its place in the Infloww tab order, and its place in the Fansly rail order. The
+; "I pick — active model" dropdown is gone; the picker window owns that answer now.
+Ck("every dropdown present", Cnt("ComboBox") >= 2 + modelCount * 3, 1)
 
 ; The feature registry's checkboxes are generated, so this catches a section that
 ; silently produced nothing as well as a panel that was never built. Radios and
@@ -208,7 +234,7 @@ Ck("one theme radio lit on open", _ThemeLit(), 1)
 ; hidden auto-radio does not do the sibling-unchecking a visible one does — so
 ; clicking one on a hidden page reports two lit whether the grouping is right or
 ; not, which is a test that fails on correct code.
-try SW_TAB.Value := 6
+try SW_TAB.Value := 7
 try {
     ; Control AND WinTitle. SendMessage's 4th parameter is the control, and giving
     ; it without a window leaves the target ambiguous — the same sharp edge as

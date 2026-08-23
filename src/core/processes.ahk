@@ -87,6 +87,8 @@ KillAllScripts() {
     try SetTimer(WatchdogTick, 0)        ; stop watchdog first so it can't relaunch anything
     StopAutomationListener()             ; not an AHK window, so the loop below misses it
     StopPinger()                         ; likewise
+    StopTypelog()                        ; likewise
+    StopAutoword()                       ; likewise
     myPID := ProcessExist()
     DetectHiddenWindows true
     closed := 0
@@ -354,6 +356,120 @@ StopPinger() {
     DllCall("CloseHandle", "Ptr", h)
 }
 
+; ─── Typelog ──────────────────────────────────────────────────────────────────
+; Records the text you type in Infloww into userdata\typelog\, to mine for
+; hotstrings. Same shape as the pinger above: a python process with no console
+; and no AHK window, so the named event is both the "is it up?" probe and the only
+; way to close it. OFF by default (it records WHAT you type — see its FEAT_Def).
+_TypelogOpenEvent() {
+    static EVENT_MODIFY_STATE := 0x0002
+    static EVENT_NAME := "Global\MMA.typelog.stop"
+    return DllCall("OpenEventW", "UInt", EVENT_MODIFY_STATE, "Int", false,
+                   "Str", EVENT_NAME, "Ptr")
+}
+
+TypelogRunning() {
+    h := _TypelogOpenEvent()
+    if !h
+        return false
+    DllCall("CloseHandle", "Ptr", h)
+    return true
+}
+
+LaunchTypelog(announce := false) {
+    global SCRIPT_DIR
+    if TypelogRunning() {
+        LOGV("proc.typelog", "already running (its named event exists)")
+        return
+    }
+    if !FEAT("typelog") {
+        LOG_Bail("proc.typelog", "feature 'typelog' is off — recorder not started")
+        return
+    }
+    if !PythonAvailable() {
+        LOG_Bail("proc.typelog", "no Python — typelog not started")
+        if announce
+            MsgBox "The typelog recorder needs Python, which isn't installed.`n`n"
+                 . "Run install.bat to set it up.", "No Python found", 0x40
+        return
+    }
+    vbs := MMA_SRC "\services\typelog\typelog_start.vbs"
+    if !FileExist(vbs) {
+        LOGE("proc.typelog", "the launcher script is missing — typelog cannot start", vbs)
+        return
+    }
+    LOGI("proc.typelog", "starting the typelog recorder via " vbs)
+    LOG_Try("proc.typelog", "run typelog_start.vbs",
+            () => Run('wscript.exe "' vbs '"', SCRIPT_DIR, "Hide"))
+}
+
+StopTypelog() {
+    h := _TypelogOpenEvent()
+    if !h
+        return
+    LOGI("proc.typelog", "asking typelog to exit (setting its stop event)")
+    DllCall("SetEvent", "Ptr", h)
+    DllCall("CloseHandle", "Ptr", h)
+}
+
+; ─── Autoword ─────────────────────────────────────────────────────────────────
+; Suggests the next word as you type, from a model trained on the typelog corpus.
+; Same shape as typelog above — a python process with no console and no AHK
+; window, so the named event is both the "is it up?" probe and the only way to
+; close it. OFF by default: it can type into the message box (Tab accepts), and
+; it ships in Render=off so switching the feature on still draws nothing until
+; userdata\autoword.ini says otherwise. See src/services/autoword/README.md.
+_AutowordOpenEvent() {
+    static EVENT_MODIFY_STATE := 0x0002
+    static EVENT_NAME := "Global\MMA.autoword.stop"
+    return DllCall("OpenEventW", "UInt", EVENT_MODIFY_STATE, "Int", false,
+                   "Str", EVENT_NAME, "Ptr")
+}
+
+AutowordRunning() {
+    h := _AutowordOpenEvent()
+    if !h
+        return false
+    DllCall("CloseHandle", "Ptr", h)
+    return true
+}
+
+LaunchAutoword(announce := false) {
+    global SCRIPT_DIR
+    if AutowordRunning() {
+        LOGV("proc.autoword", "already running (its named event exists)")
+        return
+    }
+    if !FEAT("autoword") {
+        LOG_Bail("proc.autoword", "feature 'autoword' is off — suggester not started")
+        return
+    }
+    if !PythonAvailable() {
+        LOG_Bail("proc.autoword", "no Python — autoword not started")
+        if announce
+            MsgBox "Autoword needs Python, which isn't installed.`n`n"
+                 . "Run install.bat to set it up.", "No Python found", 0x40
+        return
+    }
+    vbs := MMA_SRC "\services\autoword\autoword_start.vbs"
+    if !FileExist(vbs) {
+        LOGE("proc.autoword", "the launcher script is missing — autoword cannot start", vbs)
+        return
+    }
+    LOGI("proc.autoword", "starting the autoword suggester via " vbs)
+    LOG_Try("proc.autoword", "run autoword_start.vbs",
+            () => Run('wscript.exe "' vbs '"', SCRIPT_DIR, "Hide"))
+}
+
+StopAutoword() {
+    h := _AutowordOpenEvent()
+    if !h
+        return
+    LOGI("proc.autoword", "asking autoword to exit (setting its stop event)")
+    DllCall("SetEvent", "Ptr", h)
+    DllCall("CloseHandle", "Ptr", h)
+}
+
 ; ─── Model detector ───────────────────────────────────────────────────────────
 ; An AHK script (not python), so its hidden main window — titled with its full
 ; path, class AutoHotkey — is both the "is it up?" probe and the kill target.
@@ -507,6 +623,50 @@ StopDetector() {
     try IniWrite("", MMA_DETECTOR, "detector", "active_model")
 }
 
+; ─── Fansly rail detector ─────────────────────────────────────────────────────
+; A SECOND detector, running alongside the Infloww one rather than instead of it.
+; They cannot collide: each refuses to scan unless its own window is in front, and
+; each writes its own status file (see the note beside MMA_FANSLY in paths.ahk).
+; So on a mixed setup both can be on, and whichever platform you are looking at is
+; the one that answers.
+_FanslyTitle() {
+    return MMA_SRC "\screen\fansly_detector.ahk ahk_class AutoHotkey"
+}
+FanslyDetectorRunning() {
+    return WinExist(_FanslyTitle()) != 0
+}
+LaunchFanslyDetector() {
+    if !FEAT("fanslyDetector") {
+        LOG_Bail("proc.fansly", "feature 'fanslyDetector' is off — the"
+                              . " [mass.active] shared keys have nothing to follow"
+                              . " while you are in Fansly")
+        return
+    }
+    path := MMA_SRC "\screen\fansly_detector.ahk"
+    if !FileExist(path) {
+        LOGE("proc.fansly", "fansly_detector.ahk is missing", path)
+        return
+    }
+    if FanslyDetectorRunning() {
+        LOGV("proc.fansly", "already running")
+        return
+    }
+    LOGI("proc.fansly", "starting the Fansly rail detector")
+    LOG_Try("proc.fansly", "Run fansly_detector.ahk", () => Run(path))
+}
+StopFanslyDetector() {
+    if WinExist(_FanslyTitle()) {
+        LOGI("proc.fansly", "stopping the Fansly rail detector")
+        try ProcessClose(WinGetPID(_FanslyTitle()))
+    }
+    ; Clear the name so nothing downstream matches against a reading nobody is
+    ; updating. The row index goes with it: a stale active_index is worse than a
+    ; stale name, because positional mode believes it without needing OCR.
+    LOGI("proc.fansly", "clearing fansly_status.ini — Fansly gating is now off")
+    try IniWrite("", MMA_FANSLY, "fansly", "active_model")
+    try IniWrite(0,  MMA_FANSLY, "fansly", "active_index")
+}
+
 ; ─── Stats overlay ────────────────────────────────────────────────────────────
 ; Resident AHK script that owns the gui.toggleStats hotkey and the OCR overlay.
 _StatsTitle() {
@@ -542,29 +702,111 @@ StopStatsOverlay() {
     }
 }
 
-TogglePinger(*) {
-    global pinger, CFG_FILE
-    if PingerRunning() {
-        StopPinger()
-        pinger := 0
-        IniWrite(pinger, CFG_FILE, "Settings", "Pinger")
-    } else {
-        ; Write the key BEFORE launching. LaunchPinger gates on FEAT("pinger"),
-        ; which reads this very key — launching first meant it always bailed on
-        ; the old value and the first click did nothing.
-        pinger := 1
-        IniWrite(pinger, CFG_FILE, "Settings", "Pinger")
-        ; announce: this is a deliberate click, so say something if Python is absent
-        LaunchPinger(true)
+; ─── Reply timers ─────────────────────────────────────────────────────────────
+; Resident AHK script that boxes conversation rows by how long they have waited.
+; Same shape as the stats overlay above: an AHK process, found by its own script
+; path, holding the gui.toggleReplyBox key.
+_ReplyBoxTitle() {
+    global SCRIPT_DIR
+    return MMA_SRC "\screen\reply_box.ahk ahk_class AutoHotkey"
+}
+ReplyBoxRunning() {
+    return WinExist(_ReplyBoxTitle()) != 0
+}
+LaunchReplyBox() {
+    if !FEAT("replyBox") {
+        LOG_Bail("proc.replybox", "feature 'replyBox' is off — no boxes and no"
+                                . " toggle key")
+        return
     }
-    ; the python side takes a moment to claim or release the event
-    SetTimer(RefreshPingerLabel, -600)
+    global SCRIPT_DIR
+    path := MMA_SRC "\screen\reply_box.ahk"
+    if !FileExist(path) {
+        LOGE("proc.replybox", "reply_box.ahk is missing", path)
+        return
+    }
+    if ReplyBoxRunning() {
+        LOGV("proc.replybox", "already running")
+        return
+    }
+    LOGI("proc.replybox", "starting the reply timers")
+    LOG_Try("proc.replybox", "Run reply_box.ahk", () => Run(path))
+}
+StopReplyBox() {
+    if WinExist(_ReplyBoxTitle()) {
+        LOGI("proc.replybox", "stopping the reply timers")
+        try ProcessClose(WinGetPID(_ReplyBoxTitle()))
+    }
 }
 
-RefreshPingerLabel() {
-    global btnPinger
-    if IsSet(btnPinger) && btnPinger
-        try btnPinger.Text := PingerRunning() ? "Pinger: ON" : "Pinger: OFF"
+; ─── Activity tracker ─────────────────────────────────────────────────────────
+; Resident AHK script that counts keystrokes, clicks and active seconds into
+; userdata\activity\, and owns the gui.activity key that opens the chart.
+;
+; Stopping it is a real stop, not a pause: the minute in progress is flushed by
+; its OnExit and nothing is recorded until it is back. That is why it is in the
+; watchdog like the rest — a tracker that quietly died at 11am makes the
+; afternoon look like a day off.
+_ActivityTitle() {
+    return MMA_SRC "\activity\tracker.ahk ahk_class AutoHotkey"
+}
+ActivityTrackerRunning() {
+    return WinExist(_ActivityTitle()) != 0
+}
+LaunchActivityTracker() {
+    if !FEAT("activity") {
+        LOG_Bail("proc.activity", "feature 'activity' is off — nothing is being"
+                                . " recorded and the chart key is dead")
+        return
+    }
+    path := MMA_SRC "\activity\tracker.ahk"
+    if !FileExist(path) {
+        LOGE("proc.activity", "tracker.ahk is missing — no activity is being"
+                            . " recorded", path)
+        return
+    }
+    if ActivityTrackerRunning() {
+        LOGV("proc.activity", "already running")
+        return
+    }
+    LOGI("proc.activity", "starting the activity tracker")
+    LOG_Try("proc.activity", "Run tracker.ahk", () => Run(path))
+}
+StopActivityTracker() {
+    if WinExist(_ActivityTitle()) {
+        LOGI("proc.activity", "stopping the activity tracker — nothing will be"
+                            . " recorded until it is started again")
+        try ProcessClose(WinGetPID(_ActivityTitle()))
+    }
+}
+
+; The main window's Tools button, which is a running indicator as well as a door:
+; "Tools (2)" means two of the seven background tools are up right now.
+;
+; TogglePinger used to live here — the Pinger button's click handler, writing the
+; cfg key before launching because LaunchPinger gates on FEAT("pinger") and reads
+; that very key. That rule did not go away; it moved to TOOLS_Set in
+; ui/tools_window.ahk, which now applies it to all of them instead of one.
+;
+; The list below mirrors TOOLS_List() over there, deliberately duplicated rather
+; than shared: processes.ahk is core and must load without the UI files (the
+; Settings build test includes it on its own), so it cannot call into them.
+; Getting out of step costs a wrong number on one button, and nothing else.
+RefreshToolsLabel() {
+    global btnTools
+    if !(IsSet(btnTools) && btnTools)
+        return
+    prev := A_DetectHiddenWindows
+    DetectHiddenWindows true
+    n := 0
+    for _, up in [PingerRunning(), StatsOverlayRunning(), DetectorRunning(),
+                  FanslyDetectorRunning(), AutomationListenerRunning(),
+                  ActivityTrackerRunning(), TypelogRunning(), AutowordRunning(),
+                  ReplyBoxRunning()]
+        if up
+            n++
+    DetectHiddenWindows prev
+    try btnTools.Text := n ? "Tools (" n ")" : "Tools"
 }
 
 WatchdogTick() {
@@ -606,7 +848,17 @@ WatchdogTick() {
         LaunchPinger()
     if FEAT("modelDetector")
         LaunchDetector()
+    if FEAT("fanslyDetector")
+        LaunchFanslyDetector()
     if FEAT("statsOverlay")
         LaunchStatsOverlay()
-    RefreshPingerLabel()
+    if FEAT("activity")
+        LaunchActivityTracker()
+    if FEAT("typelog")
+        LaunchTypelog()
+    if FEAT("autoword")
+        LaunchAutoword()
+    if FEAT("replyBox")
+        LaunchReplyBox()
+    RefreshToolsLabel()
 }

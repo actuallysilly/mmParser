@@ -2,6 +2,7 @@
 #Include "paths.ahk"
 #Include "../mass/store.ahk"
 #Include "../screen/pill_scan.ahk"
+#Include "fansly_model.ahk"
 ; ═══════════════════════════════════════════════════════════════════════════════
 ;  active_model.ahk — which of your models is on screen right now.
 ; ───────────────────────────────────────────────────────────────────────────────
@@ -81,8 +82,36 @@ _IniInt(file, section, key, default) {
 }
 
 ; "name" (default), "position" or "manual". See ActiveModelStatus.
+;
+; Describes the INFLOWW side only, and always has — Fansly's equivalent is
+; [Fansly] Match, read by FanslyMatchMode() in fansly_model.ahk. "manual" is the
+; exception: it is a statement about not reading pixels at all, so it applies
+; wherever you are. Settings ▸ Models writes both from one Strategy radio pair
+; plus a per-site pair; this key's three values are unchanged.
 ModelMatchMode() {
     return StrLower(Trim(IniRead(MMA_CFG, "Settings", "ModelMatch", "name")))
+}
+
+; Do the shared [mass.active] keys resolve a model at all?
+;
+; NOT a FEAT. The Features tab is the only writer of the feature registry (see
+; the header of ui/settings_window.ahk), and this switch belongs beside the
+; strategy it governs on the Models tab — a feature key echoed read-only there
+; would put the answer one tab away from the question. It is also the one switch
+; Easy mode must NOT turn off in bulk: Easy switches off everything in the
+; registry, and doing that here would silently kill every shared key on a setup
+; that has nothing else.
+;
+; Off is a real answer, not a broken one. The numbered [mass.N.*] keys are
+; unaffected by this and by every control in that section; on a machine where
+; nothing on screen identifies the model and a picker window per keypress is not
+; wanted, the numbered keys ARE the interface.
+;
+; Read per keypress like everything else here, so a change applies to the next
+; key with no restart — and through _IniInt, because this is reached from the
+; send path and a hand-typed value must degrade, never throw.
+SharedKeysOn() {
+    return _IniInt(MMA_CFG, "Settings", "SharedKeys", 1) ? true : false
 }
 
 ; ── manual mode ───────────────────────────────────────────────────────────────
@@ -112,6 +141,79 @@ SetManualModel(n) {
     return true
 }
 
+; ── lock mode ─────────────────────────────────────────────────────────────────
+;  "I pick" mode asks WHICH MODEL on every shared follow-up key (mass/model_picker
+;  .ahk), because the alternative — sending to whatever you last selected, with
+;  nothing on screen naming it — is how one model's follow-up reaches another
+;  model's fan.
+;
+;  That window is the right answer to "which model am I on?" and the wrong answer
+;  to the way the work is actually done: you answer every message for ONE model,
+;  then move to the next. Over a shift that is a window per keypress asking a
+;  question whose answer has not changed in twenty minutes, and a window you
+;  dismiss by reflex is a window that is not protecting you from anything.
+;
+;  A lock gives the answer once. While one is set:
+;    • every [mass.active] key sends THAT model — no window, no pixels read;
+;    • the badge (ui/lock_badge.ahk) sits on screen naming it, because a mode that
+;      silently re-aims every shared key has to be visible from the chat you are
+;      sending into, not from MMA's window behind it;
+;    • an "active model = N" key MOVES the lock instead of being ignored by it,
+;      which is exactly "done with this one, on to the next";
+;    • unlocking gives the picker back, unchanged.
+;
+;  It is a LOCK, not a fourth match mode, so it applies whatever Settings ▸ Models
+;  says. In "I pick" mode it replaces the window; with a detector running it
+;  overrides the detector, which is a thing you would only ask for deliberately —
+;  and the badge is what keeps that from being a silent override.
+;
+;  In the cfg rather than a global, for the same reason CurrentModel is: the engine
+;  sends, the GUI shows the state, the picker sets it, and those are three
+;  processes sharing a file.
+;
+;  0 is the only "not locked" value, and anything outside 1..MASS_MODELS reads as
+;  0 rather than clamping to 1. A clamp here would pin every shared key to a model
+;  you never chose, off a value nobody typed on purpose.
+LockedModelNo() {
+    global MASS_MODELS
+    n := _IniInt(MMA_CFG, "Settings", "LockedModel", 0)
+    return (n >= 1 && n <= MASS_MODELS) ? n : 0
+}
+
+MassIsLocked() {
+    return LockedModelNo() != 0
+}
+
+; INFO, not VERB. This is the line that answers "why did the picker stop opening"
+; and "why is every key sending Aliw" — one per lock, not one per keypress.
+SetLockedModel(n) {
+    global MASS_MODELS
+    if (n < 1 || n > MASS_MODELS) {
+        LOGW("model.lock", "refused to lock to model " n " — outside 1-" MASS_MODELS)
+        return false
+    }
+    was := LockedModelNo()
+    IniWrite(n, MMA_CFG, "Settings", "LockedModel")
+    if (was = n)
+        LOGV("model.lock", "already locked to model " n " — nothing changed")
+    else
+        LOGI("model.lock", (was ? "lock moved from model " was " to "
+                                : "LOCKED to model ")
+                         . n " (" ModelLabel(n) ") — every [mass.active] shared key"
+                         . " now sends this model, the 'which model?' picker will not"
+                         . " open, and nothing on screen is read")
+    return true
+}
+
+ClearMassLock() {
+    was := LockedModelNo()
+    IniWrite(0, MMA_CFG, "Settings", "LockedModel")
+    if was
+        LOGI("model.lock", "unlocked (was model " was ") — the shared keys resolve the"
+                         . " model the way Settings ▸ Models says again")
+    return was
+}
+
 ; What Settings calls this model. "" when the slot is unnamed — callers show the
 ; number in that case, so an unnamed slot is still selectable.
 ModelDisplayName(n) {
@@ -130,32 +232,46 @@ ModelLabel(n) {
 ;  detector reads; Fansly is a different interface entirely, with no calibration
 ;  and no reason to expect one.
 ;
-;  So the platform is PER MODEL, not per install:
-;    "infloww"  the detector answers for this one   (default)
-;    "manual"   nothing on screen identifies it — you say which model it is
+;  So the platform is PER MODEL, not per install, and it names a SITE:
+;    "infloww"  the Infloww tab strip, read by the model detector   (default)
+;    "fansly"   the Fansly rail, read by the Fansly detector
 ;
-;  This exists so the fallback below can be safe. "Detector said nothing, so use
-;  whatever was picked by hand" is a guess when applied to an Infloww model: it
-;  turns a detection failure into the wrong model's message, silently, which is
-;  the failure this whole area keeps producing. Applied only to models MARKED as
-;  invisible to the detector, it is not a guess at all — it is the only thing
-;  those models could possibly mean.
+;  ─── "MANUAL" IS NOT A PLATFORM ──────────────────────────────────────────────
+;  There was a third value, "manual", meaning "nothing on screen identifies this
+;  one — you say which model it is". That is not a site, it is a way of DECIDING
+;  which model is on screen, and MMA already has that as a setting of its own:
+;  Settings ▸ "Decide which model by: I pick". Having it here as well meant one
+;  question with two answers in two places, and the two could disagree.
+;
+;  A cfg still holding Platform2=manual reads as "infloww" from here on. Nothing
+;  rewrites the key, so the word stays on disk; it simply no longer means
+;  anything, and the dropdown that used to offer it no longer does.
 ModelPlatform(n) {
     v := StrLower(Trim(IniRead(MMA_CFG, "Settings", "Platform" n, "infloww")))
-    return (v = "manual") ? "manual" : "infloww"
+    return (v = "fansly") ? "fansly" : "infloww"
 }
 
 SetModelPlatform(n, v) {
     global MASS_MODELS
     if (n < 1 || n > MASS_MODELS)
         return false
-    IniWrite((StrLower(Trim(v)) = "manual") ? "manual" : "infloww",
+    IniWrite((StrLower(Trim(v)) = "fansly") ? "fansly" : "infloww",
              MMA_CFG, "Settings", "Platform" n)
     return true
 }
 
+; Is this model one that nothing on screen can identify right now?
+;
+; Only one case is left: a Fansly model with the rail detector switched OFF. With
+; the detector running, something on screen DOES identify it, and answering true
+; would hand it the "detector said nothing, use whatever was picked by hand"
+; fallback below — a guess, and the guess costs one model's mass in another's
+; chat. With the detector off, that model genuinely has nothing to go by.
+;
+; The name stayed while the "manual" platform went, because this is still the
+; question every caller is asking.
 IsManualPlatform(n) {
-    return ModelPlatform(n) = "manual"
+    return (ModelPlatform(n) = "fansly" && !FEAT("fanslyDetector"))
 }
 
 ; The model to fall back to when the detector cannot see anything — but ONLY if
@@ -246,10 +362,19 @@ DetectorCfg() {
 ; so without this they happily measure whatever window is sitting there — which
 ; is how an earlier version of the detector read VS Code's menu bar and filed it
 ; as a model name.
+;
+; The same two-part gate as FanslyWindowUp: the title, and then whether the window
+; in front actually covers the strip we are about to read. The second half is what
+; keeps two sites open on two monitors apart without either pattern having to be
+; clever — see PILL_ActiveHolds in screen/pill_scan.ahk. It matters here even with
+; WinMatch set: "Infloww Messages" matches whichever Infloww window is focused,
+; including one on the other screen, and the strip only exists on one of them.
 DetectorWindowUp(cfg := 0) {
     if !cfg
         cfg := DetectorCfg()
-    return cfg.win = "" || WinActive(cfg.win)
+    if (cfg.win != "" && !WinActive(cfg.win))
+        return false
+    return PILL_ActiveHolds(cfg.x, cfg.y, cfg.w, cfg.h)
 }
 
 ; Grab the tab strip once. Everything below reads from the returned buffer.
@@ -421,6 +546,24 @@ ActiveModelStatus() {
                             . " because you said so; nothing on screen was read")
         return {no: n, name: ModelDisplayName(n), state: "ok"}
     }
+
+    ; ── the other platform ────────────────────────────────────────────────────
+    ; Fansly is a completely separate detector — separate scan, separate service,
+    ; separate config, separate status file (core/fansly_model.ahk). This is the
+    ; ONE line where the two meet, and it is one line on purpose.
+    ;
+    ; Routing is by which window is in FRONT, not by a setting, because a setting
+    ; is a thing that can be wrong. FanslyStatus() returns state "off" unless the
+    ; Fansly feature is on AND the Fansly window is active, so on an Infloww-only
+    ; machine this costs one ini read per resolve and changes nothing; while you
+    ; are actually in Fansly, the Infloww path below would return "none" anyway
+    ; because its own window gate is false.
+    ;
+    ; It sits AFTER manual mode deliberately: manual reads no pixels on any
+    ; platform, and "you said model 2" must keep meaning model 2 wherever you are.
+    fan := FanslyStatus()
+    if (fan.state != "off")
+        return fan
 
     ; ── positional mode ───────────────────────────────────────────────────────
     ; Names are the hard part of this: MMA, Infloww and Discord each have their
@@ -613,33 +756,22 @@ IsAskableModelName(name) {
     return !RegExMatch(name, "\s")
 }
 
-; ── __mm  vs  __mm1 / __mm2 / __mm3 ───────────────────────────────────────────
-;  Two ways to say "send the whole mass", and which is live depends on whether
-;  the detector is running. See ARCHITECTURE.md §5.2.
+; ── __mm  vs  __1mm / __2mm — REMOVED, deliberately ───────────────────────────
+;  UniversalSendActive() and NumberedSendActive() used to live here. Both existed
+;  to arbitrate between two triggers that could not coexist: bare __mm was live
+;  precisely when the numbered form was dead, and vice versa.
 ;
-;  MODEL KNOWN — the detector resolved a model, or you selected one by hand in
-;    manual mode. Either way something authoritative says which model is in
-;    front, so bare __mm is unambiguous: it means "this one".
+;  They could not coexist because __mm is declared :*X: — `*` fires the instant
+;  the trigger is typed, no ending character — so while __mm was live it expanded
+;  on the second m and the `1` in __mm1 was never reached. The arbitration was a
+;  workaround for the trigger NAMES, dressed as a policy about detector state.
 ;
-;  MODEL UNKNOWN — no answer from anywhere. Nothing says which model you mean, so
-;    bare __mm has no correct answer. v1 guessed and always fired model 1, which
-;    meant a manual model-2 user typing __mm did not get nothing — they got MODEL
-;    1's mass, sent to their fan. A wrong mass is worse than no expansion, so bare
-;    __mm is disabled and the numbered triggers take over. __mm2 means model 2
-;    because you said so: the thing you type IS the model selector, same contract
-;    as the manual F-keys.
+;  Renaming the numbered form to put the digit in FRONT (__1mm) removes the
+;  overlap outright: the two share no prefix, both are live at all times, and
+;  there is nothing left to arbitrate. Bare __mm no longer needs a "model known"
+;  test either — it asks, in a window, whenever more than one model is configured.
+;  See the trigger block in mass/runtime.ahk and mass/model_picker.ahk.
 ;
-;  The two are mutually exclusive BY CONSTRUCTION, not by preference. __mm is
-;  declared :*X:, and `*` means "fire as soon as the trigger is typed, no ending
-;  character" — so while __mm is live it expands the instant you type the second
-;  m, and the `1` in __mm1 is never reached. Gating the numbered triggers on the
-;  same condition that silences __mm keeps "what is registered" equal to "what can
-;  actually fire", instead of leaving three hotstrings that look bound and cannot.
-
-UniversalSendActive() {
-    return ActiveModelNo() != 0
-}
-
-NumberedSendActive(n) {
-    return ActiveModelNo() = 0        ; manual mode only; see above
-}
+;  Kept as a comment rather than deleted quietly because the two functions were
+;  named in ARCHITECTURE.md §5.2 and in two test files, and "where did this go"
+;  deserves an answer at the place it used to be.

@@ -87,6 +87,8 @@ statsMenu.Add("Calibrate: Fans chatted", (*) => CalibrateOne("FansChattedRect", 
 statsMenu.Add()
 statsMenu.Add("Park it here",            ParkHere)
 statsMenu.Add("Hide",                    (*) => HideOverlay())
+statsMenu.Add()
+statsMenu.Add("Exit the stats overlay",  ExitOverlay)
 
 HK_Bind("gui.toggleStats", ToggleOverlay)
 
@@ -117,6 +119,29 @@ HideOverlay() {
     ov.Hide()
     _visible := false
     try IniWrite(0, CFG, "StatsOverlay", "Visible")
+}
+
+; ── quitting for good, as opposed to Hide ─────────────────────────────────────
+;  "Hide" is temporary: the window goes, the process stays, and gui.toggleStats
+;  brings it back. This is the other one — and a bare ExitApp does NOT deliver it.
+;  main_window re-runs LaunchStatsOverlay every few seconds for as long as the
+;  'statsOverlay' feature is on (core/processes.ahk), so quitting without touching
+;  the feature is a window that disappears and is back before you have let go of
+;  the mouse. Switching the feature off first is what exit has to mean here.
+;
+;  FEAT_SetRaw rather than a direct IniWrite: it is the single writer of every
+;  feature key (see ui/features_panel.ahk), so the Settings ▸ Features checkbox and
+;  the Tools window both follow this without either of them being told.
+;
+;  SavePos first — position is only persisted on drag-end and on Hide, and exiting
+;  from the menu is neither, so without it a move made just before quitting is
+;  the one that gets thrown away.
+ExitOverlay(*) {
+    SavePos()
+    LOGI("stats", "exiting from the overlay's right-click menu — switching the"
+               . " 'statsOverlay' feature off so it is not relaunched")
+    FEAT_SetRaw("statsOverlay", false)
+    ExitApp()
 }
 
 ; ── read + render ─────────────────────────────────────────────────────────────

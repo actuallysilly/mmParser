@@ -1,0 +1,730 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>MMA — Branch builder</title>
+<style>
+/* ═══════════════════════════════════════════════════════════════════════════
+   Same tokens as ui/webview/activity.html, so the two WebView windows are one
+   family. Dark is selected, not flipped.
+   ═══════════════════════════════════════════════════════════════════════ */
+:root {
+  color-scheme: light;
+  --surface-1:      #fcfcfb;
+  --surface-2:      #f2f1ee;
+  --plane:          #f9f9f7;
+  --text-primary:   #0b0b0b;
+  --text-secondary: #52514e;
+  --text-muted:     #898781;
+  --grid:           #e1e0d9;
+  --axis:           #c3c2b7;
+  --border:         rgba(11,11,11,0.10);
+  --accent:         #2a78d6;
+  --accent-soft:    #cde2fb;
+  --reply:          #eb6834;
+  --reply-soft:     #fbe3d8;
+  --good:           #006300;
+  --crit:           #d03b3b;
+  --crit-soft:      #fbe4e4;
+}
+@media (prefers-color-scheme: dark) {
+  :root:where(:not([data-theme="light"])) {
+    color-scheme: dark;
+    --surface-1:      #1a1a19;
+    --surface-2:      #232322;
+    --plane:          #0d0d0d;
+    --text-primary:   #ffffff;
+    --text-secondary: #c3c2b7;
+    --text-muted:     #898781;
+    --grid:           #2c2c2a;
+    --axis:           #383835;
+    --border:         rgba(255,255,255,0.10);
+    --accent:         #3987e5;
+    --accent-soft:    #17325a;
+    --reply:          #d95926;
+    --reply-soft:     #3d2318;
+    --good:           #0ca30c;
+    --crit:           #e66767;
+    --crit-soft:      #3a1f1f;
+  }
+}
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --surface-1:      #1a1a19;
+  --surface-2:      #232322;
+  --plane:          #0d0d0d;
+  --text-primary:   #ffffff;
+  --text-secondary: #c3c2b7;
+  --text-muted:     #898781;
+  --grid:           #2c2c2a;
+  --axis:           #383835;
+  --border:         rgba(255,255,255,0.10);
+  --accent:         #3987e5;
+  --accent-soft:    #17325a;
+  --reply:          #d95926;
+  --reply-soft:     #3d2318;
+  --good:           #0ca30c;
+  --crit:           #e66767;
+  --crit-soft:      #3a1f1f;
+}
+
+* { box-sizing: border-box; }
+html, body { margin: 0; padding: 0; height: 100%; }
+body {
+  background: var(--plane); color: var(--text-primary);
+  font: 14px/1.5 system-ui, -apple-system, "Segoe UI", sans-serif;
+  display: flex; flex-direction: column; height: 100vh; overflow: hidden;
+}
+
+/* ── top bar ────────────────────────────────────────────────────────────── */
+.bar {
+  display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
+  padding: 10px 16px; background: var(--surface-1);
+  border-bottom: 1px solid var(--border); flex: 0 0 auto;
+}
+.bar h1 { font-size: 15px; font-weight: 600; margin: 0 8px 0 0; }
+.spacer { flex: 1; }
+select, input.name {
+  font: inherit; font-size: 13px; padding: 5px 8px;
+  background: var(--surface-1); color: var(--text-primary);
+  border: 1px solid var(--axis); border-radius: 7px;
+}
+button {
+  font: inherit; font-size: 13px; padding: 5px 11px; cursor: pointer;
+  background: var(--surface-1); color: var(--text-secondary);
+  border: 1px solid var(--axis); border-radius: 7px;
+}
+button:hover { background: var(--surface-2); }
+button.primary {
+  background: var(--accent); color: #fff; border-color: transparent; font-weight: 600;
+}
+button.primary:hover { filter: brightness(1.08); }
+button.danger:hover { background: var(--crit-soft); border-color: var(--crit); color: var(--crit); }
+
+/* ── the canvas ─────────────────────────────────────────────────────────── */
+.canvas { flex: 1 1 auto; overflow: auto; position: relative; padding: 0 16px 24px; }
+#wires { position: absolute; inset: 0; pointer-events: none; overflow: visible; }
+/* Sized so all five columns — opener, f1, f2, f3, ppv — fit a default window
+   without a horizontal scroll. The PPV column is the last one and was the first
+   to fall off the edge, which made the least-used field also the hardest to
+   find. */
+.cols { display: flex; gap: 30px; align-items: flex-start;
+        position: relative; z-index: 1; min-width: min-content; padding-top: 8px; }
+.col { display: flex; flex-direction: column; gap: 16px; min-width: 228px; }
+/* An empty step still gets a column — that is how you see there is room left —
+   but not a full-width one. Unshrunk, the unused f3 pushed the PPV column off
+   the right edge, so the field you use least became the one you could not see. */
+.col.vacant { min-width: 104px; }
+.col.vacant .colhead { opacity: .55; }
+.colhead {
+  position: sticky; top: 0; z-index: 3; padding: 8px 2px 6px;
+  background: linear-gradient(var(--plane) 70%, transparent);
+  font-size: 11px; font-weight: 600; letter-spacing: .08em;
+  text-transform: uppercase; color: var(--text-muted);
+}
+.colhead .cap { font-weight: 400; text-transform: none; letter-spacing: 0;
+                color: var(--text-muted); }
+.colhead.over { color: var(--crit); }
+
+/* ── a card ─────────────────────────────────────────────────────────────── */
+.card {
+  background: var(--surface-1); border: 1px solid var(--border);
+  border-radius: 10px; padding: 10px 11px 8px; position: relative;
+}
+.card.mass  { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent) inset; }
+.card.ppv   { border-color: var(--good); }
+.card.bad   { border-color: var(--crit); background: var(--crit-soft); }
+.card.sel   { outline: 2px solid var(--accent); outline-offset: 1px; }
+.card .kind {
+  font-size: 10px; font-weight: 700; letter-spacing: .09em; text-transform: uppercase;
+  color: var(--text-muted); margin-bottom: 5px; display: flex; gap: 6px; align-items: center;
+}
+.card .kind .slot { color: var(--accent); }
+.card.ppv .kind .slot { color: var(--good); }
+
+/* the fan's reply — rendered ON the card it leads to, because that is where it
+   happens: between your last message and this one */
+.reply {
+  display: flex; align-items: center; gap: 5px; margin-bottom: 7px;
+}
+.reply input {
+  flex: 1; font: inherit; font-size: 12px; padding: 3px 8px;
+  background: var(--reply-soft); color: var(--text-primary);
+  border: 1px dashed var(--reply); border-radius: 999px;
+}
+.reply input::placeholder { color: var(--text-muted); }
+.reply .tag { font-size: 11px; color: var(--reply); white-space: nowrap; font-weight: 600; }
+
+.card textarea {
+  width: 100%; min-height: 62px; resize: vertical; font: inherit; font-size: 13px;
+  padding: 7px 8px; background: var(--surface-2); color: var(--text-primary);
+  border: 1px solid var(--border); border-radius: 7px;
+}
+.card textarea:focus { outline: 2px solid var(--accent); outline-offset: -1px; }
+.card .lines { font-size: 11px; color: var(--text-muted); margin-top: 3px; }
+.card .lines b { color: var(--crit); }
+.acts { display: flex; gap: 4px; margin-top: 7px; flex-wrap: wrap; }
+.acts button { font-size: 11.5px; padding: 3px 8px; }
+.merged {
+  font-size: 11px; color: var(--text-muted); margin-top: 5px;
+  border-top: 1px dashed var(--grid); padding-top: 5px;
+}
+
+/* ── bottom: preview + verdict ──────────────────────────────────────────── */
+.foot {
+  flex: 0 0 auto; border-top: 1px solid var(--border); background: var(--surface-1);
+  max-height: 42vh; display: flex; flex-direction: column;
+}
+.foot .fhead { display: flex; align-items: center; gap: 10px; padding: 8px 16px; }
+.foot h2 { font-size: 12px; font-weight: 600; margin: 0; text-transform: uppercase;
+           letter-spacing: .08em; color: var(--text-muted); }
+pre#preview {
+  margin: 0; padding: 0 16px 14px; overflow: auto; flex: 1;
+  font: 12.5px/1.6 ui-monospace, "Cascadia Mono", Consolas, monospace;
+  color: var(--text-secondary); white-space: pre-wrap;
+}
+.verdict { font-size: 12.5px; padding: 3px 10px; border-radius: 999px; font-weight: 600; }
+.verdict.ok  { background: var(--accent-soft); color: var(--accent); }
+.verdict.err { background: var(--crit-soft);   color: var(--crit); }
+.msgs { padding: 0 16px 10px; }
+.msg { font-size: 12.5px; padding: 6px 10px; border-radius: 7px; margin-bottom: 5px; }
+.msg.err  { background: var(--crit-soft); color: var(--crit); }
+.msg.warn { background: var(--reply-soft); color: var(--text-primary); }
+
+.empty { color: var(--text-muted); padding: 40px 4px; }
+dialog {
+  border: 1px solid var(--border); border-radius: 12px; padding: 18px 20px;
+  background: var(--surface-1); color: var(--text-primary); min-width: 320px;
+}
+dialog::backdrop { background: rgba(0,0,0,.45); }
+dialog h3 { margin: 0 0 10px; font-size: 14px; }
+dialog .row { display: flex; gap: 8px; align-items: center; margin-bottom: 10px; }
+dialog .row label { font-size: 12.5px; color: var(--text-secondary); min-width: 60px; }
+.hint { font-size: 12px; color: var(--text-muted); margin: 8px 0 12px; }
+</style>
+</head>
+<body>
+
+<div class="bar">
+  <h1>Branch builder</h1>
+  <select id="treeSel" title="Which conversation"></select>
+  <input class="name" id="treeName" placeholder="name this flow" size="18">
+  <button id="btnNew">New</button>
+  <button id="btnDup">Duplicate</button>
+  <button class="danger" id="btnDel">Delete</button>
+  <div class="spacer"></div>
+  <button id="btnCopy">Copy !mma</button>
+  <button class="primary" id="btnSave">Save to a mass…</button>
+</div>
+
+<div class="canvas" id="canvas">
+  <svg id="wires"></svg>
+  <div class="cols" id="cols"></div>
+</div>
+
+<div class="foot">
+  <div class="fhead">
+    <h2>What MMA receives</h2>
+    <span class="verdict" id="verdict">—</span>
+    <div class="spacer"></div>
+    <span style="font-size:12px;color:var(--text-muted)" id="stat"></span>
+  </div>
+  <div class="msgs" id="msgs"></div>
+  <pre id="preview"></pre>
+</div>
+
+<dialog id="slotDlg">
+  <h3>Save this flow into a mass</h3>
+  <div class="row"><label>Model</label><select id="dlgModel"></select></div>
+  <div class="row"><label>Slot</label><select id="dlgSlot"></select></div>
+  <p class="hint">
+    This overwrites that mass slot. If the main MMA window has the same model open,
+    press its Load afterwards — otherwise its next Save writes the old text back over this.
+  </p>
+  <div class="row" style="justify-content:flex-end;margin:0">
+    <button id="dlgCancel">Cancel</button>
+    <button class="primary" id="dlgOk">Overwrite it</button>
+  </div>
+</dialog>
+
+<script>
+"use strict";
+/* ═══════════════════════════════════════════════════════════════════════════
+   The page OWNS the tree while the window is open; AHK owns the file and the
+   compiler. Every keystroke edits the tree here, then a debounced round trip
+   asks AHK what it compiles to — so there is exactly ONE compiler
+   (src/branch/tree.ahk) and the preview can never disagree with what Save
+   writes. A second copy of the rules in JavaScript is the bug this avoids.
+   ═══════════════════════════════════════════════════════════════════════ */
+
+const SVGNS = "http://www.w3.org/2000/svg";
+let DOC   = { schema: 1, trees: [] };
+let ACTIVE = "";
+let MODELS = [];          /* model names, from AHK */
+let SLOTS  = 3;
+let FU_DEPTH = 3;         /* how many `say` steps fit — f1, f2, f3 */
+let selected = "";
+
+const uid = () => "n" + Math.random().toString(36).slice(2, 9);
+const byId = id => document.getElementById(id);
+const tree = () => DOC.trees.find(t => t.id === ACTIVE);
+
+/* ── graph helpers ──────────────────────────────────────────────────────── */
+function nodeMap(t) { const m = {}; for (const n of t.nodes) m[n.id] = n; return m; }
+function childMap(t) {
+  const m = {};
+  for (const e of t.edges) (m[e.from] = m[e.from] || []).push(e.to);
+  return m;
+}
+function parentMap(t) {
+  const m = {};
+  for (const e of t.edges) (m[e.to] = m[e.to] || []).push(e.from);
+  return m;
+}
+function rootId(t) { const n = t.nodes.find(x => x.kind === "mass"); return n ? n.id : ""; }
+
+/* Column per node. A `say` costs a level; a reply costs nothing (it is the fan
+   talking, not you) and neither does the PPV, which has its own field. Longest
+   path wins, so a merge point sits after everything that feeds it. */
+function depths(t) {
+  const nodes = nodeMap(t), root = rootId(t), d = {};
+  if (!root) return d;
+  d[root] = 0;
+  for (let pass = 0; pass <= t.nodes.length + 1; pass++) {
+    let moved = false;
+    for (const e of t.edges) {
+      if (d[e.from] === undefined) continue;
+      const child = nodes[e.to];
+      if (!child) continue;
+      const cand = d[e.from] + (child.kind === "say" ? 1 : 0);
+      if (d[e.to] === undefined || cand > d[e.to]) { d[e.to] = cand; moved = true; }
+    }
+    if (!moved) break;
+  }
+  return d;
+}
+
+/* The cards a card actually connects to — reply nodes are drawn ON the card
+   they lead into, so a wire skips straight through them. */
+function visualParents(t, id) {
+  const nodes = nodeMap(t), par = parentMap(t), out = [];
+  const walk = pid => {
+    const n = nodes[pid];
+    if (!n) return;
+    if (n.kind === "reply") (par[pid] || []).forEach(walk);
+    else out.push(pid);
+  };
+  (par[id] || []).forEach(walk);
+  return out;
+}
+/* The reply nodes sitting immediately above this card. */
+function replyNodesFor(t, id) {
+  const nodes = nodeMap(t), par = parentMap(t);
+  return (par[id] || []).map(p => nodes[p]).filter(n => n && n.kind === "reply");
+}
+
+/* ── mutation ───────────────────────────────────────────────────────────── */
+function pushEdge(t, from, to) {
+  if (!t.edges.some(e => e.from === from && e.to === to)) t.edges.push({ from, to });
+}
+/* Add a step after `afterId`. `withReply` inserts a fan-reply node in between —
+   which is what makes it a FORK worth naming rather than just the next message. */
+function addStep(afterId, kind, withReply) {
+  const t = tree(); if (!t) return;
+  let from = afterId;
+  if (withReply) {
+    const r = { id: uid(), kind: "reply", label: "" };
+    t.nodes.push(r); pushEdge(t, afterId, r.id); from = r.id;
+  }
+  const n = { id: uid(), kind, text: "" };
+  t.nodes.push(n); pushEdge(t, from, n.id);
+  selected = n.id;
+  touch(true);
+  setTimeout(() => {
+    const el = document.querySelector(`[data-ta="${n.id}"]`);
+    if (el) { el.focus(); el.scrollIntoView({ block: "nearest", inline: "center" }); }
+  }, 0);
+}
+/* Remove a node and everything that becomes unreachable because of it — but
+   NOT a shared tail that another route still reaches. That is the whole point
+   of merging, and deleting one fork must not silently gut the other. */
+function removeNode(id) {
+  const t = tree(); if (!t) return;
+  const doomed = new Set([id]);
+  /* pull in reply nodes that only existed to introduce this card */
+  for (const r of replyNodesFor(t, id)) {
+    const kids = t.edges.filter(e => e.from === r.id).map(e => e.to);
+    if (kids.length === 1 && kids[0] === id) doomed.add(r.id);
+  }
+  t.nodes = t.nodes.filter(n => !doomed.has(n.id));
+  t.edges = t.edges.filter(e => !doomed.has(e.from) && !doomed.has(e.to));
+
+  /* sweep anything no longer reachable from the opener */
+  const root = rootId(t);
+  if (root) {
+    const kids = childMap(t), seen = new Set([root]), stack = [root];
+    while (stack.length) {
+      const cur = stack.pop();
+      for (const k of (kids[cur] || [])) if (!seen.has(k)) { seen.add(k); stack.push(k); }
+    }
+    t.nodes = t.nodes.filter(n => seen.has(n.id));
+    t.edges = t.edges.filter(e => seen.has(e.from) && seen.has(e.to));
+  }
+  selected = "";
+  touch(true);
+}
+function setText(id, v) {
+  const t = tree(); const n = t && nodeMap(t)[id];
+  if (n) { n.text = v; touch(false); }
+}
+/* Edit one existing reply node. A merge point has SEVERAL — one per route that
+   arrives — and each is edited on its own, because they are different things
+   the fan might have said to get here. */
+function setReplyLabel(replyId, v) {
+  const t = tree(); if (!t) return;
+  const r = nodeMap(t)[replyId];
+  if (r) { r.label = v; touch(false); }
+}
+/* Typing a reply where there was none inserts the node between this card and
+   each of its parents — the model stays honest, the UI stays one box. */
+function createReply(id, v) {
+  const t = tree(); if (!t) return;
+  const par = (parentMap(t)[id] || []).slice();
+  if (!par.length) return;
+  const r = { id: uid(), kind: "reply", label: v };
+  t.nodes.push(r);
+  t.edges = t.edges.filter(e => e.to !== id);
+  for (const p of par) pushEdge(t, p, r.id);
+  pushEdge(t, r.id, id);
+  touch(false);
+}
+
+/* ── render ─────────────────────────────────────────────────────────────── */
+function render() {
+  const t = tree();
+  const cols = byId("cols"), wires = byId("wires");
+  cols.innerHTML = ""; wires.innerHTML = "";
+  if (!t) {
+    cols.innerHTML = '<div class="empty">No flow yet — press <b>New</b>.</div>';
+    byId("preview").textContent = ""; byId("msgs").innerHTML = "";
+    byId("verdict").textContent = "—"; byId("verdict").className = "verdict";
+    return;
+  }
+  const d = depths(t), nodes = nodeMap(t), kids = childMap(t);
+  const maxSay = Math.max(0, ...t.nodes.filter(n => n.kind === "say").map(n => d[n.id] || 0));
+  const lastCol = Math.max(FU_DEPTH, maxSay);
+
+  /* one column per follow-up level, plus a PPV column on the end */
+  const buckets = [];
+  for (let c = 0; c <= lastCol; c++) buckets.push([]);
+  const ppvs = [];
+  for (const n of t.nodes) {
+    if (n.kind === "reply") continue;
+    if (n.kind === "ppv") { ppvs.push(n); continue; }
+    (buckets[d[n.id]] || (buckets[d[n.id]] = [])).push(n);
+  }
+
+  for (let c = 0; c <= lastCol; c++) {
+    const col = document.createElement("div");
+    col.className = "col" + ((buckets[c] || []).length ? "" : " vacant");
+    const head = document.createElement("div");
+    const over = c > FU_DEPTH;
+    head.className = "colhead" + (over ? " over" : "");
+    head.innerHTML = c === 0
+      ? 'Opener <span class="cap">· !mm</span>'
+      : (over ? `Step ${c} <span class="cap">· no field for this</span>`
+              : `Follow-up ${c} <span class="cap">· f${c}</span>`);
+    col.appendChild(head);
+    for (const n of (buckets[c] || [])) col.appendChild(cardFor(t, n, d, kids, over));
+    cols.appendChild(col);
+  }
+  /* PPV lives in its own column: it is not a follow-up level, it is its own
+     field, and putting it in the f-columns would imply it costs a step. */
+  const pcol = document.createElement("div");
+  pcol.className = "col";
+  const ph = document.createElement("div");
+  ph.className = "colhead";
+  ph.innerHTML = 'PPV <span class="cap">· ppv</span>';
+  pcol.appendChild(ph);
+  for (const n of ppvs) pcol.appendChild(cardFor(t, n, d, kids, false));
+  cols.appendChild(pcol);
+
+  requestAnimationFrame(() => drawWires(t));
+}
+
+function cardFor(t, n, d, kids, over) {
+  const el = document.createElement("div");
+  el.className = "card " + n.kind + (over ? " bad" : "") + (selected === n.id ? " sel" : "");
+  el.dataset.node = n.id;
+
+  const kind = document.createElement("div");
+  kind.className = "kind";
+  const slot = n.kind === "mass" ? "!mm"
+             : n.kind === "ppv" ? "ppv"
+             : (over ? "no room" : "f" + d[n.id]);
+  kind.innerHTML = `<span class="slot">${slot}</span><span>${
+      n.kind === "mass" ? "the mass you send" :
+      n.kind === "ppv"  ? "pay-per-view caption" : "you reply"}</span>`;
+  el.appendChild(kind);
+
+  /* The fan's line — not on the opener, which nothing precedes.
+     ONE ROW PER INCOMING ROUTE. A merge point is reached by several different
+     replies, and showing only the first made the others invisible AND
+     uneditable: the tree still held "warms up", nothing on screen said so, and
+     the only way to change it was to delete the merge. */
+  if (n.kind !== "mass") {
+    const rs = replyNodesFor(t, n.id);
+    if (!rs.length) {
+      el.appendChild(replyRow("", v => createReply(n.id, v), "fan says"));
+    } else {
+      rs.forEach((r, i) => el.appendChild(
+        replyRow(r.label || "", v => setReplyLabel(r.id, v),
+                 i === 0 ? "fan says" : "or says")));
+    }
+  }
+
+  const ta = document.createElement("textarea");
+  ta.value = n.text || "";
+  ta.dataset.ta = n.id;
+  ta.placeholder = n.kind === "mass" ? "the opening message…"
+                 : n.kind === "ppv"  ? "the PPV caption…"
+                 : "what you send back…\none message per line";
+  ta.addEventListener("input", () => { setText(n.id, ta.value); updateLines(el, ta.value); });
+  ta.addEventListener("focus", () => { selected = n.id; });
+  el.appendChild(ta);
+
+  const lines = document.createElement("div");
+  lines.className = "lines";
+  el.appendChild(lines);
+  updateLines(el, n.text || "");
+
+  const acts = document.createElement("div");
+  acts.className = "acts";
+  if (n.kind !== "ppv") {
+    acts.appendChild(btn("+ next", () => addStep(n.id, "say", true),
+        "the conversation carries on: they reply, you answer"));
+    if (!(kids[n.id] || []).some(k => nodeMap(t)[k] && nodeMap(t)[k].kind === "ppv"))
+      acts.appendChild(btn("+ ppv", () => addStep(n.id, "ppv", false),
+          "send the PPV at the end of this route"));
+  }
+  const vps = visualParents(t, n.id);
+  if (n.kind !== "mass" && vps.length) {
+    acts.appendChild(btn("+ fork", () => addStep(vps[0], "say", true),
+        "another thing they might say, answered differently"));
+  }
+  if (n.kind !== "mass")
+    acts.appendChild(btn("×", () => removeNode(n.id), "remove this step", "danger"));
+  el.appendChild(acts);
+
+  if (vps.length > 1) {
+    const m = document.createElement("div");
+    m.className = "merged";
+    m.textContent = vps.length + " routes merge here — edited once, sent by each";
+    el.appendChild(m);
+  }
+  return el;
+}
+
+function replyRow(value, onInput, tag) {
+  const row = document.createElement("div");
+  row.className = "reply";
+  const t = document.createElement("span");
+  t.className = "tag";
+  t.textContent = tag;
+  row.appendChild(t);
+  const inp = document.createElement("input");
+  inp.value = value;
+  inp.placeholder = "…anything (names this branch)";
+  inp.addEventListener("input", () => onInput(inp.value));
+  row.appendChild(inp);
+  return row;
+}
+
+function btn(label, fn, title, cls) {
+  const b = document.createElement("button");
+  b.textContent = label;
+  if (cls) b.className = cls;
+  if (title) b.title = title;
+  b.addEventListener("click", fn);
+  return b;
+}
+
+/* A step's lines are separate messages (f1, f1.5, f1.7) — three fit, and the
+   count is shown because the 4th has nowhere of its own to go. */
+function updateLines(cardEl, text) {
+  const el = cardEl.querySelector(".lines");
+  if (!el) return;
+  const kind = cardEl.className.includes("mass") ? "mass"
+             : cardEl.className.includes("ppv") ? "ppv" : "say";
+  if (kind !== "say") { el.textContent = ""; return; }
+  const n = text.split("\n").map(s => s.trim()).filter(Boolean).length;
+  el.innerHTML = n <= 3
+    ? `${n} message${n === 1 ? "" : "s"} · one per line`
+    : `<b>${n} messages — only 3 fit (f, .5, .7); the rest join the last one</b>`;
+}
+
+/* Curves from each card's right edge to its children's left edge. Drawn in an
+   SVG under the cards rather than with borders, because a merge means two
+   wires arriving at one card and no border can show that. */
+function drawWires(t) {
+  const wires = byId("wires"), canvas = byId("canvas");
+  wires.innerHTML = "";
+  const base = canvas.getBoundingClientRect();
+  wires.setAttribute("width", canvas.scrollWidth);
+  wires.setAttribute("height", canvas.scrollHeight);
+  const pos = id => {
+    const el = canvas.querySelector(`[data-node="${id}"]`);
+    if (!el) return null;
+    const r = el.getBoundingClientRect();
+    return { x: r.left - base.left + canvas.scrollLeft, y: r.top - base.top + canvas.scrollTop,
+             w: r.width, h: r.height };
+  };
+  for (const n of t.nodes) {
+    if (n.kind === "reply") continue;
+    for (const pid of visualParents(t, n.id)) {
+      const a = pos(pid), b = pos(n.id);
+      if (!a || !b) continue;
+      const x1 = a.x + a.w, y1 = a.y + 26;
+      const x2 = b.x,       y2 = b.y + 26;
+      const dx = Math.max(24, (x2 - x1) / 2);
+      const p = document.createElementNS(SVGNS, "path");
+      p.setAttribute("d", `M${x1},${y1} C${x1 + dx},${y1} ${x2 - dx},${y2} ${x2},${y2}`);
+      p.setAttribute("fill", "none");
+      p.setAttribute("stroke", "var(--axis)");
+      p.setAttribute("stroke-width", "2");
+      wires.appendChild(p);
+      const dot = document.createElementNS(SVGNS, "circle");
+      dot.setAttribute("cx", x2); dot.setAttribute("cy", y2); dot.setAttribute("r", "3");
+      dot.setAttribute("fill", "var(--axis)");
+      wires.appendChild(dot);
+    }
+  }
+}
+
+/* ── the round trip ─────────────────────────────────────────────────────── */
+let compileTimer = 0, saveTimer = 0;
+function touch(now) {
+  render();
+  clearTimeout(compileTimer);
+  compileTimer = setTimeout(askCompile, now ? 0 : 220);
+  clearTimeout(saveTimer);
+  saveTimer = setTimeout(() => post({ cmd: "save", doc: DOC }), 700);
+}
+function askCompile() {
+  const t = tree();
+  if (t) post({ cmd: "compile", tree: t });
+}
+function post(m) { if (window.chrome && chrome.webview) chrome.webview.postMessage(m); }
+
+/* ── tree list ──────────────────────────────────────────────────────────── */
+function refreshList() {
+  const sel = byId("treeSel");
+  sel.innerHTML = DOC.trees.map(t =>
+    `<option value="${t.id}"${t.id === ACTIVE ? " selected" : ""}>${esc(t.name || "untitled")}</option>`).join("");
+  const t = tree();
+  byId("treeName").value = t ? (t.name || "") : "";
+}
+function esc(s) {
+  return String(s).replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+}
+function newTree(name, seed) {
+  const root = { id: uid(), kind: "mass", text: seed ? seed.mass : "" };
+  const t = { id: "t" + Math.random().toString(36).slice(2, 9),
+              name: name || "new flow", nodes: [root], edges: [] };
+  DOC.trees.push(t); ACTIVE = t.id;
+  return t;
+}
+
+byId("btnNew").addEventListener("click", () => {
+  newTree("new flow"); refreshList(); touch(true);
+});
+byId("btnDup").addEventListener("click", () => {
+  const t = tree(); if (!t) return;
+  const copy = JSON.parse(JSON.stringify(t));
+  copy.id = "t" + Math.random().toString(36).slice(2, 9);
+  copy.name = (t.name || "untitled") + " copy";
+  /* fresh node ids, or the two trees would share them and a later merge check
+     would treat one flow's node as the other's */
+  const remap = {};
+  copy.nodes.forEach(n => { remap[n.id] = uid(); n.id = remap[n.id]; });
+  copy.edges.forEach(e => { e.from = remap[e.from] || e.from; e.to = remap[e.to] || e.to; });
+  DOC.trees.push(copy); ACTIVE = copy.id;
+  refreshList(); touch(true);
+});
+byId("btnDel").addEventListener("click", () => {
+  const t = tree(); if (!t) return;
+  if (!confirm(`Delete "${t.name || "untitled"}"? This cannot be undone.`)) return;
+  DOC.trees = DOC.trees.filter(x => x.id !== t.id);
+  ACTIVE = DOC.trees.length ? DOC.trees[0].id : "";
+  refreshList(); touch(true);
+});
+byId("treeSel").addEventListener("change", e => {
+  ACTIVE = e.target.value; selected = ""; refreshList(); touch(true);
+});
+byId("treeName").addEventListener("input", e => {
+  const t = tree(); if (!t) return;
+  t.name = e.target.value; refreshList(); touch(false);
+});
+byId("btnCopy").addEventListener("click", () => post({ cmd: "copy", tree: tree() }));
+
+/* ── save into a mass slot ──────────────────────────────────────────────── */
+const dlg = byId("slotDlg");
+byId("btnSave").addEventListener("click", () => {
+  if (!tree()) return;
+  byId("dlgModel").innerHTML = MODELS.map((m, i) =>
+    `<option value="${i + 1}">${i + 1} · ${esc(m)}</option>`).join("");
+  let s = "";
+  for (let i = 1; i <= SLOTS; i++) s += `<option value="${i}">Mass ${i}</option>`;
+  byId("dlgSlot").innerHTML = s;
+  dlg.showModal();
+});
+byId("dlgCancel").addEventListener("click", () => dlg.close());
+byId("dlgOk").addEventListener("click", () => {
+  dlg.close();
+  post({ cmd: "toSlot", tree: tree(),
+         model: parseInt(byId("dlgModel").value, 10),
+         slot:  parseInt(byId("dlgSlot").value, 10) });
+});
+
+addEventListener("resize", () => { const t = tree(); if (t) drawWires(t); });
+byId("canvas").addEventListener("scroll", () => { const t = tree(); if (t) drawWires(t); });
+
+/* ── what AHK calls ─────────────────────────────────────────────────────── */
+window.mma = {
+  load(payload) {
+    DOC    = payload.doc && payload.doc.trees ? payload.doc : { schema: 1, trees: [] };
+    MODELS = payload.models || [];
+    SLOTS  = payload.slots || 3;
+    FU_DEPTH = payload.fuDepth || 3;
+    if (!DOC.trees.length) newTree("the bra tease", { mass: "" });
+    ACTIVE = DOC.trees[0].id;
+    refreshList();
+    render();
+    askCompile();
+  },
+  /* the compiler's verdict — the ONLY source of what this flow becomes */
+  preview(r) {
+    byId("preview").textContent = r.text || "";
+    const v = byId("verdict");
+    v.textContent = r.ok ? "compiles" : "cannot compile";
+    v.className = "verdict " + (r.ok ? "ok" : "err");
+    byId("stat").textContent = r.ok
+      ? `${r.paths} route${r.paths === 1 ? "" : "s"} · trunk + ${Math.max(0, r.paths - 1)} branch${r.paths === 2 ? "" : "es"}`
+      : "";
+    byId("msgs").innerHTML =
+      (r.errors || []).map(e => `<div class="msg err">${esc(e)}</div>`).join("") +
+      (r.warnings || []).map(w => `<div class="msg warn">${esc(w)}</div>`).join("");
+  },
+  toast(text) {
+    const v = byId("verdict");
+    const was = v.textContent, wasCls = v.className;
+    v.textContent = text; v.className = "verdict ok";
+    setTimeout(() => { v.textContent = was; v.className = wasCls; }, 2200);
+  },
+  theme(dark) { document.documentElement.dataset.theme = dark ? "dark" : "light"; }
+};
+
+post({ cmd: "ready" });
+</script>
+</body>
+</html>

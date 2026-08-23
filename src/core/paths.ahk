@@ -36,6 +36,11 @@ global MMA_CONTENT   := MMA_ROOT "\content"        ; hand-written AHK message fi
 global MMA_ACC_DIR   := MMA_CONTENT "\accounts"    ; per-account hotstring files
 global MMA_USERDATA  := MMA_ROOT "\userdata"       ; settings and messages
 global MMA_ASSETS    := MMA_ROOT "\assets"
+; Pictures that are only ever looked at — the corner girl and anything else you
+; drop in. Kept apart from assets\ proper because the files THERE are load-bearing
+; (icon.ico, copy_text.png is matched on screen), and a glob for "every image in
+; the folder" must not be able to offer you one of those.
+global MMA_DECOR     := MMA_ASSETS "\decoration"
 ; Diagnostics: crash traces and whatever the probe tools dump. Its own folder
 ; because these are THROWAWAY — you read one, you fix the thing, you delete it —
 ; and mixing them into userdata\ put them next to masses.json and hotkeys.ini,
@@ -52,6 +57,12 @@ global MMA_OVERLOADS   := MMA_USERDATA "\hotstring_overloads.ini"
 global MMA_MASSES      := MMA_USERDATA "\masses.json"
 global MMA_ARCHIVE     := MMA_USERDATA "\mass_archive.txt"
 global MMA_DETECTOR    := MMA_USERDATA "\detector_status.ini"
+; Fansly gets its OWN status file, not another section of detector_status.ini.
+; Two services writing one file is two services racing for one `active_model`
+; key, and the loser wins about half the time — which on this particular key
+; means one model's mass sent into another model's chat. Separate files, separate
+; readers, and whichever platform's window is in front is the only one consulted.
+global MMA_FANSLY      := MMA_USERDATA "\fansly_status.ini"
 global MMA_VERSION     := MMA_ROOT "\version.txt"
 
 ; ─── Diagnostics ──────────────────────────────────────────────────────────────
@@ -71,6 +82,7 @@ try DirCreate(MMA_DEBUGLOGS)
 global MMA_ERRLOG       := MMA_DEBUGLOGS "\error_log.txt"
 global MMA_LOGFILE      := MMA_DEBUGLOGS "\mma.log"
 global MMA_PROBE_DETECT := MMA_DEBUGLOGS "\detector_probe.txt"
+global MMA_PROBE_FANSLY := MMA_DEBUGLOGS "\fansly_probe.txt"
 global MMA_PROBE_NEXTFU := MMA_DEBUGLOGS "\nextfu_probe.txt"
 
 ; ─── Source files referenced as PATHS rather than #Included ───────────────────
@@ -84,6 +96,24 @@ global MMA_SRC_UTILS     := MMA_SRC "\core\utils.ahk"
 global MMA_SRC_HOTKEYS   := MMA_SRC "\core\hotkeys.ahk"
 global MMA_SRC_SEQUENCES := MMA_SRC "\sequences\sequences.ahk"
 global MMA_SRC_GUI       := MMA_SRC "\ui\main_window.ahk"
+; The WebView shell — the same window drawn by Edge instead of by Win32. It is a
+; SECOND front end, not a replacement: MMA_SRC_GUI stays pointed at main_window.ahk
+; whichever one is running, because that path is also the WinTitle three files
+; match on (see the note above), and re-pointing it would move an identity as a
+; side effect of a cosmetic preference.
+global MMA_SRC_WEBVIEW   := MMA_ROOT "\tools\webview_main_window.ahk"
+
+; Which of the two MMA.ahk should start — Settings ▸ GUI ▸ Main window.
+;
+; Falls back to the Win32 window whenever the WebView file is missing, rather than
+; failing to start: this is a preference, and a preference must not be able to
+; leave you with no window at all. IniRead and nothing else — paths.ahk is included
+; by scripts that include nothing, so it cannot call into log.ahk.
+MMA_ShellPath() {
+    v := Trim(IniRead(MMA_CFG, "Settings", "MainWindowShell", "legacy"))
+    return (v = "webview" && FileExist(MMA_SRC_WEBVIEW)) ? MMA_SRC_WEBVIEW
+                                                         : MMA_SRC_GUI
+}
 
 ; ─── Resolvers ────────────────────────────────────────────────────────────────
 

@@ -12,8 +12,8 @@
 ;  Prints to stdout. Exit 0 = all passed.
 ; ═══════════════════════════════════════════════════════════════════════════════
 
-#Include "../src/core/active_model.ahk"
-#Include "../src/core/modes.ahk"
+#Include "../../src/core/active_model.ahk"
+#Include "../../src/core/modes.ahk"
 
 Out(s) => FileAppend(s "`n", "*")
 OnError(Err)
@@ -70,10 +70,18 @@ Ck("garbage -> 1", ManualModelNo(), 1)
 IniDelete(MMA_CFG, "Settings", "CurrentModel")
 Ck("absent -> 1", ManualModelNo(), 1)
 
-; ── __mm vs __mm1: manual mode counts as "model known" ───────────────────────
-SetManualModel(3)
-Ck("__mm live in manual",       UniversalSendActive(), 1)
-Ck("__mm3 dead in manual",      NumberedSendActive(3), 0)
+; ── __mm vs __1mm — nothing left to assert here ──────────────────────────────
+; This block checked UniversalSendActive()/NumberedSendActive(): bare __mm live
+; exactly when the numbered form was dead. Both functions are gone. The numbered
+; trigger is __1mm now, which shares no prefix with __mm, so both are always live
+; and there is no gate to test. See the note where they used to live in
+; core/active_model.ahk.
+;
+; Nothing replaces it in THIS file. What would be worth testing — that __<n>mm
+; aims model n and not the last one — means firing the bound handler, and that
+; handler ends in DoMass(), which puts text on the clipboard and presses Ctrl+V
+; into whatever window is in front. A test that types into the user's chat is not
+; a test. It is why mass_bind_test.ahk fires everything through a `noop`.
 
 ; ── the feature gate now sees mass.active.* ──────────────────────────────────
 Ck("feat mass.1.altFu1",      FEAT_ForHotkey("mass.1.altFu1"),      "altFollowups")

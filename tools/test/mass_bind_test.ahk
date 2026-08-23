@@ -16,7 +16,7 @@
 ;  Prints to stdout. Exit 0 = all passed.
 ; ═══════════════════════════════════════════════════════════════════════════════
 
-#Include "../src/mass/runtime.ahk"
+#Include "../../src/mass/runtime.ahk"
 
 Out(s) => FileAppend(s "`n", "*")
 OnError(Err)
@@ -128,11 +128,18 @@ for id in ["mass.select.next", "mass.select.m1", "mass.select.m2"]
 ;
 ; Hence: snapshot both, and restore both at the very END, after the last
 ; SelectModel in the file. Order is the whole safety property here.
+;   LockedModel   a third one, and it breaks this test rather than the user's
+;                 config: a lock makes every shared key resolve to the locked
+;                 model by design, so the loop below would fail on a machine that
+;                 simply had one on. Snapshotted, cleared, and put back with the
+;                 others.
 _savedMatch := IniRead(MMA_CFG, "Settings", "ModelMatch", "name")
+_savedLock  := LockedModelNo()
 _savedPos := []
 Loop MASS_MODELS
     _savedPos.Push(IniRead(MMA_CFG, "Positional", "Pos" A_Index, A_Index))
 IniWrite("manual", MMA_CFG, "Settings", "ModelMatch")
+ClearMassLock()
 noop := (*) => 0
 Loop MASS_MODELS {
     n := A_Index
@@ -155,6 +162,14 @@ Ck("mass.2.* stays model 2", MASS_CUR_MODEL, 2)
 ; would select the last model. Fire the registered callbacks to prove otherwise.
 Loop MASS_MODELS {
     n := A_Index
+    ; Only m1-m3 are DECLARED in core/hotkeys.ahk, while the model count goes to
+    ; twelve — so on a four-model setup this asked _HK_BOUND for "mass.select.m4"
+    ; and died with "Item has no value" before reaching anything below it. The gap
+    ; is real (there is no select key for model 4 to bind) but it is not this
+    ; loop's subject: what is being proved here is that each key that EXISTS means
+    ; its own model.
+    if !_HK_BOUND.Has("mass.select.m" n)
+        continue
     SelectModel(Mod(n, MASS_MODELS) + 1)     ; park it somewhere else first
     cb := _HK_BOUND["mass.select.m" n].fn   ; via a local: obj.fn() would pass obj
     cb()
@@ -162,11 +177,54 @@ Loop MASS_MODELS {
 }
 
 ; ── cycling wraps at ModelCount, not MASS_MODELS ─────────────────────────────
+; Snapshotted like everything else. This wrote 2 and then "restored" 2 at the end,
+; which was a restore only on a machine that already had two models — on the
+; twelve-model setup 2.0.2 allows, running the suite silently threw away ten of
+; them, and every model past the second then had no tab and no keys.
+_savedCount := IniRead(MMA_CFG, "Settings", "ModelCount", MASS_MODELS)
 IniWrite(2, MMA_CFG, "Settings", "ModelCount")
 SelectModel(1), SelectNextModel()
 Ck("cycle 1->2", ManualModelNo(), 2)
 SelectNextModel()
 Ck("cycle 2->1 (count=2)", ManualModelNo(), 1)
+
+; ── lock mode: one model, and nothing else gets a vote ───────────────────────
+; The lock is the one thing that overrides BOTH the picker and the detector, so the
+; assertions worth making are that it wins, that it survives a select key by
+; MOVING, and that a bad value reads as "not locked" rather than as model 1 — the
+; last being the difference between a key that does nothing and a key that sends to
+; a fan you did not choose.
+Ck("not locked to start with", MassIsLocked(), 0)
+Ck("lock refuses model 0",     SetLockedModel(0), 0)
+Ck("...and stays unlocked",    LockedModelNo(), 0)
+Ck("lock refuses past the last model", SetLockedModel(MASS_MODELS + 1), 0)
+
+SelectModel(1)
+Ck("locked to 2", SetLockedModel(2), 1)
+Ck("...reads back", LockedModelNo(), 2)
+_SetCurModel(0)
+_RunOnActiveModel(noop)
+Ck("a shared key follows the LOCK, not the selection", MASS_CUR_MODEL, 2)
+
+; A select key under a lock means "done with that model, on to the next", so it
+; must move the lock rather than be swallowed by it.
+SelectModel(1)
+Ck("select moves the lock", LockedModelNo(), 1)
+_SetCurModel(0)
+_RunOnActiveModel(noop)
+Ck("...and the shared keys follow it", MASS_CUR_MODEL, 1)
+
+; A hand-typed value outside the range is "no lock", never a clamp to 1.
+IniWrite("banana", MMA_CFG, "Settings", "LockedModel")
+Ck("a junk LockedModel reads as unlocked", LockedModelNo(), 0)
+IniWrite(99, MMA_CFG, "Settings", "LockedModel")
+Ck("an out-of-range LockedModel reads as unlocked", LockedModelNo(), 0)
+ClearMassLock()
+Ck("unlocked", MassIsLocked(), 0)
+SelectModel(2)
+_SetCurModel(0)
+_RunOnActiveModel(noop)
+Ck("and the selection is back in charge", MASS_CUR_MODEL, 2)
 
 ; ── select must not be treated as a send by the anti-fumble gate ─────────────
 Ck("select is not a send", _HK_IsSend("mass.select.m2"), 0)
@@ -177,9 +235,15 @@ Ck("mouse fu IS a send",   _HK_IsSend("mass.active.mFu1"), 1)
 ; SelectModel FIRST, while ModelMatch is still "manual" — it cannot teach a
 ; position in that mode. Only then put the real settings back. Reversing these two
 ; lines is what wrote Pos2=1 into a live config; see the note above.
-IniWrite(2, MMA_CFG, "Settings", "ModelCount")
+IniWrite(_savedCount, MMA_CFG, "Settings", "ModelCount")
 SelectModel(1)
 IniWrite(_savedMatch, MMA_CFG, "Settings", "ModelMatch")
+; The lock last of all: SelectModel above MOVES a lock, so putting it back before
+; that line would leave the user locked to model 1 instead of whatever they had.
+if _savedLock
+    SetLockedModel(_savedLock)
+else
+    ClearMassLock()
 for _i, _p in _savedPos
     IniWrite(_p, MMA_CFG, "Positional", "Pos" _i)
 Out(pass " passed, " fail " failed")

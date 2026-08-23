@@ -254,3 +254,43 @@ PILL_Scan(img, x1, y1, x2, y2, activeRGB, inactiveRGB, tol, step, gap) {
     return {count: b.act, avgX: avgX, minX: b.minX, maxX: b.maxX,
             index: index, total: total}
 }
+
+; ── is the window in front the window this region was measured on? ────────────
+;  A title is not enough, and on two monitors it is not even close.
+;
+;  Both platform gates are SUBSTRING matches on the active window's title. The
+;  Fansly one defaults to the single word "Fansly", which also matches an editor
+;  holding fansly_scan.ahk, a browser tab, and — the one that actually bites — an
+;  Infloww window showing a model NAMED "KB FANSLY". ActiveModelStatus asks Fansly
+;  first and returns on any answer but "off", so one such title takes the shared
+;  keys away from Infloww entirely, silently, for as long as it is up.
+;
+;  The region itself settles it. Every scan in this program is a FIXED SCREEN
+;  RECTANGLE measured on one app on one monitor: if the window you are actually
+;  looking at does not cover that rectangle, the scan is about to measure some
+;  other window's pixels and any answer it gives is fiction. Running Infloww on
+;  one screen and Fansly on the other makes the two gates mutually exclusive for
+;  free, with no titles involved and nothing to keep in sync.
+;
+;  The CENTRE, not full containment. A region measured with the window maximised
+;  would otherwise fail the moment the window is restored a few pixels smaller,
+;  and "the keys went dead because I resized a window" is a worse failure than the
+;  one this fixes. The centre is enough to tell two monitors apart, which is the
+;  job.
+;
+;  Returns true when there is no active window to ask about, deliberately: that is
+;  a momentary state during a window switch, and the caller's title test still
+;  applies. This tightens a gate; it must never be the only thing holding it open.
+PILL_ActiveHolds(x, y, w, h) {
+    hwnd := WinExist("A")
+    if !hwnd
+        return true
+    wx := 0, wy := 0, ww := 0, wh := 0
+    try WinGetPos(&wx, &wy, &ww, &wh, "ahk_id " hwnd)
+    catch
+        return true
+    if (ww < 1 || wh < 1)
+        return true
+    cx := x + w // 2, cy := y + h // 2
+    return (cx >= wx && cx < wx + ww && cy >= wy && cy < wy + wh)
+}

@@ -337,3 +337,31 @@ PpvNameToday()
     snd("I sadly wont have time to text you")
     snd("Which means open that")
 }
+
+; @added 2026-08-05 09:11
+:*:__genericPPVFU1::
+{
+    snd("Would you know how to make me feel something new?")
+}
+
+; @added 2026-08-09 05:44
+:*:_yourEyes::
+{
+    snd("My eyes?")
+    snd("Do they remind you of luscious sin")
+    snd("Do you want to get lost in them as I take control")
+}
+
+; @added 2026-08-22 04:18
+:*:..insaneMasper_TW_BUMP::
+{
+    snd("lets play hide and seek")
+    snd("i hide and you seek for me to unmute you with opening the bundle above")
+}
+
+; @added 2026-08-22 04:19
+:*:..masper2_TW::
+{
+    snd("lets play new game: hide and seek but better edition")
+    snd("i hide and you seek professional help")
+}

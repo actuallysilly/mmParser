@@ -144,12 +144,13 @@ FEAT_SetRaw(id, on) {
 ; ═══════════════════════════════════════════════════════════════════════════════
 
 ; ── Sending ───────────────────────────────────────────────────────────────────
-; Alt follow-ups and --Name branches are one feature with two spellings: both are
-; "send something other than the default follow-up". They were separate toggles,
-; which only offered a combination nobody wants (branches on, alts off) and two
-; checkboxes to keep in step. Keeps the AltFollowups cfg key, so an existing
-; config carries over; the old Branches key is simply ignored.
-FEAT_Def("altFollowups", "AltFollowups",   "Alt follow-ups and --Name branches",       "1", "Sending")
+; Answering a follow-up with something other than the default. It was two toggles
+; once — alts and branches — which only offered a combination nobody wants
+; (branches on, alts off) and two checkboxes to keep in step. It is now one
+; toggle over one thing: there are no alts, only named branches, and "alt" is
+; simply the commonest branch name (see mass/store.ahk). Keeps the AltFollowups
+; cfg key, so an existing config carries over; the old Branches key is ignored.
+FEAT_Def("altFollowups", "AltFollowups",   "Branches (::name alternatives)",           "1", "Sending")
 FEAT_Def("editableFu",   "EditableFuAny",  "Editable follow-ups / wallet check",       "1", "Sending")
 ; The text itself is a Settings field (DefaultFu3); this only says whether the
 ; fallback applies at all. Blank text is inert either way, so the switch matters
@@ -167,6 +168,27 @@ FEAT_Def("doubleMM",     "DoubleMM",       "Double-MM (send two models at once)"
 FEAT_Def("fuSingle",     "FuSingleAny",    "FuSingle grid (per-model follow-up map)",  "1", "Sending")
 FEAT_Def("mouseControl", "MouseControl",   "Mouse-button follow-ups",                  "1", "Sending")
 
+; Its own switch rather than riding on the follow-up picker's, because the two ask
+; at very different rates. The shared follow-up keys fire constantly and the window
+; is a rhythm you either want or do not; the shared PPV keys fire a handful of times
+; a shift, so someone can reasonably want the ask on one and not the other.
+;
+; Only bites in "I pick" mode — with a detector resolving the model there is nothing
+; to ask, and this switch does nothing at all. See mass/model_picker.ahk.
+FEAT_Def("ppvPicker",    "AskPpvModel",    "Ask which model on the shared PPV keys",   "1", "Sending")
+
+; The mouse half of the anti-fumble guards. A follow-up is three messages with a
+; pause between each, so clicking the next conversation a beat too early splits it
+; across two fans; while a send runs this holds a click on the list and plays it
+; back the moment the send lands. See screen/click_wall.ahk.
+;
+; ON by default, unlike the other guards-that-change-behaviour, because it costs
+; nothing when it is wrong: the worst it can do is delay a click by the length of
+; a send you were in the middle of anyway. And it is inert without a region — the
+; fallback chain in CW_Region derives one from [NextFu], so the ordinary install
+; is covered with nothing to calibrate.
+FEAT_Def("clickWall",    "ClickWall",      "Hold clicks on the chat list while sending", "1", "Sending")
+
 ; ── Library ───────────────────────────────────────────────────────────────────
 FEAT_Def("archive",     "Archive",           "Mass archive (save + browse past masses)", "1", "Library")
 FEAT_Def("hotstrings",  "HotstringsManager", "Hotstrings manager",                       "1", "Library")
@@ -178,6 +200,16 @@ FEAT_Def("quickActions", "QuickActions", "Quick actions (pinned buttons)",    "1
 FEAT_Def("recorder",     "Recorder",     "Coordinate recorder",               "1", "Tools")
 FEAT_Def("capitalizer",  "Capitalizer",  "Auto-capitalize after Enter",       "1", "Tools")
 FEAT_Def("ocrGrab",      "OcrGrab",      "Add hotstring with OCR",            "1", "Tools")
+; Stars and separators you stick onto your own browser tabs — decoration, not a
+; readout (screen/tab_marks.ahk says why that distinction is load-bearing). A
+; feature rather than always-on because it draws a window over the tab strip, and
+; anything that puts pixels on top of the strip MMA also scans deserves an off
+; switch that is one click away.
+FEAT_Def("tabMarks",     "TabMarks",     "Tab bars (dividers on the strip)",  "1", "Tools")
+; Draws a conversation as a tree and compiles it back into an ordinary mass —
+; see src/branch/tree.ahk. On by default: it writes nothing until you press Save,
+; it starts no background process, and it is only reachable from a key you press.
+FEAT_Def("branchBuilder", "BranchBuilder", "Branch builder (draw a conversation)", "1", "Tools")
 
 ; ── sequences: deliberately NOT declared ──────────────────────────────────────
 ;  It had a FEAT_Def here ("Sequences + Discord Ctrl+click import"), and that made
@@ -197,10 +229,45 @@ FEAT_Def("ocrGrab",      "OcrGrab",      "Add hotstring with OCR",            "1
 
 ; ── Background ────────────────────────────────────────────────────────────────
 FEAT_Def("modelDetector", "AutoDetectModel",    "Auto-detect the active model",        "0", "Background")
+; Its own switch, not a mode of the one above. The two detectors read different
+; windows, different geometry and different config, and either can be worth
+; running while the other is not: an Infloww-only setup should not pay for a rail
+; scan, and a Fansly session should not have the Infloww detector writing stale
+; names. Both off is also a valid answer — that is what the manual select keys
+; are for.
+FEAT_Def("fanslyDetector","AutoDetectFansly",   "Auto-detect the active Fansly model", "0", "Background")
 FEAT_Def("statsOverlay",  "StatsOverlay",       "Stats overlay",                       "0", "Background")
+; OFF by default because it is useless until calibrated: it needs a rectangle
+; drawn round YOUR conversation list, on your monitor at your window size, and
+; there is no default for that worth shipping. Settings ▸ General ▸ Reply timers
+; has the button. See screen/reply_box.ahk.
+FEAT_Def("replyBox",      "ReplyBox",           "Reply timers (box rows kept waiting)", "0", "Background")
 FEAT_Def("automation",    "AutomationListener", "Automation hotkeys (needs Python)",   "1", "Background")
 FEAT_Def("pinger",        "Pinger",             "Unread pinger (needs Python)",        "0", "Background")
 FEAT_Def("startupScripts","StartupScriptsOn",   "Auto-start scripts + restart watchdog", "1", "Background")
+; OFF by default, and this one is not a taste call. It installs a keyboard hook
+; that sees every key you press, in every application, for as long as it runs —
+; it counts and never records what (src/activity/record.ahk is built so it
+; cannot), but "counts your keystrokes" is still a thing somebody must switch on
+; deliberately rather than discover running. Its hotkey goes with it: the chart
+; is only worth a key when there is something behind it.
+FEAT_Def("activity",      "ActivityTracker",    "Activity tracker (typing stats)",     "0", "Background")
+; OFF by default, and this one is the strongest version of that. The activity
+; tracker above counts keystrokes and is BUILT so it cannot keep WHAT you typed
+; (src/activity/record.ahk); typelog is the opposite — it records the text you
+; type in Infloww into userdata\typelog\, to mine for hotstrings. That is a thing
+; somebody switches on deliberately, never discovers running. Needs Python
+; (pynput). See src/services/typelog/.
+FEAT_Def("typelog",       "Typelog",            "Typelog (records what you type in Infloww)", "0", "Background")
+; Next-word suggestions while you type, trained on the typelog corpus, plus
+; Ctrl+Tab to reword the word you just typed (touched -> caressed). OFF by
+; default for the same reason typelog is, plus one of its own: it can put text
+; into the message box (Tab accepts a suggestion), and nothing that types on your
+; behalf should ever arrive switched on. Ships in Render=off — predicting but
+; drawing nothing, logging what it WOULD have said — so turning the feature on
+; still shows no UI until you set Render=strip in userdata\autoword.ini.
+; Needs Python (pynput). See src/services/autoword/.
+FEAT_Def("autoword",      "Autoword",           "Autoword (next-word suggestions, Ctrl+Tab to reword)", "0", "Background")
 ; OFF by default, deliberately. The startup check runs three seconds after launch
 ; and its prompt is NOT suppressed by `silent`, so with this on you get an update
 ; dialog in front of whatever you were doing, on someone else's release schedule
@@ -225,9 +292,12 @@ global FEAT_HOTKEY_MAP := Map(
     "gui.actions",        "actionsMenu",
     "gui.quickActions",   "quickActions",
     "gui.toggleStats",    "statsOverlay",
+    "gui.activity",       "activity",
+    "gui.branchBuilder",  "branchBuilder",
     "gui.toggleDoubleMM", "doubleMM",
     "gui.ocrGrab",        "ocrGrab",
     "gui.addHotkeyGrab",  "ocrGrab",
+    "marks.",             "tabMarks",
     "recorder.",          "recorder",
     "automation.",        "automation",
     ; No "seq." entry, and that absence is the point: FEAT_ForHotkey returns "" for

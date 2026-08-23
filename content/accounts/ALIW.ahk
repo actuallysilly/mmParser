@@ -315,3 +315,65 @@
     snd("Welcome to my page")
     snd("My name is Alice <3")
 }
+
+; @added 2026-08-08 04:33
+:*:2_88MPPV::
+{
+    snd("I bet you're imagining the exact moment my naked breasts would make contact with your lips")
+    snd("And how your lips would just engulf my nips as your tongue pushes against them, making them hard")
+    snd("And as you please me like that I'd slowly slide my panties down too")
+}
+
+; @added 2026-08-08 04:45
+:*:3_88MPPV::
+{
+    snd("At this point your engorged cock can no longer take it... You really need to feel me on it")
+    snd("You need me to hug it tightly with my kitty and make it so fucking wet and needy")
+    snd("You want to creampie me so bad while I titty masturbate")
+}
+
+; @added 2026-08-08 08:48
+:*:_discountExcuse::
+{
+    snd("So what do we do now")
+    snd("I could make it a little less expensive")
+    snd("It's our 1st time playing")
+    snd("I'd want us both to leave a good 1st impression")
+}
+
+; @added 2026-08-21 03:51
+:*:..cucumber::
+{
+    snd("Omg did you love that >.<")
+    snd("Because there's a part two where I get uhhh naked ><")
+}
+
+; @added 2026-08-22 02:34
+:*:..tb3::
+{
+    snd("Ugh")
+    snd("The way I'm sluttily spreading my legs")
+    snd("And being the worst girl there is...")
+    snd("I know you can vividly imagine wetness gliding down my inner thighs like a stream of holy water")
+    snd("That's certainly what Techboy saw!")
+}
+
+; @added 2026-08-22 09:06
+:*:..TBD_MPPV_AO2::
+{
+    Sendt("I don't really want to hold back tonight... The hopelessness has been particularly bad lately", 1000)
+    Sendt("So I decided", 1000)
+    Sendt("Fuck it all", 1000)
+    Sendt("I'm going all out on hedonism", 1000)
+    Sendt("Pure hedonism and sexual indulgence", 1000)
+    Sendt("I will do EVERYTHING", 1000)
+    Sendt("I will even recreate that scene from the wolf on wall street", 1000)
+}
+
+; @added 2026-08-23 03:28
+:*:MPPV_BUMP_1::
+{
+    snd("Now imagine the sheer horror of being jolted awake by me in that moment")
+    snd("I'm literally the WORST after dark and I want to tell you why")
+    snd("Or rather... Show you... My nipples!")
+}

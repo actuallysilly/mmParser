@@ -13,7 +13,7 @@
 ;  Prints to stdout. Exit 0 = all passed.
 ; ═══════════════════════════════════════════════════════════════════════════════
 
-#Include "../src/mass/runtime.ahk"
+#Include "../../src/mass/runtime.ahk"
 
 Out(s) => FileAppend(s "`n", "*")
 OnError((e, m) => (Out("ERROR: " e.Message " @ " e.File ":" e.Line), ExitApp(1)))

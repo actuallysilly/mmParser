@@ -17,6 +17,17 @@
 #Include "settings_window.ahk"
 #Include "../screen/ocr_grab.ahk"
 #Include "actions_menu.ahk"
+#Include "tools_window.ahk"
+; The Variants window's "Add alt-FU…" button. Its own file rather than another
+; screenful in here: it is a self-contained form, and this file is the largest in
+; MMA. It reaches back into edCtrls and the mass-slot helpers below, which is why
+; it is included BY the window that owns them rather than standing on its own.
+#Include "alt_fu_window.ahk"
+; The picture in the bottom-right corner: finding her, scaling her to the space the
+; controls leave, and playing her if she is a GIF. Its own file because it is all
+; GDI+ and none of it is about this window's layout — ApplyLayout only asks which
+; sizes exist and says where the biggest one that fits should go.
+#Include "credit.ahk"
 DetectHiddenWindows true
 
 ; ─── The two children that own hotkeys, started FIRST ─────────────────────────
@@ -65,46 +76,28 @@ keyMap := Map(
     "ppvfu1", "ppv_f1",  "ppvfu2", "ppv_f2",  "ppvfu3", "ppv_f3"
 )
 
-; ── Alt follow-ups ────────────────────────────────────────────────────────────
-; A follow-up can carry alternative versions of itself ("branches"): same slot in
-; the conversation, different wording. The base variant is fu<N>/fu<N>_5/fu<N>_7 as
-; before; each alt is one more complete variant of the whole group.
+; ── Branches: every alternative there is ──────────────────────────────────────
+; A follow-up can be answered more than one way, and each of those ways is a
+; BRANCH — a name plus its own fu1/fu2/fu3/ppv. Pick it at f1 and f2/f3/ppv
+; continue on it. "alt" is not a feature, it is the name people give a branch that
+; has no better name.
 ;
-; An alt may itself be multi-part, so its parts are stored in a single field joined
-; by a literal `n — the same escape ppv_base already uses. Keeping it to one field
-; per alt is what stops the mN block from growing 27 fields wider.
-; HOW MANY alts is store.ahk's business — it owns the record shape, and a field
-; count IS part of that shape. This file used to declare its own ALT_MAX := 3
-; alongside utils.ahk's ALT_MAX_RT := 3, under a comment reading "must match
-; ALT_MAX in main_window.ahk". Three copies of one number, kept in step by hand.
-ALT_GROUPS := ["fu1", "fu2", "fu3"]
-
-; "fu1" -> ["fu1_alt0", "fu1_alt1", "fu1_alt2"]
+; It was two things until now: `fu<N>_alt<i>` fields for "another wording of this
+; one follow-up", and `br<k>_*` for "a whole alternate sequence". Two syntaxes to
+; write (`alt:` and `--Name`), two shapes to store, two halves of the Variants
+; window to edit — and the send path merged them back into one list anyway before
+; showing you anything (AltVariants in core/utils.ahk). So the alt fields are gone
+; and the branch count went to MASS_BRANCH_MAX = 6 to absorb them. See the record
+; shape in mass/store.ahk and the `::name` marker in mass/parser.ahk.
 ;
-; Not MASS_AltFields(): that one takes the GROUP NUMBER and this takes the group
-; NAME, which is what ALT_GROUPS and the control keys are built from. Same list,
-; and now the same count behind it.
-AltFields(group) {
-    global MASS_ALT_MAX
-    out := []
-    Loop MASS_ALT_MAX
-        out.Push(group "_alt" (A_Index - 1))
-    return out
-}
-
-; ── Named branches ────────────────────────────────────────────────────────────
-; A `--Name` marker in a pasted mass opens a whole alternate follow-up sequence
-; (its own fu1/fu2/fu3 + ppv), sent as a continuation after the shared trunk. Each
-; branch is stored in its own fields; a group's parts are `n-joined into one field,
-; the same compact scheme the alts use. This REPLACED the old or-or (b2_*) branch.
-; The count lives in store.ahk as MASS_BRANCH_MAX, for the same reason as the
-; alts above.
+; ALT_GROUPS and AltFields() stood here, naming the alt fields for the parser and
+; the Variants window. Both are gone with the fields; a group's alternatives are
+; now "every branch that has something for this group", which is one loop over
+; MASS_BranchFields().
 ;
-; BRANCH_GROUPS / BranchFields() / AllBranchFields() stood here too, and so did
-; AllAltFields(). All four were dead: they existed to emit the `mN := { … }`
-; source block, and that serialiser went when the library became masses.json.
-; MASS_BranchFields() in store.ahk is the surviving copy and returns the same
-; five names.
+; A branch's parts for one group live in ONE field, `n-joined, the same compact
+; scheme ppv_base uses — MASS_SplitParts reads them back at send time. That is
+; what keeps six branches from adding 72 fields to the record.
 
 ; The mN := {} field list, in block order. Single source of truth — the loader,
 ; the writer and the new-file template all read it, so adding a field here is
@@ -126,77 +119,60 @@ MassPropIsMultiline(prop) {
 ; no callers; the other two drove the "alt: gui" checkbox, and the modal chooser
 ; it switched to is gone — TAB staging is the only picker now.
 
-; One cell of the Variants window: every way to answer ONE follow-up, in the
-; order the staged list shows them. `grp` is "fu1"/"fu2"/"fu3" or "ppv".
+; One ROW of the Variants window: one branch, across all four groups.
 ;
-; Only the alt and branch boxes are registered in edCtrls. "main" is a read-only
-; echo, because the editable control for it is in the main panel and edCtrls maps
-; one key to one control — registering it twice would leave the main panel's box
-; loaded from nothing and saved from nothing.
-VarBuildCell(gv, mNo, grp, x, y) {
-    global edCtrls, varBaseEcho, varBranchLbls
-    global VAR_LABEL_W, VAR_EDIT_DX, VAR_EDIT_W, MASS_BRANCH_MAX
-    isPpv := (grp = "ppv")
-    ex := x + VAR_EDIT_DX
+;  ─── WHY IT IS A GRID NOW ────────────────────────────────────────────────────
+;  It used to be four CELLS — one per follow-up — each listing "main", three alt
+;  boxes and three branch boxes. A branch was therefore four boxes in four
+;  different corners of the window, with only its repeated row label to say they
+;  were the same thing, and the alt boxes sat between them belonging to nothing at
+;  all. Reading "what does mexican say?" meant looking in four places.
+;
+;  One row per branch, one column per group, is the same data laid out the way it
+;  is used: across the row is one branch's whole conversation, down a column is
+;  every way to answer that one follow-up — which is exactly the list the picker
+;  stages when you press the key.
+;
+;  The name box is the row's first cell, so a branch is named once, where you are
+;  looking at it, instead of once in a separate strip at the top of the window.
+VarBuildBranchRow(gv, mNo, k, y) {
+    global edCtrls, VAR_NAME_W, VAR_COL_W, VAR_COL_GAP, VAR_GRID_X, VAR_ROW_H
+    gv.Add("Text", "x" VAR_GRID_X " y" (y + 4) " w14 c8E8AA6", k)
+    ec := gv.Add("Edit", "x" (VAR_GRID_X + 18) " y" y " w" (VAR_NAME_W - 18)
+                       . " h22 Background201E2B")
+    edCtrls["m" mNo "_br" k "_name"] := ec
+    ; A branch with no name still sends; it is simply called "branch <k>" in the
+    ; picker (see BranchList). The cue is what stops that being a surprise.
+    CueBannerFor(ec, "name")
 
-    gv.SetFont("s10 Bold cB89CFF", "Segoe UI")
-    gv.Add("Text", "x" x " y" y " w200", isPpv ? "PPV" : StrUpper(grp))
-    gv.SetFont("s9 Norm cE6E4EE", "Segoe UI")
-    y += 22
-
-    gv.Add("Text", "x" x " y" (y+3) " w" VAR_LABEL_W " Right c8E8AA6", "main:")
-    varBaseEcho[mNo "_" grp] := gv.Add("Edit",
-        "x" ex " y" y " w" VAR_EDIT_W " h" (isPpv ? 38 : 20)
-      . " ReadOnly -VScroll " (isPpv ? "Multi " : "") "Background201E2B")
-    y += isPpv ? 44 : 26
-
-    ; The PPV has no alt wordings — only the follow-ups do. Its alternatives are
-    ; the branches' PPVs, which the loop below adds.
-    if !isPpv {
-        for ai, fld in AltFields(grp) {
-            gv.Add("Text", "x" x " y" (y+3) " w" VAR_LABEL_W " Right c8E8AA6", "alt " ai ":")
-            edCtrls["m" mNo "_" fld] := gv.Add("Edit",
-                "x" ex " y" y " w" VAR_EDIT_W " h40 Multi +VScroll Background201E2B")
-            y += 44
-        }
-    }
-
-    Loop MASS_BRANCH_MAX {
-        k   := A_Index
-        key := "m" mNo "_br" k "_" grp
-        varBranchLbls[key] := gv.Add("Text",
-            "x" x " y" (y+3) " w" VAR_LABEL_W " Right c8E8AA6", "br" k ":")
-        edCtrls[key] := gv.Add("Edit",
-            "x" ex " y" y " w" VAR_EDIT_W " h40 Multi +VScroll Background201E2B")
-        y += 44
-    }
-    return y
-}
-
-; Retitle branch k's four row labels from its name box. A branch is one thing
-; spread across four cells, so naming it once has to be visible in all four.
-VarRenameBranch(mNo, k, *) {
-    global edCtrls, varBranchLbls
-    nk := "m" mNo "_br" k "_name"
-    nm := edCtrls.Has(nk) ? Trim(edCtrls[nk].Value) : ""
-    if (nm = "")
-        nm := "br" k
-    else if (StrLen(nm) > 9)
-        nm := SubStr(nm, 1, 8) Chr(0x2026)      ; the label is 78px, not elastic
+    x := VAR_GRID_X + VAR_NAME_W + VAR_COL_GAP
     for _, grp in ["fu1", "fu2", "fu3", "ppv"] {
-        lk := "m" mNo "_br" k "_" grp
-        if varBranchLbls.Has(lk)
-            varBranchLbls[lk].Text := nm ":"
+        edCtrls["m" mNo "_br" k "_" grp] := gv.Add("Edit",
+            "x" x " y" y " w" VAR_COL_W " h" (VAR_ROW_H - 8)
+          . " Multi +VScroll Background201E2B")
+        x += VAR_COL_W + VAR_COL_GAP
     }
 }
 
-; Echo each "main" box into the Variants window and retitle every branch row, so
-; the window reads correctly after a Load or a parse. Called by both.
+; Grey placeholder text inside an empty Edit. EM_SETCUEBANNER, the same call the
+; Hotstrings window's search box uses.
+CueBannerFor(ctrl, text) {
+    try DllCall("SendMessageW", "Ptr", ctrl.Hwnd, "UInt", 0x1501, "Ptr", 1,
+                "WStr", text)
+}
+
+; Echo the trunk's four boxes into the window's top row, so the grid reads as the
+; picker will: "main" first, then every branch under it. Called after a Load and
+; after a parse.
+;
+; The trunk is a read-only ECHO because its editable control is in the main panel,
+; and edCtrls maps one key to one control — registering a second would leave the
+; main panel's box loaded from nothing and saved from nothing.
 VarRefresh() {
-    global edCtrls, varBaseEcho, ALT_GROUPS, MASS_BRANCH_MAX, modelCount
+    global edCtrls, varBaseEcho, modelCount
     Loop modelCount {
         mNo := A_Index
-        for _, grp in ALT_GROUPS {
+        for _, grp in ["fu1", "fu2", "fu3"] {
             key := mNo "_" grp
             if !varBaseEcho.Has(key)
                 continue
@@ -208,7 +184,7 @@ VarRefresh() {
             }
             joined := ""
             for _, p in parts
-                joined .= (joined != "" ? "  |  " : "") p
+                joined .= (joined != "" ? "`r`n" : "") p
             varBaseEcho[key].Value := joined
         }
         pk := mNo "_ppv"
@@ -216,8 +192,6 @@ VarRefresh() {
             bk := "m" mNo "_ppv_base"
             varBaseEcho[pk].Value := edCtrls.Has(bk) ? edCtrls[bk].Value : ""
         }
-        Loop MASS_BRANCH_MAX
-            VarRenameBranch(mNo, A_Index)
     }
 }
 
@@ -236,11 +210,16 @@ AHK_CHARS  := ["``", Chr(34), ";"]   ; backtick must be first
 PREFIX_EXCEPTIONS := Map("http",1, "https",1, "ftp",1, "ftps",1, "mailto",1, "tel",1, "file",1)
 
 edCtrls    := Map()
-; Declared HERE, not beside the Variants window that fills them, because the main
+; Declared HERE, not beside the Variants window that fills it, because the main
 ; window is Show()n well before that block runs and VarRefresh() calls .Has() on
-; both — an unset global would throw rather than find nothing.
+; it — an unset global would throw rather than find nothing.
+;
+; varBranchLbls stood beside it: "m<n>_br<k>_<grp>" → the row label a branch's name
+; box retitled, in all four of the cells that branch was spread across. The grid
+; put the name IN the row, so there is nothing left to keep in step.
 varBaseEcho   := Map()  ; "<mNo>_<group>" → read-only echo of the main panel's box
-varBranchLbls := Map()  ; "m<n>_br<k>_<grp>" → row label, retitled by the name box
+btnLoadOne  := 0      ; the single Load button, labelled with the current model
+btnSaveOne  := 0      ; the single Save button, ditto
 scriptPIDs := Map()   ; path → PID for toggle tracking
 togCtrls   := []      ; [{c, x, oy}] script toggle section, y moves on resize
 topCtrls   := []      ; [{c, ox}]       — right-panel top labels, x-slide on resize
@@ -283,13 +262,28 @@ openTabFu3        := LOG_IniInt(CFG_FILE, "Settings", "OpenTabFu3", 0)
 openTabPpv        := LOG_IniInt(CFG_FILE, "Settings", "OpenTabPpv", 0)
 walletCheckFu3    := LOG_IniInt(CFG_FILE, "Settings", "WalletCheckFu3", 0)
 fastParseAutosave := LOG_IniInt(CFG_FILE, "Settings", "FastParseAutosave", 0)
-; On by default: the follow-up keys keep sending the main branch as they always
-; have, and ctrl+key is what opens the alt chooser. Off makes the plain key prompt.
-_hiddenRaw        := IniRead(CFG_FILE, "Settings", "HiddenScripts", "")
-hiddenScripts     := Map()
-for _h in StrSplit(_hiddenRaw, ",")
-    if Trim(_h) != ""
-        hiddenScripts[Trim(_h)] := true
+; The right panel's load/save block. Off = ONE Load and ONE Save that follow the
+; tab you are on and say the model's name; on = the old grid of "load <model>" /
+; "save <model>" pairs, one of each per model.
+;
+; Kept as a fallback rather than deleted: the grid can load one model while you are
+; looking at another's tab, which the pair cannot, and anyone who worked that way
+; for a year should not have it taken away by an update. Read once, at build time,
+; because it decides which controls exist — Settings reloads MMA when it changes.
+legacyLoadSave    := LOG_IniInt(CFG_FILE, "Settings", "LegacyLoadSaveUI", 0)
+; Whether Parse also appends the pasted mass to the archive. This was a tick box
+; sitting on the button row, next to Parse — a per-parse switch for a thing nobody
+; decides per parse, taking up the space the archive's own button now uses. It is
+; a preference, so it lives in Settings ▸ GUI, and it is on by default because the
+; archive is worth nothing with holes in it.
+;
+; There is deliberately NO global for it: ParseCurrent reads the key at the moment
+; it parses. Settings writes it without reloading MMA, and a cached copy would keep
+; archiving (or keep not archiving) until the next restart.
+; HiddenScripts is gone: it only ever decided which acc scripts got a "◻ NAME"
+; toggle on the bottom strip, and that whole row is now Hotstrings > Startup
+; scripts. The cfg key is left unread rather than deleted, so downgrading does not
+; lose the list.
 ; scripts auto-launched on startup (default general.ahk, preserving old behavior) + watchdog toggle
 startupScripts    := []
 for _s in StrSplit(IniRead(CFG_FILE, "Settings", "StartupScripts", "general.ahk"), ",")
@@ -343,6 +337,118 @@ BTN_ORIG_Y0  := 26 + PASTE_H0 + 12
 MakeLoader(f) => (*) => LoadFile(f)
 MakeSaver(f)  => (*) => ApplyFile(f)
 
+; ── the single Load / Save pair ───────────────────────────────────────────────
+;  Named functions rather than lambdas so the log line says which model the click
+;  meant. "It saved the wrong model" is answerable only if the click is recorded
+;  separately from the save: the button reads the TAB, and if the tab was not what
+;  you thought it was, that is the whole bug.
+LoadCurrentTab(*) {
+    global tabs
+    _mNo := tabs.Value
+    LOGD("gui.load", "Load (current tab) clicked while tab " _mNo " is in front")
+    LoadFile(MMA_ModelNames()[_mNo])
+}
+
+SaveCurrentTab(*) {
+    global tabs
+    _mNo := tabs.Value
+    LOGD("gui.save", "Save (current tab) clicked while tab " _mNo " is in front")
+    ApplyFile(MMA_ModelNames()[_mNo])
+}
+
+; Put the current model's name on the Load and Save buttons, so the button you are
+; about to press says which model it means. Called on a tab change, and after a
+; rename in Settings.
+;
+; Never throws: it is called from a Change event and from the tail of the startup
+; path, and a mislabelled button is not worth taking the window down for.
+RefreshModelHeader(*) {
+    global tabs, modelCount, legacyLoadSave, btnLoadOne, btnSaveOne
+
+    ; Before the legacy guard below, deliberately: the Lock button exists in both
+    ; layouts and it names the tab in front, so a tab change has to reach it
+    ; whichever Load/Save arrangement is in use.
+    RefreshLockButton()
+
+    ; The legacy grid names every model on its own buttons, so there is nothing
+    ; here for it to relabel.
+    if (legacyLoadSave || !IsObject(btnLoadOne))
+        return
+    try {
+        mNo := tabs.Value
+        if (mNo < 1 || mNo > modelCount)
+            return
+        nm := ModelNameForSlot(mNo)
+        if (Trim(nm) = "")
+            nm := "Model " mNo
+        btnLoadOne.Text := "Load " nm
+        btnSaveOne.Text := "Save " nm
+    }
+}
+
+; Initialised HERE, above the two functions that read it and well above the strip
+; that creates it. RefreshModelHeader() is called during startup BEFORE the bottom
+; strip exists, and in AHK v2 reading a global that has never been assigned throws
+; — so a nice-looking `if !IsObject(btnLock)` guard is itself the crash unless the
+; variable exists first. The same trap the _askedNames comment further down
+; describes, in the other direction.
+btnLock := 0
+
+; ── the Lock button ───────────────────────────────────────────────────────────
+;  Two states on one control, and the label carries the model in both — "Lock to
+;  Rama" / "Unlock (Aliw)". A button reading just "Lock" would leave the one
+;  question that matters ("which model?") to be answered by whatever you assume,
+;  and locking to the wrong model is exactly the failure lock mode has to avoid.
+;
+;  Never throws. It is called from a tab-change event and from a timer, and a
+;  mislabelled button is not worth taking the window down for — the same rule
+;  RefreshModelHeader follows.
+RefreshLockButton(*) {
+    global btnLock, tabs, modelCount
+    if !IsObject(btnLock)
+        return
+    try {
+        n := LockedModelNo()
+        if n {
+            nm := ModelNameForSlot(n)
+            btnLock.Text := "Unlock (" (Trim(nm) = "" ? "model " n : nm) ")"
+            return
+        }
+        mNo := tabs.Value
+        nm  := (mNo >= 1 && mNo <= modelCount) ? ModelNameForSlot(mNo) : ""
+        btnLock.Text := "Lock to " (Trim(nm) = "" ? "model " mNo : nm)
+    }
+}
+
+; Locking from here means the TAB IN FRONT — see the button's comment on the strip.
+; Unlocking needs no model at all, which is why the two halves share a control:
+; there is never a moment when you want "lock" and "unlock" at once.
+ToggleLockFromGui(*) {
+    global tabs, modelCount
+    if MassIsLocked() {
+        was := ClearMassLock()
+        RefreshLockButton()
+        ToolTip("Unlocked — the shared keys resolve the model normally again")
+        SetTimer(() => ToolTip(), -1800)
+        return
+    }
+    mNo := tabs.Value
+    if (mNo < 1 || mNo > modelCount) {
+        LOGW("model.lock", "Lock clicked while tab " mNo " is in front, which is not"
+                         . " one of the " modelCount " model(s) — nothing locked")
+        return
+    }
+    if !SetLockedModel(mNo)
+        return
+    RefreshLockButton()
+    ; The engine's badge is up within one poll (700ms), and it is the thing that
+    ; will still be telling you an hour from now. This tooltip is for the second
+    ; after the click, when your eyes are here and not on the corner of the screen.
+    ToolTip("Locked to " ModelLabel(mNo) "`nevery shared / side-button send goes to"
+          . " this model until you unlock")
+    SetTimer(() => ToolTip(), -2500)
+}
+
 btnLoadM := []
 btnSaveM := []
 
@@ -390,6 +496,13 @@ ApplyWindowTheme() {
     ; window is built, so that the background is right from the first paint rather
     ; than flashing white and then correcting itself.
     try THEME_ApplyTo(g)
+    ; Button labels in bold. Separate from the theme pass because it applies on
+    ; every theme, classic included — see THEME_BoldButtons.
+    try THEME_BoldButtons(g)
+    ; The selected tab's label is drawn by MMA in the theme's accent colour, from
+    ; fonts and colours cached on first paint. A theme change is the one thing that
+    ; invalidates them, and this is the one place that knows it happened.
+    try TabResetDraw()
     ; Fails harmlessly on the first call, when the window has not been shown yet.
     try WinRedraw("ahk_id " g.Hwnd)
 }
@@ -463,21 +576,21 @@ c := g.Add("Button", "x" (PX0+190) " y" BY      " w120 h28", "Export !mma")
 c.OnEvent("Click", ExportMMA)
 RegBtn(c, 190, 0)
 
-chkArchive := g.Add("Checkbox", "x" (PX0+322) " y" (BY+6) " Checked", "Archive")
-FeatCtrl(chkArchive, "archive")
-RegBtn(chkArchive, 322, 6)
+; The archive's one control on this panel. It used to be a tick box here plus a
+; small "Load from archive" button down in the load/save block — two controls for
+; one feature, in two different places, and the tick box was a per-parse switch
+; for something you either archive or you don't. The switch moved to
+; Settings ▸ GUI (ArchiveOnParse); what is left is the door into the archive, and
+; it belongs on this row, beside the other three things you DO to a mass.
+; x+320, not +322: a 10px gap like the two before it, so the four buttons read as
+; one row rather than three and a stray.
+c := g.Add("Button", "x" (PX0+320) " y" BY " w120 h28", "Archive…")
+c.OnEvent("Click", OpenArchive)
+FeatCtrl(c, "archive")
+RegBtn(c, 320, 0)
 
 c := g.Add("Text", "x" PX0 " y" (BY+38) " w" (RIGHT_W-20) " h2 0x10")
 RegBtn(c, 0, 38)
-
-c := g.Add("Text",   "x" PX0 " y" (BY+52), "-- Load fields from file --")
-RegBtn(c, 0, 52)
-lblLoaded := g.Add("Text", "x" (PX0+190) " y" (BY+52) " w140", "")
-RegBtn(lblLoaded, 190, 52)
-c := g.Add("Button", "x" (PX0+338) " y" (BY+48) " w118 h22", "Load from archive")
-c.OnEvent("Click", OpenArchive)
-FeatCtrl(c, "archive")
-RegBtn(c, 338, 48)
 
 _mNames := modelNames
 _mFiles := MMA_ModelNames()
@@ -497,7 +610,7 @@ _mRows   := Ceil(modelCount / _mPerRow)
 _mExtra  := (_mRows - 1) * _mRowH
 
 _MassBtnRow(yBase, label, makeHandler, store) {
-    global g, modelCount, _mNames, _mFiles, _mW, _mGap, _mPerRow, _mRowH, PX0
+    global g, modelCount, _mNames, _mFiles, _mW, _mGap, _mPerRow, _mRowH, PX0, BY
     Loop modelCount {
         i    := A_Index
         row  := (i - 1) // _mPerRow
@@ -512,23 +625,68 @@ _MassBtnRow(yBase, label, makeHandler, store) {
     }
 }
 
-_MassBtnRow(70, "load", MakeLoader, btnLoadM)
+; ── Load / save ───────────────────────────────────────────────────────────────
+;  TWO buttons that follow the tab you are on, rather than 2N buttons naming every
+;  model. The grid was a fair layout when it was six buttons; at eight models it is
+;  sixteen, wrapped over six rows, and picking "save Bellarama" out of them is a
+;  reading task performed under time pressure, next to "save Bella" — while the tab
+;  in front of you already says which model you mean.
+;
+;  So the pair reads the tab, and its labels say the model's name out loud: "Load
+;  Bellarama" / "Save Bellarama". Nothing about WHAT is saved changed — the mass
+;  slot is still the "mass #" row on the model's own tab.
+;
+;  The grid is still here, behind Settings ▸ GUI ▸ "Use legacy Load/Save UI", for
+;  the one thing the pair genuinely cannot do: load or save a model you are not
+;  looking at.
+if legacyLoadSave {
+    c := g.Add("Text", "x" PX0 " y" (BY+52), "-- Load fields from file --")
+    RegBtn(c, 0, 52)
+    lblLoaded := g.Add("Text", "x" (PX0+190) " y" (BY+52) " w220", "")
+    RegBtn(lblLoaded, 190, 52)
 
-c := g.Add("Text", "x" PX0 " y" (BY+108+_mExtra), "-- Apply to file --")
-RegBtn(c, 0, 108+_mExtra)
+    _MassBtnRow(70, "load", MakeLoader, btnLoadM)
 
-; The mass slot a save writes into is the "mass #" radio row at the bottom of that
-; model's own tab — not a control here. See the note beside it.
-_MassBtnRow(126 + _mExtra, "save", MakeSaver, btnSaveM)
+    c := g.Add("Text", "x" PX0 " y" (BY+108+_mExtra), "-- Apply to file --")
+    RegBtn(c, 0, 108+_mExtra)
 
-; The "-- Set massNo --" grid stood here: one row of 1/2/3 radios per MODEL. It is
-; replaced by the single "Mass #" field above — see the note there for why a
-; per-model grid could not come along to N models. SetMassNo() itself survives and
-; is still what ApplyFile calls, so the live slot is still recorded per model; you
-; just set it by saving into it rather than by clicking a separate radio.
-c := g.Add("Text", "x" PX0 " y" (BY+164+_mExtra*2) " w300 c808080",
-           "Saving writes the mass # picked on that model's tab.")
-RegBtn(c, 0, 164+_mExtra*2)
+    ; The mass slot a save writes into is the "mass #" radio row at the bottom of
+    ; that model's own tab — not a control here. See the note beside it.
+    _MassBtnRow(126 + _mExtra, "save", MakeSaver, btnSaveM)
+
+    ; The "-- Set massNo --" grid stood here: one row of 1/2/3 radios per MODEL. It
+    ; is replaced by the "mass #" row on each tab — see the note there for why a
+    ; per-model grid could not come along to N models. SetMassNo() itself survives
+    ; and is still what ApplyFile calls, so the live slot is still recorded per
+    ; model; you just set it by saving into it rather than by clicking a separate
+    ; radio.
+    c := g.Add("Text", "x" PX0 " y" (BY+164+_mExtra*2) " w300 c808080",
+               "Saving writes the mass # picked on that model's tab.")
+    RegBtn(c, 0, 164+_mExtra*2)
+} else {
+    ; No section header and no explanatory note. Both were removed on purpose: the
+    ; buttons carry the model's name ("Save Bellarama"), which says what they act on
+    ; better than a grey paragraph under them did, and the header labelled a section
+    ; that is now two buttons. Every pixel they gave back goes to the picture in the
+    ; corner, which sizes itself to whatever the controls do not claim.
+    btnLoadOne := g.Add("Button", "x" PX0 " y" (BY+52) " w150 h30", "Load")
+    btnLoadOne.OnEvent("Click", LoadCurrentTab)
+    RegBtn(btnLoadOne, 0, 52)
+
+    btnSaveOne := g.Add("Button", "x" (PX0+160) " y" (BY+52) " w150 h30", "Save")
+    btnSaveOne.OnEvent("Click", SaveCurrentTab)
+    RegBtn(btnSaveOne, 160, 52)
+
+    ; Where "loaded (mass 2)" lands. Same control the legacy branch adds and the
+    ; same global — LoadFile writes it either way and must not have to ask which
+    ; layout is on screen.
+    ;
+    ; w220, not w320: the longest thing it ever holds is "<model> loaded (mass 3)".
+    ; The extra hundred pixels were empty, and empty pixels inside a control are
+    ; not free — see the picture note above.
+    lblLoaded := g.Add("Text", "x" PX0 " y" (BY+88) " w220", "")
+    RegBtn(lblLoaded, 0, 88)
+}
 
 ; ── Left: tabs ─────────────────────────────────────────────────────────────────
 
@@ -539,15 +697,134 @@ RegBtn(c, 0, 164+_mExtra*2)
 _tabLabels := []
 Loop modelCount
     _tabLabels.Push(Trim(modelNames[A_Index]) != "" ? modelNames[A_Index] : "Mass " A_Index)
-tabs := g.Add("Tab3", "x" TAB_X " y" TAB_Y " w" INIT_TAB_W " h" (INIT_H - TAB_Y - 10 - TOGGLE_H),
+; +0x2000 is TCS_OWNERDRAWFIXED: the system still draws the tab SHAPES, and MMA
+; draws the label inside each one. That is what puts the accent colour on the
+; selected model — see TabDrawItem below for why the strip's own highlight was not
+; enough on its own.
+tabs := g.Add("Tab3", "x" TAB_X " y" TAB_Y " w" INIT_TAB_W " h" (INIT_H - TAB_Y - 10 - TOGGLE_H)
+                    . " +0x2000",
               _tabLabels)
+
+; ── which tab is selected, in colour ──────────────────────────────────────────
+;  A tab strip marks the selected tab with a few pixels of shading. On the dark
+;  theme that is close to nothing, and "which model am I typing into" is a question
+;  whose wrong answer is a save into the wrong model's file.
+;
+;  So the selected tab's LABEL is drawn in the accent colour and in bold, and the
+;  others are not. Nothing else changes: same strip, same tabs, same names.
+;
+;  This needs TCS_OWNERDRAWFIXED (set above) because a tab control gives you no
+;  say over its text colour otherwise — there is no per-item colour and no
+;  message to ask for one. Owner-draw means the system still draws the tab SHAPES,
+;  in the user's visual style, and sends us WM_DRAWITEM for the content of each
+;  one. We draw exactly the text it would have drawn, in our colour.
+;
+;  Registered HERE rather than down with the other OnMessage calls at the bottom of
+;  the file: those run after g.Show(), and the first paint happens during Show. A
+;  handler registered later would leave every tab BLANK until something forced a
+;  repaint, which is a far worse bug than the one this fixes.
+TAB_FONT_N  := 0      ; the label font, normal — created once, on first paint
+TAB_FONT_B  := 0      ;   and bold, for the selected tab
+TAB_INK_SEL := 0      ; COLORREF (BGR) for the selected label
+TAB_INK_OFF := 0      ;   and for the rest
+
+; "RRGGBB" → the 0x00BBGGRR that every GDI call wants.
+ColorBGR(hex) {
+    v := Integer("0x" hex)
+    return ((v & 0xFF) << 16) | (v & 0xFF00) | ((v >> 16) & 0xFF)
+}
+
+MakeTabFont(height, weight) {
+    return DllCall("CreateFont", "Int", height, "Int", 0, "Int", 0, "Int", 0,
+                   "Int", weight, "UInt", 0, "UInt", 0, "UInt", 0,
+                   "UInt", 1, "UInt", 0, "UInt", 0, "UInt", 0, "UInt", 0,
+                   "Str", "Segoe UI", "Ptr")
+}
+
+TabInitDraw() {
+    global TAB_FONT_N, TAB_FONT_B, TAB_INK_SEL, TAB_INK_OFF
+    if TAB_FONT_N
+        return
+    _h := -Round(9 * A_ScreenDPI / 72)
+    TAB_FONT_N := MakeTabFont(_h, 400)
+    TAB_FONT_B := MakeTabFont(_h, 700)
+    _acc := THEME_Accent()
+    if (_acc = "") {
+        ; Classic: the system owns every colour, including a high-contrast scheme
+        ; somebody may need in order to read the screen. Bold alone marks the
+        ; selection there — a hard-coded hue could be invisible.
+        _sys := DllCall("GetSysColor", "Int", 18, "UInt")   ; COLOR_BTNTEXT, already BGR
+        TAB_INK_SEL := _sys
+        TAB_INK_OFF := _sys
+        return
+    }
+    TAB_INK_SEL := ColorBGR(_acc)
+    ; NOT the theme's own ink. The tab SHAPES are drawn by the visual style and
+    ; stay light on every theme — see the note in THEME_ApplyTo about what the
+    ; system draws — so a dark theme's white label would be white on white.
+    TAB_INK_OFF := ColorBGR("3C3C43")
+}
+
+; Drop the cached fonts and colours so the next paint rebuilds them. Called when
+; the theme changes, which is the only thing that invalidates them.
+TabResetDraw() {
+    global TAB_FONT_N, TAB_FONT_B
+    if TAB_FONT_N
+        DllCall("DeleteObject", "Ptr", TAB_FONT_N)
+    if TAB_FONT_B
+        DllCall("DeleteObject", "Ptr", TAB_FONT_B)
+    TAB_FONT_N := 0
+    TAB_FONT_B := 0
+}
+
+TabDrawItem(wParam, lParam, msg, hwnd) {
+    global tabs, _tabLabels, TAB_FONT_N, TAB_FONT_B, TAB_INK_SEL, TAB_INK_OFF
+    ; DRAWITEMSTRUCT: CtlType, CtlID, itemID, itemAction, itemState (five UINTs),
+    ; then hwndItem and hDC on the pointer alignment, then rcItem.
+    ; ODT_TAB is 101, NOT 2 — 2 is ODT_LISTBOX. Measured: with the wrong constant
+    ; this returns on every message, the tabs are owner-drawn by a handler that
+    ; draws nothing, and the whole strip comes up BLANK. The style is set and the
+    ; messages do arrive; nothing in the window looks like a bad comparison.
+    if (NumGet(lParam, 0, "UInt") != 101)
+        return
+    _o := (A_PtrSize = 8) ? 24 : 20
+    if (NumGet(lParam, _o, "Ptr") != tabs.Hwnd)      ; hwndItem — not our control
+        return
+    idx := NumGet(lParam, 8, "UInt") + 1             ; itemID is 0-based
+    if (idx < 1 || idx > _tabLabels.Length)
+        return
+    TabInitDraw()
+    sel := NumGet(lParam, 16, "UInt") & 0x0001       ; ODS_SELECTED
+    hdc := NumGet(lParam, _o + A_PtrSize, "Ptr")
+    rc  := lParam + _o + A_PtrSize * 2               ; rcItem, in place
+    DllCall("SetBkMode", "Ptr", hdc, "Int", 1)       ; TRANSPARENT: keep the tab's own fill
+    DllCall("SetTextColor", "Ptr", hdc, "UInt", sel ? TAB_INK_SEL : TAB_INK_OFF)
+    old := DllCall("SelectObject", "Ptr", hdc, "Ptr", sel ? TAB_FONT_B : TAB_FONT_N, "Ptr")
+    DllCall("DrawText", "Ptr", hdc, "Str", _tabLabels[idx], "Int", -1, "Ptr", rc,
+            "UInt", 0x25)                            ; DT_CENTER|DT_VCENTER|DT_SINGLELINE
+    ; Put the DC's own font back. A device context handed to us is not ours to
+    ; leave changed, and the fonts are cached — one that is still selected into a
+    ; DC cannot be deleted on a theme change.
+    DllCall("SelectObject", "Ptr", hdc, "Ptr", old, "Ptr")
+    return 1                                          ; handled
+}
+OnMessage(0x002B, TabDrawItem)                        ; WM_DRAWITEM
 
 ; Follow-up toggles live in a left column, stacked per f-group (see the fu branch).
 ;   editFuChks[f] = [one mirror per mass]  — global "editable" toggle, kept in sync
 ;   fuChks[m][f]  = per-mass "single" toggle
 ; They sit at a fixed left x, so they need no repositioning on resize.
+; One bucket per F-GROUP, not per model — the first index is f, the second is the
+; mirror. `Loop modelCount` here is what put four [Continue][Abort] dialogs on
+; every startup: at the default ModelCount of 2 the array had two buckets, and
+; the first tab's f3 row hit editFuChks[3] with "Invalid index." Pressing
+; Continue then substitutes "" for the failed subscript and runs the rest of the
+; SAME line, so `"".Push()` raises a second dialog ("no method named Push") for
+; every one of these — two failures, four dialogs. Three is the f-group count the
+; row builder below hardcodes (fu1/fu2/fu3), and the same literal the WebView
+; twin in tools\webview_main_window.ahk allocates with.
 editFuChks := []
-Loop modelCount
+Loop 3
     editFuChks.Push([])
 fuChks     := []
 ; massNoRadios[model] = [radio per mass slot]. One group per tab, built with the
@@ -573,6 +850,19 @@ Loop modelCount {
             edCtrls["m" mNo "_" prop] := ec
             resizables.Push(ec)
             y += 109
+        } else if prop = "mass" {
+            ; Multi, like ppv — a mass is one message but not always one line. The
+            ; `!mma` header form (MassHeaderBlock in mass/parser.ahk) pastes a whole
+            ; paragraphed opener into this box, and in a single-line Edit those
+            ; breaks come out as boxes you cannot see past or edit around.
+            ec := g.Add("Edit", "x" EDIT_X " y" (y-2) " w" INIT_EDIT_W " h48 Multi")
+            edCtrls["m" mNo "_" prop] := ec
+            resizables.Push(ec)
+            ; 54, not 48+6: the taller box already reads as a separated block, and
+            ; the column of fields ends 30px above the tab's bottom edge even when
+            ; the toggle strip below wraps to three lines. There is no room to
+            ; spend on a gap that is already there.
+            y += 54
         } else {
             ec := g.Add("Edit", "x" EDIT_X " y" (y-2) " w" INIT_EDIT_W " h22")
             edCtrls["m" mNo "_" prop] := ec
@@ -625,6 +915,9 @@ Loop modelCount {
     }
 }
 tabs.UseTab()
+; Switching tab switches which model every Load/Save on the right panel acts on, so
+; the labels that name that model have to move with it.
+tabs.OnEvent("Change", RefreshModelHeader)
 
 ; ── fill every model's tab from its live slot, now ────────────────────────────
 ;  A tab per model means every model is on screen at once, so leaving them all
@@ -651,6 +944,10 @@ try {
 } catch as e
     LOGE("gui.load", "could not pre-fill the model tabs — they will be blank until"
                    . " you press load", LOG_Err(e))
+; Unconditionally, outside the try: a library that failed to load still leaves a
+; window whose Load/Save buttons have to name a model, or they come up reading
+; "Load" and "Save" and the panel looks like it did not finish building.
+RefreshModelHeader()
 
 ; ── Script toggle section (below mass tabs) ────────────────────────────────────
 
@@ -659,36 +956,45 @@ TOGG_Y0 := INIT_H - TOGGLE_H + 8   ; initial y of this section
 ; The x/y given here are placeholders — ApplyLayout reflows the whole strip
 ; before the window is shown, so only the width and the row matter.
 
-c := g.Add("Button", "x" TAB_X " y" TOGG_Y0 " w130 h28", "Open with Code")
-c.OnEvent("Click", (*) => Run(Chr(34) CODE_CMD Chr(34) " " Chr(34) SCRIPT_DIR Chr(34)))
-RegTog(c, 130, 0)
+; ── what is NOT on this strip any more ────────────────────────────────────────
+;  "Open with Code" and "How to Use" moved to Settings > Scripts. Neither is a
+;  thing you reach for while working a mass — one opens an editor, the other opens
+;  the manual — and on the strip they sat between Settings and Add Hotkey, which
+;  are.
+;
+;  "New Script" moved to the bottom of the Add Hotkey window. It creates a file
+;  for hotkeys to go INTO, so it belongs where you are choosing that file, not one
+;  window away from it.
+;
+;  "Add Hotkey" itself moved to the Hotstrings window. What it writes IS a
+;  hotstring in one of the message files, and Hotstrings is the window that lists
+;  them, searches them, overloads them and deletes them — so "add one" belongs
+;  beside all of that rather than on the strip you reach across mid-send. The
+;  window is a separate process and the dialog is built out of THIS file's
+;  globals, so it asks for it by message: see MMA_MSG_ADD_HOTKEY below.
+;
+;  The per-script "◻ NAME" toggles are gone entirely, along with the Visible
+;  scripts checkboxes in Settings that decided which of them appeared. Their one
+;  real use — restarting a message script that has stopped responding — is now
+;  Hotstrings > Startup scripts, which shows every script's live state instead of
+;  a row of buttons whose labels went stale the moment anything died on its own.
 
 c := g.Add("Button", "x" TAB_X " y" TOGG_Y0 " w80 h28", "Settings")
 c.OnEvent("Click", OpenSettings)
 RegTog(c, 80, 0)
-
-c := g.Add("Button", "x" TAB_X " y" TOGG_Y0 " w95 h28", "Add Hotkey")
-c.OnEvent("Click", (*) => OpenAddHotkey())
-RegTog(c, 95, 0)
-
-c := g.Add("Button", "x" TAB_X " y" TOGG_Y0 " w85 h28", "How to Use")
-c.OnEvent("Click", OpenGuide)
-RegTog(c, 85, 0)
-
-c := g.Add("Button", "x" TAB_X " y" TOGG_Y0 " w90 h28", "New Script")
-c.OnEvent("Click", NewAccScript)
-RegTog(c, 90, 0)
 
 c := g.Add("Button", "x" TAB_X " y" TOGG_Y0 " w100 h28", "Hotstrings")
 c.OnEvent("Click", OpenHotstrings)
 FeatCtrl(c, "hotstrings")
 RegTog(c, 100, 0)
 
-; Label carries the state, so the button is also the running indicator.
-btnPinger := g.Add("Button", "x" TAB_X " y" TOGG_Y0 " w95 h28", "Pinger: OFF")
-btnPinger.OnEvent("Click", TogglePinger)
-ModeCtrl(btnPinger)   ; NOT FeatCtrl: this button is the pinger's own on/off switch
-RegTog(btnPinger, 95, 0)
+; Was "Pinger: ON / OFF" — one background tool out of five, because it was the one
+; people asked about. Now every tool is behind it, and the count is read rather
+; than remembered: see tools_window.ahk and RefreshToolsLabel.
+btnTools := g.Add("Button", "x" TAB_X " y" TOGG_Y0 " w95 h28", "Tools")
+btnTools.OnEvent("Click", (*) => OpenToolsWindow(g.Hwnd))
+ModeCtrl(btnTools)   ; NOT FeatCtrl: this is where the tools' own switches live
+RegTog(btnTools, 95, 0)
 
 ; ONE button. "Alt FUs…" and "Branches…" were two, opening two windows that
 ; edited two halves of the same list — see the Variants window below.
@@ -697,19 +1003,24 @@ c.OnEvent("Click", OpenVariantsWindow)
 FeatCtrl(c, "altFollowups")
 RegTog(c, 95, 0)
 
-; (single/editable follow-up toggles moved inline onto the f1/f2/f3 rows above)
+; ── the lock ──────────────────────────────────────────────────────────────────
+;  Lock mode pins every shared [mass.active] key to ONE model and stops the "which
+;  model?" picker opening at all, because a shift is worked one model at a time —
+;  see the lock-mode block in core/active_model.ahk.
+;
+;  It locks to THE TAB IN FRONT, not to whatever the engine last resolved, and the
+;  button says which so the two can never disagree: from this window the model you
+;  are looking at is the only unambiguous answer, and a button that reads "Lock to
+;  Rama" cannot lock you to somebody else.
+;
+;  The engine owns the same switch on a key (mass.select.lock) and the picker owns
+;  it on a checkbox. All three write the one cfg key and the badge follows it, so
+;  none of them has to know the others exist.
+btnLock := g.Add("Button", "x" TAB_X " y" TOGG_Y0 " w150 h28", "Lock to model")
+btnLock.OnEvent("Click", ToggleLockFromGui)
+RegTog(btnLock, 150, 0)
 
-Loop Files, ACC_DIR "\*.ahk" {
-    spath := A_LoopFilePath
-    sname := StrReplace(A_LoopFileName, ".ahk", "")
-    if (A_LoopFileName = "main_window.ahk" || A_LoopFileName = "mass_gui copy.ahk")
-        continue
-    if hiddenScripts.Has(A_LoopFileName)
-        continue
-    btn := g.Add("Button", "x" TAB_X " y" (TOGG_Y0+34) " w70 h28", "◻ " sname)
-    btn.OnEvent("Click", MakeScriptToggle(spath, btn))
-    RegTog(btn, 70, 1)
-}
+; (single/editable follow-up toggles moved inline onto the f1/f2/f3 rows above)
 
 ; ── What the two panels actually need ─────────────────────────────────────────
 ; Measured from the controls themselves rather than guessed, so adding a button
@@ -717,24 +1028,52 @@ Loop Files, ACC_DIR "\*.ahk" {
 ;
 ; BTN_STACK_H — the tallest thing hanging off the right panel's button origin.
 ;               The paste box above it is capped so this always fits.
-; RIGHT_MIN   — the width the right panel needs before its widest row (the
-;               "Load from archive" line) starts running off the window edge.
+; RIGHT_MIN   — the width the right panel needs before its widest row (Parse …
+;               Archive…) starts running off the window edge.
 BTN_STACK_H := 0
 RIGHT_MIN   := 0
 for _, bc in btnCtrls {
-    if (bc.oy + 30 > BTN_STACK_H)
-        BTN_STACK_H := bc.oy + 30
-    bc.c.GetPos(, , &_bcW)
+    ; The control's OWN height, not a flat 30 for everything. The stack now ends in
+    ; a wrapped grey line three rows tall, and a stack measured 15px short is a
+    ; paste box allowed 15px too much — which eats the last line of it at the
+    ; smallest window size, where the note is most worth reading.
+    bc.c.GetPos(, , &_bcW, &_bcH)
+    ; Kept on the entry, because the picture in the corner needs to know where
+    ; every one of these actually IS to find the space none of them use. Measured
+    ; once, here, rather than GetPos'd for ten controls on every WM_SIZE.
+    bc.w := _bcW
+    bc.h := _bcH
+    if (bc.oy + _bcH + 8 > BTN_STACK_H)
+        BTN_STACK_H := bc.oy + _bcH + 8
     if (bc.ox + _bcW + 20 > RIGHT_MIN)
         RIGHT_MIN := bc.ox + _bcW + 20
 }
 ; The left panel needs its label gutter plus a usable edit box.
 LEFT_MIN := EDIT_X + 200
 
-lblCredit := g.Add("Text", "x10 y" (TOGG_Y0 + 38), "made by actually.silly")
+; ── the credit, and the corner she stands in ──────────────────────────────────
+;  She is whatever is in assets\ — an animated GIF if there is one, otherwise the
+;  PNG. Drop a file in and she appears; delete it and the credit is just the line
+;  of text again. Nothing else in MMA depends on her existing.
+;
+;  WHERE: the empty block under the right panel's button stack, above the credit.
+;  That corner is dead space at every window size — the button stack is a fixed
+;  height and the panel is not — so it is the one place a picture costs nothing.
+;
+;  HOW BIG: a ladder of discrete heights; ApplyLayout picks the largest whose
+;  rectangle clears every visible control. The scaling, the frames and the timer
+;  all live in credit.ahk — see the header there for why this stopped being a row
+;  of hidden Picture controls.
+CREDIT_PLAIN := "made by actually.silly"
+lblCredit := g.Add("Text", "x10 y" (TOGG_Y0 + 38), CREDIT_PLAIN)
 ; Measured before Show, because ApplyLayout needs the width and a resize can
 ; arrive the moment the window appears.
 lblCredit.GetPos(, , &lblCreditW)
+
+; She is created here and asked about on every layout pass — CREDIT_Sizes() comes
+; back EMPTY when there is no picture or Settings has her switched off, and every
+; reader is a loop over it, so "no picture" needs no second code path.
+CREDIT_Load(g, 10, TOGG_Y0 + 36)
 
 ApplyLayout(INIT_W, INIT_H)
 ; Again, now that every control exists. The call at the top of the file set the
@@ -754,82 +1093,112 @@ try {
 }
 
 ; ─── Variants window (hidden until opened) ────────────────────────────────────
-;  ONE window. It was two — "Alt FUs…" opened gAlt and "Branches…" opened
-;  gBranch — which put the alternatives for f1 in one place and the branches'
-;  version of f1 in another, with nothing on screen connecting them.
+;  ONE GRID: a row per branch, a column per follow-up.
 ;
-;  They are the same question. At send time the follow-up key stages exactly this
-;  list and TAB walks it (see AltVariants in core/utils.ahk), so the window is
-;  laid out to match what you will see in the chatbox: per follow-up, every way
-;  to answer it, in order — main, the alts, then each branch.
+;  It was two windows once ("Alt FUs…" and "Branches…"), then one window of four
+;  cells — and the four cells still had the old split inside them: a "main" echo,
+;  three `alt` boxes, then three branch boxes, per follow-up. So one branch was
+;  four boxes in four corners, tied together only by a repeated row label, and the
+;  alt boxes in between belonged to no branch at all. "What does mexican say?" was
+;  a question you answered by looking in four places.
 ;
-;  What is EDITABLE here is only what has nowhere else to live: the alt fields,
-;  the branch names, and each branch's fu1/fu2/fu3/ppv. "main" is the read-only
-;  echo of the box in the main panel — registering a second control under the
-;  same edCtrls key would orphan the first, and the main panel would silently
-;  stop loading and saving it.
+;  There is only one kind of alternative now (see the record shape in
+;  mass/store.ahk), so the window is the shape of the data:
 ;
-;  A branch spans all four cells, so its NAME is edited once at the top and the
-;  row labels follow it live; a branch called "soft" reads "soft:" under FU1,
-;  FU2, FU3 and PPV. That is the connection the two windows never showed.
+;              FU1          FU2          FU3          PPV
+;    main      (echo)       (echo)       (echo)       (echo)
+;    1 alt     …            …            …            …
+;    2 mexican …            …            …            …
+;
+;  Across a row is one branch's whole conversation. Down a column is every way to
+;  answer that follow-up — which is exactly the list the key stages and TAB walks
+;  (AltVariants in core/utils.ahk). The name is edited in the row it names.
+;
+;  A cell may hold up to MASS_FU_PARTS lines, and each line is one message: the
+;  same three sub-slots the trunk has (f1, f1.5, f1.7), for the same reason.
+;
+;  "main" is a read-only echo of the main panel's boxes — registering a second
+;  control under the same edCtrls key would orphan the first, and the main panel
+;  would silently stop loading and saving it.
 
-VAR_W       := 980
-VAR_H       := 812
-VAR_COL1_X  := 12
-VAR_COL2_X  := 498
-VAR_LABEL_W := 78
-VAR_EDIT_DX := 84                       ; edit offset from the column's left edge
-VAR_EDIT_W  := 374
-VAR_ROW1_Y  := 100
-VAR_ROW2_Y  := 420                      ; a follow-up cell is 312 tall
+VAR_GRID_X   := 14
+VAR_NAME_W   := 120
+VAR_COL_W    := 194
+VAR_COL_GAP  := 8
+VAR_ROW_H    := 62
+VAR_HEAD_Y   := 74                      ; the FU1/FU2/FU3/PPV column headings
+VAR_MAIN_Y   := 96                      ; the trunk echo row
+VAR_ROWS_Y   := VAR_MAIN_Y + VAR_ROW_H + 10
+VAR_W        := VAR_GRID_X * 2 + VAR_NAME_W + 4 * (VAR_COL_W + VAR_COL_GAP) + 16
+VAR_H        := VAR_ROWS_Y + MASS_BRANCH_MAX * VAR_ROW_H + 92
 
-; varBaseEcho / varBranchLbls are declared with edCtrls near the top — see there.
+; varBaseEcho is declared with edCtrls near the top — see there.
 
-gVar := Gui("+Resize +MinSize720x520", "Variants — alts and branches")
+gVar := Gui("+Resize +MinSize720x520", "Variants — every way to answer a follow-up")
 gVar.BackColor := "15141C"
 gVar.SetFont("s9 cE6E4EE", "Segoe UI")
 _varLabels := []
 Loop modelCount
     _varLabels.Push("M" A_Index)
-varTabs := gVar.Add("Tab3", "x10 y10 w" (VAR_W-20) " h745", _varLabels)
+varTabs := gVar.Add("Tab3", "x10 y10 w" (VAR_W-20) " h" (VAR_H-56), _varLabels)
 
 Loop modelCount {
     mNo := A_Index
     varTabs.UseTab(mNo)
 
-    ; ── branch names, once for the whole tab ──────────────────────────────────
-    gVar.SetFont("s10 Bold cB89CFF", "Segoe UI")
-    gVar.Add("Text", "x" VAR_COL1_X " y42 w300", "BRANCHES")
+    ; ── column headings ───────────────────────────────────────────────────────
     gVar.SetFont("s8 Norm c8E8AA6", "Segoe UI")
-    gVar.Add("Text", "x" (VAR_COL1_X + 90) " y44 w560",
-             "name them here — the rows below follow. Leave blank for none.")
-    gVar.SetFont("s9 Norm cE6E4EE", "Segoe UI")
-    Loop MASS_BRANCH_MAX {
-        k  := A_Index
-        bx := VAR_COL1_X + (k - 1) * 318
-        gVar.Add("Text", "x" bx " y67 w18 Right c8E8AA6", k ":")
-        ec := gVar.Add("Edit", "x" (bx + 24) " y64 w270 h22 Background201E2B")
-        edCtrls["m" mNo "_br" k "_name"] := ec
-        ec.OnEvent("Change", VarRenameBranch.Bind(mNo, k))
+    gVar.Add("Text", "x" VAR_GRID_X " y42 w" (VAR_W - 40),
+             "One row per branch. Across a row is that branch's whole conversation;"
+           . " down a column is every way to answer that follow-up, in the order the"
+           . " picker shows them. One line per message, up to " MASS_FU_PARTS ".")
+    gVar.SetFont("s10 Bold cB89CFF", "Segoe UI")
+    _hx := VAR_GRID_X + VAR_NAME_W + VAR_COL_GAP
+    for _, _hd in ["FU1", "FU2", "FU3", "PPV"] {
+        gVar.Add("Text", "x" _hx " y" VAR_HEAD_Y " w" VAR_COL_W, _hd)
+        _hx += VAR_COL_W + VAR_COL_GAP
     }
 
-    ; ── the four cells: FU1 FU2 / FU3 PPV ─────────────────────────────────────
-    VarBuildCell(gVar, mNo, "fu1", VAR_COL1_X, VAR_ROW1_Y)
-    VarBuildCell(gVar, mNo, "fu2", VAR_COL2_X, VAR_ROW1_Y)
-    VarBuildCell(gVar, mNo, "fu3", VAR_COL1_X, VAR_ROW2_Y)
-    VarBuildCell(gVar, mNo, "ppv", VAR_COL2_X, VAR_ROW2_Y)
+    ; ── the trunk, read-only, as the first row of the same grid ───────────────
+    gVar.SetFont("s9 Norm c8E8AA6", "Segoe UI")
+    gVar.Add("Text", "x" VAR_GRID_X " y" (VAR_MAIN_Y + 6) " w" VAR_NAME_W, "main")
+    gVar.SetFont("s9 Norm cE6E4EE", "Segoe UI")
+    _mx := VAR_GRID_X + VAR_NAME_W + VAR_COL_GAP
+    for _, _grp in ["fu1", "fu2", "fu3", "ppv"] {
+        varBaseEcho[mNo "_" _grp] := gVar.Add("Edit",
+            "x" _mx " y" VAR_MAIN_Y " w" VAR_COL_W " h" (VAR_ROW_H - 8)
+          . " ReadOnly Multi +VScroll Background1B1A24")
+        _mx += VAR_COL_W + VAR_COL_GAP
+    }
+
+    ; ── one row per branch ────────────────────────────────────────────────────
+    Loop MASS_BRANCH_MAX
+        VarBuildBranchRow(gVar, mNo, A_Index, VAR_ROWS_Y + (A_Index - 1) * VAR_ROW_H)
 }
 varTabs.UseTab()
 
 gVar.SetFont("s9 cE6E4EE", "Segoe UI")
-gVar.Add("Button", "x10 y765 w120 h28", "Save to file")
+_varBtnY := VAR_H - 44
+gVar.Add("Button", "x10 y" _varBtnY " w120 h28", "Save to file")
      .OnEvent("Click", (*) => ApplyFile(MMA_ModelNames()[varTabs.Value]))
-gVar.Add("Button", "x140 y765 w80 h28", "Close").OnEvent("Click", (*) => gVar.Hide())
+gVar.Add("Button", "x140 y" _varBtnY " w80 h28", "Close").OnEvent("Click", (*) => gVar.Hide())
+; ── the guided way in ─────────────────────────────────────────────────────────
+;  The grid above is the whole mass at once, which is what you want for READING
+;  it and not what you want for adding one line to it: it never says that a row
+;  is a branch, that the row needs a name before the picker can offer it, or that
+;  a second wording goes on a second LINE of one cell rather than in the next
+;  column. This button asks those in order. See ui/alt_fu_window.ahk.
+;  Through a lambda that passes NOTHING, not bound straight to the function: a
+;  click handler is handed the control object as its first argument, and
+;  OpenAddAltFu's first parameter is the text to prefill the paste box with.
+gVar.Add("Button", "x230 y" _varBtnY " w120 h28", "Add alt-FU" Chr(0x2026))
+     .OnEvent("Click", (*) => OpenAddAltFu())
 gVar.SetFont("s8 c8E8AA6", "Segoe UI")
-gVar.Add("Text", "x240 y771 w720",
-         "Any of these may span lines — each line is sent as its own message. "
-       . "The follow-up key stages them all; TAB moves, Enter sends, Esc cancels.")
+gVar.Add("Text", "x360 y" (_varBtnY + 6) " w" (VAR_W - 380),
+         "Written in a paste as `::name text` — one marker, whatever the wording is."
+       . "  The follow-up key stages them all; TAB moves, Enter sends, Esc cancels.")
 ArchiveDarkTheme(gVar, [])
+THEME_BoldButtons(gVar)
 
 ; LaunchEngine() and LaunchSequences() ran here until now. They run at the TOP of
 ; this file instead — both own hotkeys, and waiting for the whole GUI to be built
@@ -849,7 +1218,19 @@ if FEAT("modelDetector")
     LaunchDetector()
 if FEAT("statsOverlay")
     LaunchStatsOverlay()
-SetTimer(RefreshPingerLabel, -800)   ; after python has claimed the event
+if FEAT("typelog")
+    LaunchTypelog()
+if FEAT("replyBox")
+    LaunchReplyBox()
+SetTimer(RefreshToolsLabel, -800)   ; after python has claimed the events
+
+; The lock is set from three places in two processes — this button, the engine's
+; lock key, and the picker's checkbox — so the button reads the cfg rather than
+; remembering what it last did. One ini read every 1.2s, and it is what keeps this
+; window from claiming "Lock to Rama" while a lock put on from a keypress is
+; already live.
+RefreshLockButton()
+SetTimer(RefreshLockButton, 1200)
 if autoRestart
     SetTimer(WatchdogTick, 5000)
 
@@ -904,6 +1285,9 @@ ToggleLines(leftW) {
 }
 
 ; Same walk, this time moving the controls.
+;
+; Returns where the NEXT control would have gone, {x, y}. The credit line uses it
+; to find out whether the strip's last line reaches across to it — see ApplyLayout.
 FlowToggles(leftW, topY) {
     global togCtrls, TAB_X, TOG_GAP, TOG_LINE
     x := TAB_X, y := topY, curRow := -1
@@ -921,10 +1305,27 @@ FlowToggles(leftW, topY) {
         t.c.Move(x, y)
         x += t.w + TOG_GAP
     }
+    return {x: x, y: y}
+}
+
+; The last size ApplyLayout ran at, so anything that changes what the layout should
+; DO can re-run it without knowing the window's size. Not WinGetClientPos: that
+; answers in device pixels and every coordinate in here is in AHK's logical units,
+; so on a 125% display it would lay the window out a quarter too big.
+LAST_W := INIT_W
+LAST_H := INIT_H
+
+; Re-run the layout at the size it last ran at. For settings that change where
+; things go without changing what exists — Settings ▸ GUI ▸ Corner picture is the
+; first of them.
+RelayoutNow() {
+    global LAST_W, LAST_H
+    ApplyLayout(LAST_W, LAST_H)
 }
 
 ApplyLayout(W, H) {
     global
+    LAST_W := W, LAST_H := H
     ; Around sixty controls move on every WM_SIZE. Left to repaint one at a time,
     ; dragging an edge tears the window — which is what "hates resizing" looked
     ; like. Suppress drawing for the batch and repaint once at the end. The
@@ -935,7 +1336,7 @@ ApplyLayout(W, H) {
         ; The split is a proportion until one side would be squeezed below what
         ; its controls need. A flat 66% meant the right panel got 34% of a narrow
         ; window — a couple of hundred pixels for a column of 460px-wide rows, so
-        ; "Export !mma", "load <model>" and "Load from archive" simply ran off the
+        ; "Export !mma", "load <model>" and "Archive…" simply ran off the
         ; edge. Below LEFT_MIN + RIGHT_MIN there is no honest answer; MinSize
         ; keeps the window above it.
         pasteX := Round(W * PASTE_SPLIT)
@@ -972,7 +1373,60 @@ ApplyLayout(W, H) {
             ec.Move(,, editW)
 
         FlowToggles(leftW, togY)
-        lblCredit.Move(W - lblCreditW - 10, H - 20)
+        creditY := H - 20
+        lblCredit.Move(W - lblCreditW - 10, creditY)
+
+        ; ── the empty corner, and the biggest copy of her that fits ───────────
+        ;  The block under the right panel's button stack: from the bottom of the
+        ;  stack down to the credit, and the panel's full width. Measured from the
+        ;  stack rather than assumed, so adding a button to that panel takes its
+        ;  space back automatically instead of drawing over her.
+        ;
+        ;  Largest-that-fits, and nothing at all when even the smallest does not.
+        ;  Decoration is the first thing to give up room, never the controls.
+        ;  Which rung fits is decided against the CONTROLS, not against a box drawn
+        ;  under them. "Everything below the button stack" was the obvious rule and
+        ;  it was far too mean: the stack's bottom half is the lblLoaded line and a
+        ;  330px grey note, both left-aligned in a panel half again as wide, so the
+        ;  rule threw away a tall column of genuinely empty space to the right of
+        ;  them and capped her at a third of the size that fits.
+        ;
+        ;  So she is bottom-right-anchored, and a rung fits when its rectangle
+        ;  overlaps NO visible control in the panel — checked against the real
+        ;  positions, which also means a button added to that panel later takes its
+        ;  space back on its own.
+        ; Asked fresh, not cached: Settings can switch her off, on, or over to a
+        ; different file while the window is up, and it says so by handing back a
+        ; different list.
+        picSizes := CREDIT_Sizes()
+        if picSizes.Length {
+            blockBot := creditY - 4                 ; clear of the credit line
+            paneTop  := 26 + newPasteH + 8          ; clear of the paste box
+            pick := 0, pickX := 0, pickY := 0
+            for _i, p in picSizes {                 ; smallest first → ends on the
+                picL := W - 8 - p.w                 ;   largest that fits
+                picT := blockBot - p.h
+                if (picT < paneTop || picL < pasteX + 8)
+                    continue
+                clear := true
+                for _, bc in btnCtrls {
+                    if !bc.c.Visible
+                        continue
+                    bl := pasteX + bc.ox, bt := newBtnOrig + bc.oy
+                    ; 6px of air, so she never looks like she is touching a label.
+                    if (picL < bl + bc.w + 6 && picL + p.w + 6 > bl
+                     && picT < bt + bc.h + 6 && picT + p.h + 6 > bt) {
+                        clear := false
+                        break
+                    }
+                }
+                if clear
+                    pick := _i, pickX := picL, pickY := picT
+            }
+            CREDIT_Place(pick, pickX, pickY)
+        } else {
+            CREDIT_Place(0, 0, 0)   ; switched off, or no file — and stops the timer
+        }
     }
     finally {
         DllCall("SendMessage", "Ptr", g.Hwnd, "UInt", 0x000B, "Ptr", 1, "Ptr", 0)
@@ -1025,6 +1479,21 @@ AutoParseFromClipboard(wParam, lParam, msg, hwnd) {
 ; Paste the clipboard into edPaste and parse it. Posted by copyDiscordMessageSeq
 ; in sequences.ahk, and by WebImportFromClipboard below.
 OnMessage(MMA_MSG_AUTOPARSE, AutoParseFromClipboard)
+
+; The Hotstrings window's "Add hotkey…" button. It is another process and the
+; dialog below is built out of this file's globals — the account file list, the
+; default target file, the snd/SendText writers — so the button asks for the
+; window rather than building one of its own. See MMA_MSG_ADD_HOTKEY.
+;
+; The caller has already called AllowSetForegroundWindow for this process, which is
+; what lets the dialog come up IN FRONT rather than blinking in the taskbar behind
+; the window you pressed the button in.
+OpenAddHotkeyFromMsg(wParam, lParam, msg, hwnd) {
+    LOGI("gui.hotkey", "Add Hotkey requested by the Hotstrings window")
+    OpenAddHotkey()
+    return 1
+}
+OnMessage(MMA_MSG_ADD_HOTKEY, OpenAddHotkeyFromMsg)
 
 ; ─── One-click import from the draft/archive webgui ───────────────────────────
 ; The webgui's "Send to MMA" copies "#MMA-IMPORT#\n<mma text>" to the clipboard.
@@ -1199,28 +1668,58 @@ PromptSaveTarget(detectedName := "") {
                                                        : "name unknown, offering model 1")
                      . "   (" modelItems.Length " model(s) on offer)")
 
-    chkRemember := pg.Add("Checkbox", "x60 y72 w230", "Remember this name for the model")
+    ; ── which site this model is worked on ────────────────────────────────────
+    ;  This is the first time MMA has seen this model, and the platform is the one
+    ;  thing about it that nothing can work out on its own: it decides which
+    ;  detector is expected to see the model, and getting it wrong is silent —
+    ;  the follow-up keys simply stop resolving on that site.
+    ;
+    ;  It was only in Settings ▸ Models, a window away from the moment you are
+    ;  actually telling MMA about a new model, so in practice it kept its default
+    ;  and nobody found out until the keys misfired. Asked here it costs one
+    ;  dropdown, once.
+    ;
+    ;  It follows the MODEL dropdown, not the name: platform is a fact about the
+    ;  slot (it is stored as [Settings] Platform<n>), and picking a different model
+    ;  has to show that model's answer rather than leave the last one's on screen.
+    pg.Add("Text", "x10 y74 w48", "Site:")
+    ddlPlat := pg.Add("DropDownList", "x60 y71 w190",
+                      ["Infloww (detect)", "Fansly (detect)"])
+    SyncPlatform()
 
-    pg.Add("Text", "x10 y100 w45", "Mass #:")
-    rd1 := pg.Add("Radio", "x60 y98 Group", "1")
-    rd2 := pg.Add("Radio", "x105 y98", "2")
-    rd3 := pg.Add("Radio", "x150 y98", "3")
+    chkRemember := pg.Add("Checkbox", "x60 y102 w230", "Remember this name for the model")
+
+    pg.Add("Text", "x10 y130 w45", "Mass #:")
+    rd1 := pg.Add("Radio", "x60 y128 Group", "1")
+    rd2 := pg.Add("Radio", "x105 y128", "2")
+    rd3 := pg.Add("Radio", "x150 y128", "3")
     rd1.Value := true
 
-    pg.Add("Button", "x10  y130 w110 h26 Default", "Parse + Save").OnEvent("Click", DoSave)
-    pg.Add("Button", "x130 y130 w80 h26", "Cancel").OnEvent("Click", (*) => pg.Destroy())
+    pg.Add("Button", "x10  y160 w110 h26 Default", "Parse + Save").OnEvent("Click", DoSave)
+    pg.Add("Button", "x130 y160 w80 h26", "Cancel").OnEvent("Click", (*) => pg.Destroy())
 
     cbName.OnEvent("Change", NameChanged)   ; auto-pick the model when the name is known
+    ddlModel.OnEvent("Change", (*) => SyncPlatform())
     ; w230 clipped the "Remember this name for the model" checkbox mid-word — the one
     ; control that tells you the prompt will not ask again. The widths above are fixed
     ; rather than AutoSize on purpose (see the GUI geometry notes: AutoSize and
     ; -DPIScale both undersize this window).
-    pg.Show("w310 h172")
+    pg.Show("w310 h202")
+
+    ; Show the selected model's stored platform. Guarded on the slot, because a
+    ; dropdown with nothing chosen reads 0 and ModelPlatform(0) is not a question.
+    SyncPlatform(*) {
+        s := ddlModel.Value
+        if s
+            ddlPlat.Value := (ModelPlatform(s) = "fansly") ? 2 : 1
+    }
 
     NameChanged(*) {
         s := MatchModelName(cbName.Text)
-        if s
+        if s {
             ddlModel.Value := SafeSlot(s, modelItems.Length, "import prompt (name typed)")
+            SyncPlatform()
+        }
     }
 
     DoSave(*) {
@@ -1234,6 +1733,15 @@ PromptSaveTarget(detectedName := "") {
         }
         if (chkRemember.Value && Trim(cbName.Text) != "")
             RememberModelName(cbName.Text, slot)
+        ; Written whether or not "Remember" is ticked: that checkbox is about the
+        ; NAME → model mapping, and the platform is a property of the model slot
+        ; itself. Ticking nothing must not leave the site unrecorded.
+        _plat := (ddlPlat.Value = 2) ? "fansly" : "infloww"
+        if (ModelPlatform(slot) != _plat) {
+            SetModelPlatform(slot, _plat)
+            LOGI("gui.import", "model " slot " is now marked as a " _plat
+                             . " model, from the import prompt")
+        }
         _lastImportModel := slot
         ; The prompt's two answers now go to two different places. `tabs.Value` is
         ; the MODEL, because a tab is a model — this line used to put the "Mass #"
@@ -1267,17 +1775,24 @@ ParseCurrent(*) {
             c.Value := ""
     FillTab(StrSplit(raw, "`n"), mNo)
     VarRefresh()                ; alts and branches never surface in the main panel
-    if FEAT("archive") && chkArchive.Value && Trim(raw) != "" {
-        mName := mNo = 1 ? model1Name : mNo = 2 ? model2Name : model3Name
+    ; Archiving is silent in both directions now. It used to raise a Yes/No dialog
+    ; on every duplicate — mid-parse, with the fields already filled, for the most
+    ; ordinary thing you can do here: fix a line and press Parse again. The answer
+    ; was "No" every time, so the dialog was a keystroke charged for nothing. A mass
+    ; already archived TODAY is simply not archived twice; the tooltip says so.
+    if FEAT("archive") && LOG_IniInt(CFG_FILE, "Settings", "ArchiveOnParse", 1)
+                       && Trim(raw) != "" {
+        mName := ModelNameForSlot(mNo)
         if Trim(mName) = ""
             mName := "m" mNo    ; an unnamed slot used to write "[]", which no dup check could match
-        dup := ArchiveFindDuplicate(mName, raw)
-        if (!dup || ArchiveDuplicatePrompt(dup, mName)) {
+        if dup := ArchiveFindDuplicate(mName, raw) {
+            LOGI("gui.parse", "not archiving — this mass is already in the archive"
+                            . " from " dup.ts " [" dup.model "]")
+            ToolTip("Archive: already saved today")
+            SetTimer(ClearArchiveTip, -1500)
+        } else {
             ts := FormatTime(, "yyyy-MM-dd HH:mm:ss")
             FileAppend "[" ts "] [" mName "]`n" raw "`n===END===`n`n", ArchiveFile(), "UTF-8"
-        } else {
-            ToolTip("Archive: skipped")
-            SetTimer(ClearArchiveTip, -1500)
         }
     }
 }
@@ -1678,6 +2193,9 @@ UpdateModelButtons() {
         btnLoadM[i].Text := "load " modelNames[i]
         btnSaveM[i].Text := "save " modelNames[i]
     }
+    ; The other layout keeps the name on ONE pair of buttons, which the loop above
+    ; does not touch. Returns immediately under the legacy grid.
+    RefreshModelHeader()
 }
 
 ; Launch the standalone Hotstrings manager (hotstrings_window.ahk). It's #SingleInstance,
@@ -1830,7 +2348,140 @@ OpenAddHotkey(prefill := "", *) {
         edLines.Value := prefill
     ah.Add("Button", "x10  y202 w85 h28", "Append").OnEvent("Click", DoAppend)
     ah.Add("Button", "x105 y202 w85 h28", "Cancel").OnEvent("Click", (*) => ah.Destroy())
+
+    ; ── an optional key, recorded rather than typed ───────────────────────────
+    ;  A hotstring you are writing because you will send it forty times a day is
+    ;  exactly the one that wants a key, and this is the moment you know that —
+    ;  not later, in another window, having remembered.
+    ;
+    ;  RECORDED, not typed. The Hotkey box above takes `^!9` as text and always
+    ;  has, and that is a different thing in two ways: it writes a bare hotkey
+    ;  block into the message file (invisible to the Hotkeys tab and to the
+    ;  conflict report — see core/utils.ahk), and it asks you to know that `#` is
+    ;  Win and `+` is Shift. This captures the chord you press and stores it as a
+    ;  [hotstring] binding against the trigger, which is the same thing the
+    ;  Hotstrings window's Hotkey button writes.
+    ;
+    ;  Nothing is written until Append. Recording is a note to the dialog.
+    _recKey := ""
+    ah.SetFont("s9")
+    ah.Add("Text", "x390 y207 w60 Right", "Key:")
+    lblRec := ah.Add("Text", "x455 y207 w150", "(none — optional)")
+    btnRec := ah.Add("Button", "x610 y202 w90 h28", "Record" Chr(0x2026))
+    btnRec.OnEvent("Click", RecordKey)
+    btnRecClear := ah.Add("Button", "x706 y202 w60 h28", "Clear")
+    btnRecClear.OnEvent("Click", ClearKey)
+
+    ; ── the other thing this text can BE ──────────────────────────────────────
+    ;  Everything else in this window writes a HOTSTRING: a trigger you type, and
+    ;  the text it expands to. But the text that arrives here by OCR is usually a
+    ;  message you have just sent BY HAND in a real chat, and the reason you
+    ;  grabbed it is that it worked better than the follow-up MMA has. That
+    ;  belongs in the mass, not behind a trigger — and until now the only route
+    ;  was to remember it, find the model's tab, find the right box, and retype it.
+    ;
+    ;  So: same text, same box, one more button. It hands the Lines box to the
+    ;  capture window (ui/alt_fu_window.ahk), which asks which model, which mass
+    ;  and which follow-up — opening on the one you last SENT — and then either
+    ;  replaces that follow-up or adds the wording as an alt. It saves on the way
+    ;  out, because you are in Infloww, not in the editor.
+    ;
+    ;  This window is deliberately LEFT OPEN behind it. OCR'd text is expensive to
+    ;  get back — a second drag, on a chat that has since scrolled — so closing on
+    ;  the way out would lose it for anyone who then cancelled over there.
+    ah.Add("Button", "x200 y202 w170 h28", "Replace follow-up" Chr(0x2026))
+      .OnEvent("Click", ToFollowUp)
+    ; "New Script" lives here rather than on the main window's bottom strip. The
+    ; only reason to make one is to have somewhere for a hotkey to go, and this is
+    ; the window where you pick that somewhere — so the new file drops straight
+    ; into the File dropdown above and is selected, with nothing to reload.
+    ah.Add("Button", "x" (W - 130) " y202 w120 h28", "New Script"
+                   . Chr(0x2026)).OnEvent("Click", (*) => NewAccScript(ah.Hwnd, AddCreated))
     ah.Show("w" W " h245")
+
+    ; ── recording ─────────────────────────────────────────────────────────────
+    ;  DUPLICATES ARE REFUSED, not warned about. A hotstring key is global — it
+    ;  fires in Infloww, in Discord, in your browser — so it overlaps with
+    ;  everything, and "both fire, and the winner is whichever script loaded
+    ;  last" is not a state worth offering. The check reads hotkeys.ini rather
+    ;  than this process's own declarations, because the ini is the only place
+    ;  every key in MMA is written down (see HK_KeyOwner).
+    ;
+    ;  Checked again at Append, deliberately: minutes can pass between recording
+    ;  a key and pressing Append, the Hotkeys tab is one window away, and the
+    ;  trigger you type afterwards decides which id this even is.
+    RecordKey(*) {
+        ov := Gui("+AlwaysOnTop -Caption +ToolWindow +Owner" ah.Hwnd)
+        ov.BackColor := "1E1E1E"
+        ov.SetFont("s11 cWhite", "Segoe UI")
+        prompt := ov.Add("Text", "x0 y16 w420 Center", "Press a key for this hotstring…")
+        ov.SetFont("s9 c9A9A9A")
+        ov.Add("Text", "x0 y44 w420 Center", "Esc = cancel     Backspace = no key")
+        ov.Show("w420 h80")
+
+        ; Every MMA script holds fire while we listen, or pressing F1 to record it
+        ; would also send model 1's follow-up. The un-suspend MUST run even if the
+        ; grab throws, or every hotkey in MMA stays dead with no clue why.
+        HK_Broadcast(HK_MSG_SUSPEND, 1)
+        try
+            k := HKP_GrabKey(prompt)
+        finally {
+            HK_Broadcast(HK_MSG_SUSPEND, 0)
+            ov.Destroy()
+        }
+
+        if (k = "<cancel>")
+            return
+        if (k = "<clear>") {
+            ClearKey()
+            return
+        }
+        owner := HK_KeyOwner(k)
+        if (owner != "") {
+            MsgBox(HKP_KeyLabel(k) " is already used by:`n`n    " owner
+                 . "`n`nRecord a different one. A hotstring key works in every"
+                 . " window, so sharing it would mean both fire and whichever"
+                 . " script loaded last wins.", "Key already used", 0x30)
+            LOG_Bail("gui.addhotkey", "refused " HKP_KeyLabel(k)
+                                    . " for the new hotstring — already used by "
+                                    . owner)
+            return
+        }
+        _recKey := k
+        lblRec.Text := HKP_KeyLabel(k)
+        LOGI("gui.addhotkey", "recorded " HKP_KeyLabel(k) " for the hotstring being"
+                            . " written — nothing is bound until Append")
+    }
+
+    ClearKey(*) {
+        _recKey := ""
+        lblRec.Text := "(none — optional)"
+    }
+
+    ; Hand the box to the capture window. Nothing else here is read: the trigger,
+    ; the target file and the send-function radios are all about a hotstring, and
+    ; a follow-up has none of them.
+    ToFollowUp(*) {
+        if (Trim(edLines.Value) = "") {
+            MsgBox("The Lines box is empty — there is nothing to put in a"
+                 . " follow-up.", "Replace follow-up", 0x30)
+            return
+        }
+        LOGI("gui.addhotkey", "handing " StrLen(edLines.Value) " chars to the"
+                            . " capture window — this text is going into a mass,"
+                            . " not into a hotstring")
+        OpenAddAltFu(edLines.Value)
+    }
+
+    ; Called by NewAccScript with the path it just wrote.
+    AddCreated(path) {
+        SplitPath path, &fname
+        fileList.Push(fname)
+        filePaths.Push(path)
+        ddl.Delete()
+        ddl.Add(fileList)
+        ddl.Value := fileList.Length
+    }
 
     DoAppend(*) {
         global ACC_DIR
@@ -1843,6 +2494,43 @@ OpenAddHotkey(prefill := "", *) {
             trigger := hk "::"
         else
             trigger := (rdHSWild.Value ? ":*:" : "::") hk "::"
+
+        ; ── the recorded key, re-checked at the last moment ───────────────────
+        ; Two things can have changed since you pressed Record: another window
+        ; may have taken that key, and the TRIGGER may have been retyped — and
+        ; the trigger is what the binding is written against, so it decides which
+        ; id this is. Both are cheap to ask again and neither is recoverable if
+        ; wrong: a duplicate binding is two things on one key, and a binding
+        ; against the wrong trigger is a key that does nothing.
+        bindKey := ""
+        if (_recKey != "") {
+            if RegExMatch(hk, "^[\^!+#]") {
+                ; The Hotkey box holds a bare hotkey, so there is no trigger to
+                ; bind to — the thing being written IS a key already.
+                MsgBox("'" hk "' is itself a hotkey, so there is no hotstring for"
+                     . " the recorded key to belong to.`n`nClear the recorded key,"
+                     . " or write this as a hotstring trigger instead.",
+                       "Add Hotkey", 0x30)
+                return
+            }
+            if InStr(hk, "=") {
+                MsgBox("'" hk "' has an '=' in it, and that is what separates a"
+                     . " setting from its value in hotkeys.ini — so this trigger"
+                     . " cannot have a key.`n`nClear the recorded key, or rename"
+                     . " the trigger.", "Add Hotkey", 0x30)
+                return
+            }
+            owner := HK_KeyOwner(_recKey, HK_HotstringId(hk))
+            if (owner != "") {
+                MsgBox(HKP_KeyLabel(_recKey) " has been taken by " owner
+                     . " since you recorded it.`n`nRecord a different key, or"
+                     . " clear it.", "Key already used", 0x30)
+                LOG_Bail("gui.addhotkey", "refused to write " HKP_KeyLabel(_recKey)
+                                        . " for " hk " — taken by " owner)
+                return
+            }
+            bindKey := _recKey
+        }
         fn    := rdSnd.Value ? "snd" : "SendText"
         path  := filePaths[ddl.Value]
         raw   := StrReplace(StrReplace(edLines.Value, "`r`n", "`n"), "`r", "`n")
@@ -1868,6 +2556,16 @@ OpenAddHotkey(prefill := "", *) {
             MsgBox "Write error: " e.Message,, 0x10
             return
         }
+        ; The binding goes in AFTER the block is safely on disk, so a failed write
+        ; cannot leave a key bound to a hotstring that does not exist. It needs no
+        ; broadcast: the script is restarted below either way, and reading its
+        ; keys is part of loading.
+        if (bindKey != "") {
+            try IniWrite(bindKey, HK_INI, "hotstring", hk)
+            LOG_Ok("gui.addhotkey", hk " is bound to " HKP_KeyLabel(bindKey)
+                                 . " ([hotstring] in hotkeys.ini)")
+        }
+
         CheckCollisions()
         ah.Destroy()
         LOG_Ok("gui.addhotkey", "appended the new hotstring to " path
@@ -1884,9 +2582,17 @@ OpenAddHotkey(prefill := "", *) {
     }
 }
 
-NewAccScript(*) {
+; Create an empty message script in content\accounts\.
+;
+;   ownerHwnd — the window this dialog is modal-ish to. Defaults to the main
+;               window; the Add Hotkey button passes its own so the New Script
+;               dialog cannot end up behind it.
+;   onCreated — optional callback, called with the new file's full path once it is
+;               on disk. That is how Add Hotkey adds the file to its dropdown
+;               without a reload.
+NewAccScript(ownerHwnd := 0, onCreated := 0) {
     global ACC_DIR, g
-    ns := Gui("+Owner" g.Hwnd, "New Script")
+    ns := Gui("+Owner" (ownerHwnd ? ownerHwnd : g.Hwnd), "New Script")
     ns.SetFont("s9", "Segoe UI")
     ns.Add("Text",   "x10 y15 w80 Right", "Filename:")
     edName := ns.Add("Edit", "x95 y12 w160")
@@ -1926,8 +2632,12 @@ NewAccScript(*) {
         }
         LOG_Ok("gui.newacc", "created " path)
         ns.Destroy()
-        if MsgBox("Created " name ".ahk`nReload to show toggle button?", "Done", 0x24) = "Yes"
-            Reload
+        ; No "reload to show the toggle button?" prompt any more — there is no
+        ; toggle button. The caller wires the file into whatever list it owns.
+        if onCreated
+            onCreated(path)
+        else
+            MsgBox("Created " name ".ahk", "Done", 0x40)
     }
 }
 
@@ -2130,6 +2840,26 @@ _BroadcastWallet(val) {
     HK_Broadcast(MMA_MSG_WALLET_FU3, val)
 }
 
+; The branch builder is its own process, like the archive viewer is not — it
+; carries a WebView2 and a whole document model, and starting it in here would
+; put Edge inside the window that must never be slow to open. Raised rather than
+; relaunched when it is already up, so a second press does not throw away the
+; canvas you were looking at.
+OpenBranchBuilder(*) {
+    win := MMA_SRC "\ui\branch_window.ahk"
+    if !FileExist(win) {
+        LOGE("gui.branch", "branch_window.ahk is missing — the branch builder"
+                         . " cannot open", win)
+        return
+    }
+    if WinExist("MMA Branch builder ahk_class AutoHotkeyGUI") {
+        WinActivate("MMA Branch builder ahk_class AutoHotkeyGUI")
+        return
+    }
+    LOGI("gui.branch", "opening the branch builder")
+    LOG_Try("gui.branch", "Run branch_window.ahk", () => Run(win))
+}
+
 ; ─── Hotkeys ──────────────────────────────────────────────────────────────────
 ; Keys live in hotkeys.ini under [gui]. "mouseControl" is this script's own
 ; context, so gui.toggleDoubleMM only fires while Mouse control is on.
@@ -2137,5 +2867,6 @@ HK_Context("mouseControl", (*) => mouseControl)
 
 HK_Bind("gui.addHotkeyGrab",  AddHotkeyGrab)
 HK_Bind("gui.ocrGrab",        OcrGrab)
+HK_Bind("gui.branchBuilder",  OpenBranchBuilder)
 HK_Bind("gui.toggleDoubleMM", ToggleDoubleMM)
 

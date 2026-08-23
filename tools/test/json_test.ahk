@@ -8,7 +8,7 @@
 ;  emoji (they are all over the masses), and round-tripping.
 ; ═══════════════════════════════════════════════════════════════════════════════
 
-#Include "../src/vendor/json.ahk"
+#Include "../../src/vendor/json.ahk"
 
 pass := 0, fail := 0
 

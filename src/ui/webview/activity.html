@@ -1,0 +1,836 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>MMA — Activity</title>
+<style>
+/* ═══════════════════════════════════════════════════════════════════════════
+   Palette — the validated reference instance, used unchanged.
+   Slot 1 (blue) and slot 2 (orange) are the only categorical hues on screen,
+   and never in the same chart: every plot here is a SINGLE series, so hue
+   carries no identity load at all. The blue ramp does the one job that needs
+   a scale — the heatmap.
+
+   Dark is SELECTED, not flipped: its ramp runs the other way, because on a
+   dark surface it is the DARK step that recedes toward "near zero".
+   ═══════════════════════════════════════════════════════════════════════ */
+:root {
+  color-scheme: light;
+  --surface-1:      #fcfcfb;
+  --plane:          #f9f9f7;
+  --text-primary:   #0b0b0b;
+  --text-secondary: #52514e;
+  --text-muted:     #898781;
+  --grid:           #e1e0d9;
+  --axis:           #c3c2b7;
+  --border:         rgba(11,11,11,0.10);
+  --series-1:       #2a78d6;
+  --series-2:       #eb6834;
+  --good:           #006300;
+  --crit:           #d03b3b;
+  --heat-0: #eeeee9;
+  --heat-1: #cde2fb;
+  --heat-2: #9ec5f4;
+  --heat-3: #6da7ec;
+  --heat-4: #3987e5;
+  --heat-5: #256abf;
+  --heat-6: #104281;
+}
+@media (prefers-color-scheme: dark) {
+  :root:where(:not([data-theme="light"])) {
+    color-scheme: dark;
+    --surface-1:      #1a1a19;
+    --plane:          #0d0d0d;
+    --text-primary:   #ffffff;
+    --text-secondary: #c3c2b7;
+    --text-muted:     #898781;
+    --grid:           #2c2c2a;
+    --axis:           #383835;
+    --border:         rgba(255,255,255,0.10);
+    --series-1:       #3987e5;
+    --series-2:       #d95926;
+    --good:           #0ca30c;
+    --crit:           #d03b3b;
+    --heat-0: #232322;
+    --heat-1: #0d366b;
+    --heat-2: #184f95;
+    --heat-3: #256abf;
+    --heat-4: #3987e5;
+    --heat-5: #6da7ec;
+    --heat-6: #9ec5f4;
+  }
+}
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --surface-1:      #1a1a19;
+  --plane:          #0d0d0d;
+  --text-primary:   #ffffff;
+  --text-secondary: #c3c2b7;
+  --text-muted:     #898781;
+  --grid:           #2c2c2a;
+  --axis:           #383835;
+  --border:         rgba(255,255,255,0.10);
+  --series-1:       #3987e5;
+  --series-2:       #d95926;
+  --good:           #0ca30c;
+  --crit:           #d03b3b;
+  --heat-0: #232322;
+  --heat-1: #0d366b;
+  --heat-2: #184f95;
+  --heat-3: #256abf;
+  --heat-4: #3987e5;
+  --heat-5: #6da7ec;
+  --heat-6: #9ec5f4;
+}
+
+* { box-sizing: border-box; }
+html, body { margin: 0; padding: 0; }
+body {
+  background: var(--plane);
+  color: var(--text-primary);
+  font: 14px/1.5 system-ui, -apple-system, "Segoe UI", sans-serif;
+  padding: 20px 22px 40px;
+}
+h1 { font-size: 18px; font-weight: 600; margin: 0 0 2px; }
+.sub { color: var(--text-muted); font-size: 12px; margin-bottom: 16px; }
+
+/* ── the one filter row, above everything it scopes ─────────────────────── */
+.filters {
+  display: flex; flex-wrap: wrap; gap: 18px; align-items: center;
+  padding: 10px 14px; margin-bottom: 18px;
+  background: var(--surface-1);
+  border: 1px solid var(--border); border-radius: 10px;
+}
+.fgroup { display: flex; align-items: center; gap: 8px; }
+.fgroup > span { color: var(--text-muted); font-size: 12px; }
+.seg { display: flex; gap: 2px; }
+.seg button {
+  font: inherit; font-size: 13px; padding: 5px 12px;
+  background: transparent; color: var(--text-secondary);
+  border: 1px solid transparent; border-radius: 7px; cursor: pointer;
+}
+.seg button:hover { background: var(--grid); }
+.seg button[aria-pressed="true"] {
+  background: var(--series-1); color: #fff; font-weight: 600;
+}
+select {
+  font: inherit; font-size: 13px; padding: 5px 8px;
+  background: var(--surface-1); color: var(--text-primary);
+  border: 1px solid var(--axis); border-radius: 7px;
+}
+.spacer { flex: 1; }
+.ghost {
+  font: inherit; font-size: 12px; padding: 5px 10px; cursor: pointer;
+  background: transparent; color: var(--text-secondary);
+  border: 1px solid var(--axis); border-radius: 7px;
+}
+.ghost:hover { background: var(--grid); }
+
+/* ── KPI row ────────────────────────────────────────────────────────────── */
+.kpis {
+  display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
+  gap: 12px; margin-bottom: 18px;
+}
+.tile {
+  background: var(--surface-1); border: 1px solid var(--border);
+  border-radius: 10px; padding: 14px 16px;
+}
+.tile .label { color: var(--text-secondary); font-size: 12px; }
+.tile .value { font-size: 30px; font-weight: 600; letter-spacing: -0.5px;
+               margin: 4px 0 2px; }
+.tile .unit  { font-size: 15px; font-weight: 500; color: var(--text-secondary); }
+.tile .delta { font-size: 12px; color: var(--text-muted); }
+.tile .delta b { font-weight: 600; }
+
+/* ── chart cards ────────────────────────────────────────────────────────── */
+.card {
+  background: var(--surface-1); border: 1px solid var(--border);
+  border-radius: 10px; padding: 16px 18px 12px; margin-bottom: 16px;
+}
+.card > header { display: flex; align-items: baseline; gap: 10px; margin-bottom: 2px; }
+.card h2 { font-size: 14px; font-weight: 600; margin: 0; }
+.card .note { color: var(--text-muted); font-size: 12px; }
+.card .grow { flex: 1; }
+.plot { width: 100%; overflow-x: auto; }
+svg { display: block; max-width: 100%; }
+svg text { fill: var(--text-muted); font-size: 11px; }
+.gridline { stroke: var(--grid); stroke-width: 1; }
+.axisline { stroke: var(--axis); stroke-width: 1; }
+
+/* ── heatmap scale legend ───────────────────────────────────────────────── */
+.scale { display: flex; align-items: center; gap: 8px; font-size: 12px;
+         color: var(--text-muted); margin-top: 6px; }
+.scale .swatches { display: flex; gap: 2px; }
+.scale i { width: 22px; height: 10px; border-radius: 2px; display: block; }
+
+/* ── table twin ─────────────────────────────────────────────────────────── */
+.tablewrap { display: none; margin-top: 10px; max-height: 260px; overflow: auto; }
+.tablewrap.on { display: block; }
+table { border-collapse: collapse; width: 100%; font-size: 12px;
+        font-variant-numeric: tabular-nums; }
+th, td { text-align: right; padding: 4px 8px;
+         border-bottom: 1px solid var(--grid); }
+th:first-child, td:first-child { text-align: left; }
+th { color: var(--text-secondary); font-weight: 600; position: sticky; top: 0;
+     background: var(--surface-1); }
+
+/* ── tooltip ────────────────────────────────────────────────────────────── */
+#tip {
+  position: fixed; pointer-events: none; opacity: 0; transition: opacity .08s;
+  background: var(--surface-1); color: var(--text-primary);
+  border: 1px solid var(--border); border-radius: 8px;
+  padding: 7px 10px; font-size: 12px; z-index: 50;
+  box-shadow: 0 4px 14px rgba(0,0,0,.18); white-space: nowrap;
+}
+#tip .t { color: var(--text-muted); }
+#tip b { font-weight: 600; }
+
+.empty { color: var(--text-muted); padding: 28px 4px; font-size: 13px; }
+.hidden { display: none; }
+</style>
+</head>
+<body>
+
+<h1>Activity</h1>
+<div class="sub" id="sub">loading…</div>
+
+<div class="filters">
+  <div class="fgroup">
+    <span>Range</span>
+    <div class="seg" id="rangeSeg">
+      <button data-days="7" aria-pressed="false">7 days</button>
+      <button data-days="30" aria-pressed="true">30 days</button>
+      <button data-days="90" aria-pressed="false">90 days</button>
+    </div>
+  </div>
+  <div class="fgroup">
+    <span>Day</span>
+    <select id="daySel"></select>
+  </div>
+  <div class="spacer"></div>
+  <button class="ghost" id="tableBtn" aria-pressed="false">Table view</button>
+</div>
+
+<div class="kpis" id="kpis"></div>
+
+<div class="card" id="cardDay">
+  <header>
+    <h2>Typing through the day</h2>
+    <span class="note" id="dayNote"></span>
+  </header>
+  <div class="plot"><svg id="svgDay"></svg></div>
+  <div class="tablewrap" id="tblDay"></div>
+</div>
+
+<div class="card" id="cardHeat">
+  <header>
+    <h2>When you actually work</h2>
+    <span class="note">keys typed, by weekday and hour, across the range</span>
+  </header>
+  <div class="plot"><svg id="svgHeat"></svg></div>
+  <div class="scale">
+    <span id="scaleLo">0</span>
+    <div class="swatches" id="scaleSw"></div>
+    <span id="scaleHi"></span>
+  </div>
+  <div class="tablewrap" id="tblHeat"></div>
+</div>
+
+<div class="card" id="cardCorr">
+  <header>
+    <h2>Correction rate through the day</h2>
+    <span class="note">backspaces per 100 characters — it climbs as you tire</span>
+  </header>
+  <div class="plot"><svg id="svgCorr"></svg></div>
+  <div class="tablewrap" id="tblCorr"></div>
+</div>
+
+<div class="card" id="cardDays">
+  <header>
+    <h2>Active time per day</h2>
+    <span class="note">minutes you were actually at the keyboard</span>
+  </header>
+  <div class="plot"><svg id="svgDays"></svg></div>
+  <div class="tablewrap" id="tblDays"></div>
+</div>
+
+<div id="tip"></div>
+
+<script>
+"use strict";
+/* ═══════════════════════════════════════════════════════════════════════════
+   The page is a VIEW. Every number here is derived from the two arrays AHK
+   sends; nothing is stored and nothing is posted back except the two filter
+   commands. See src/activity/record.ahk for what the columns mean.
+   ═══════════════════════════════════════════════════════════════════════ */
+
+const SVGNS = "http://www.w3.org/2000/svg";
+const DOW = ["Mon","Tue","Wed","Thu","Fri","Sat","Sun"];
+
+let DATA = { fields: [], focus: "", days: 30, today: [], hours: [], generated: "" };
+let showTables = false;
+
+/* column indexes — today rows are [minute, ...fields], hour rows are
+   [ymd, hour, ...fields]. Resolved from the payload rather than hard-coded so
+   a counter added in record.ahk cannot silently shift every chart. */
+let F = {};
+function resolveFields() {
+  F = {};
+  DATA.fields.forEach((name, i) => { F[name] = i; });
+}
+const todayVal = (row, name) => row[1 + F[name]] || 0;
+const hourVal  = (row, name) => row[2 + F[name]] || 0;
+
+/* ── formatting ─────────────────────────────────────────────────────────── */
+function compact(n) {
+  if (!isFinite(n)) return "—";
+  const a = Math.abs(n);
+  if (a >= 1e6) return (n / 1e6).toFixed(1).replace(/\.0$/, "") + "M";
+  if (a >= 1e4) return (n / 1e3).toFixed(1).replace(/\.0$/, "") + "K";
+  return Math.round(n).toLocaleString();
+}
+function hm(mins) {
+  const m = Math.round(mins);
+  return (m >= 60 ? Math.floor(m / 60) + "h " : "") + (m % 60) + "m";
+}
+function clock(minuteOfDay) {
+  const h = Math.floor(minuteOfDay / 60), m = minuteOfDay % 60;
+  return String(h).padStart(2, "0") + ":" + String(m).padStart(2, "0");
+}
+function dowOf(ymd) {                    /* 0 = Monday */
+  const d = new Date(ymd + "T00:00:00");
+  return (d.getDay() + 6) % 7;
+}
+function shortDate(ymd) { return ymd.slice(5).replace("-", "/"); }
+
+/* ── tooltip ────────────────────────────────────────────────────────────── */
+const tipEl = document.getElementById("tip");
+function showTip(evt, html) {
+  tipEl.innerHTML = html;
+  tipEl.style.opacity = "1";
+  const pad = 14, r = tipEl.getBoundingClientRect();
+  let x = evt.clientX + pad, y = evt.clientY + pad;
+  if (x + r.width > innerWidth - 8) x = evt.clientX - r.width - pad;
+  if (y + r.height > innerHeight - 8) y = evt.clientY - r.height - pad;
+  tipEl.style.left = x + "px";
+  tipEl.style.top = y + "px";
+}
+function hideTip() { tipEl.style.opacity = "0"; }
+
+/* ── tiny SVG helpers ───────────────────────────────────────────────────── */
+function el(name, attrs, parent) {
+  const n = document.createElementNS(SVGNS, name);
+  for (const k in attrs) n.setAttribute(k, attrs[k]);
+  if (parent) parent.appendChild(n);
+  return n;
+}
+function clear(svg) { while (svg.firstChild) svg.removeChild(svg.firstChild); }
+
+/* A column with a 4px rounded cap and square feet on the baseline. */
+function colPath(x, y, w, h, r) {
+  r = Math.min(r, w / 2, h);
+  if (h <= 0.5) return "";
+  return `M${x},${y + h} L${x},${y + r} Q${x},${y} ${x + r},${y}` +
+         ` L${x + w - r},${y} Q${x + w},${y} ${x + w},${y + r}` +
+         ` L${x + w},${y + h} Z`;
+}
+/* Clean axis ticks: 1 / 2 / 5 × 10ⁿ */
+function niceTicks(max, count) {
+  if (max <= 0) return [0];
+  const raw = max / count, mag = Math.pow(10, Math.floor(Math.log10(raw)));
+  const norm = raw / mag;
+  const step = (norm <= 1 ? 1 : norm <= 2 ? 2 : norm <= 5 ? 5 : 10) * mag;
+  const out = [];
+  for (let v = 0; v <= max + step * 0.001; v += step) out.push(v);
+  return out;
+}
+function plotWidth(node, min) {
+  const w = node.parentElement.clientWidth || 900;
+  return Math.max(min, w);
+}
+function emptyNote(svg, msg) {
+  clear(svg);
+  /* clear() removes children but not ATTRIBUTES, and a viewBox left over from a
+     previous render scales this message to whatever the old plot's coordinate
+     system was — so an empty day drew its "nothing recorded" line at half size
+     or off the edge, depending on which chart had been there before. */
+  svg.removeAttribute("viewBox");
+  svg.setAttribute("height", 90);
+  svg.setAttribute("width", "100%");
+  const t = el("text", { x: 4, y: 46 }, svg);
+  t.textContent = msg;
+  t.setAttribute("font-size", "13");
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   Derived numbers
+   ═══════════════════════════════════════════════════════════════════════ */
+function totals(rows, get) {
+  const t = { keys: 0, chars: 0, bksp: 0, mouse: 0, active: 0, gap: 0 };
+  for (const r of rows) {
+    t.keys   += get(r, "keys");
+    t.chars  += get(r, "chars");
+    t.bksp   += get(r, "bksp");
+    t.mouse  += get(r, "mouse");
+    t.active += get(r, "active");
+    t.gap = Math.max(t.gap, get(r, "max.gap"));
+  }
+  return t;
+}
+const dayTotals   = () => totals(DATA.today, todayVal);
+const rangeTotals = () => totals(DATA.hours, hourVal);
+
+/* keys per ACTIVE minute — the honest denominator. Dividing by wall-clock
+   minutes would just measure how long the window was open. */
+const kpm = t => t.active > 0 ? t.keys / (t.active / 60) : 0;
+const corrRate = t => t.chars > 0 ? (t.bksp / t.chars) * 100 : 0;
+const mouseShare = t => (t.mouse + t.keys) > 0 ? (t.mouse / (t.mouse + t.keys)) * 100 : 0;
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   KPI row
+   ═══════════════════════════════════════════════════════════════════════ */
+function renderKpis() {
+  const d = dayTotals(), r = rangeTotals();
+  const activeDays = new Set(DATA.hours.filter(h => hourVal(h, "active") > 0)
+                                       .map(h => h[0])).size || 1;
+  const avg = {
+    active: r.active / activeDays,
+    kpm: kpm(r), corr: corrRate(r), mouse: mouseShare(r)
+  };
+
+  /* delta vs the range average. "up is good" differs per row: faster typing is
+     good, more corrections is not, and the mouse split is neither — so that one
+     carries no colour at all rather than implying a verdict. */
+  const rows = [
+    { label: "Active time",      value: hm(d.active / 60), unit: "",
+      cmp: d.active / 60, base: avg.active / 60, fmt: v => hm(v), goodUp: true },
+    { label: "Keys per active minute", value: Math.round(kpm(d)), unit: "",
+      cmp: kpm(d), base: avg.kpm, fmt: v => Math.round(v), goodUp: true },
+    { label: "Correction rate",  value: corrRate(d).toFixed(1), unit: "%",
+      cmp: corrRate(d), base: avg.corr, fmt: v => v.toFixed(1) + "%", goodUp: false },
+    { label: "Mouse share",      value: mouseShare(d).toFixed(0), unit: "%",
+      cmp: mouseShare(d), base: avg.mouse, fmt: v => v.toFixed(0) + "%", goodUp: null }
+  ];
+
+  document.getElementById("kpis").innerHTML = rows.map(row => {
+    let delta = '<span class="delta">no range average yet</span>';
+    if (row.base > 0 && isFinite(row.cmp)) {
+      const diff = row.cmp - row.base;
+      const pct = (diff / row.base) * 100;
+      const up = diff >= 0;
+      let colour = "var(--text-muted)";
+      if (row.goodUp !== null && Math.abs(pct) >= 1)
+        colour = (up === row.goodUp) ? "var(--good)" : "var(--crit)";
+      const sign = up ? "+" : "−";
+      delta = `<span class="delta" style="color:${colour}">` +
+              `<b>${sign}${Math.abs(pct).toFixed(0)}%</b> vs ${DATA.days}-day average ` +
+              `(${row.fmt(row.base)})</span>`;
+    }
+    return `<div class="tile"><div class="label">${row.label}</div>` +
+           `<div class="value">${row.value}<span class="unit">${row.unit}</span></div>` +
+           delta + `</div>`;
+  }).join("");
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   1. Typing through the day — area, single series, 5-minute buckets
+   ═══════════════════════════════════════════════════════════════════════ */
+function renderDay() {
+  const svg = document.getElementById("svgDay");
+  const note = document.getElementById("dayNote");
+  if (!DATA.today.length) {
+    note.textContent = "";
+    emptyNote(svg, "Nothing recorded for " + DATA.focus + ".");
+    document.getElementById("tblDay").innerHTML = "";
+    return;
+  }
+  const BUCKET = 5;
+  const buckets = new Map();
+  for (const row of DATA.today) {
+    const b = Math.floor(row[0] / BUCKET);
+    const cur = buckets.get(b) || { keys: 0, active: 0 };
+    cur.keys += todayVal(row, "keys");
+    cur.active += todayVal(row, "active");
+    buckets.set(b, cur);
+  }
+  const idx = [...buckets.keys()].sort((a, b) => a - b);
+  const first = idx[0], last = idx[idx.length - 1];
+  note.textContent = clock(first * BUCKET) + " – " + clock(last * BUCKET + BUCKET - 1)
+                   + " · 5-minute average";
+
+  const pts = [];
+  for (let b = first; b <= last; b++) {
+    const v = buckets.get(b);
+    const rate = v && v.active > 0 ? v.keys / (v.active / 60) : 0;
+    pts.push({ b, rate, keys: v ? v.keys : 0, active: v ? v.active : 0 });
+  }
+
+  const W = plotWidth(svg, 640), H = 210;
+  const M = { t: 12, r: 14, b: 26, l: 44 };
+  const iw = W - M.l - M.r, ih = H - M.t - M.b;
+  const maxV = Math.max(10, ...pts.map(p => p.rate));
+  const ticks = niceTicks(maxV, 4);
+  const top = ticks[ticks.length - 1];
+  const X = i => M.l + (pts.length < 2 ? iw / 2 : (i / (pts.length - 1)) * iw);
+  const Y = v => M.t + ih - (v / top) * ih;
+
+  clear(svg);
+  svg.setAttribute("width", W); svg.setAttribute("height", H);
+  svg.setAttribute("viewBox", `0 0 ${W} ${H}`);
+
+  for (const t of ticks) {
+    el("line", { x1: M.l, y1: Y(t), x2: W - M.r, y2: Y(t), class: "gridline" }, svg);
+    const lab = el("text", { x: M.l - 8, y: Y(t) + 4, "text-anchor": "end" }, svg);
+    lab.textContent = compact(t);
+    lab.style.fontVariantNumeric = "tabular-nums";
+  }
+  el("line", { x1: M.l, y1: M.t + ih, x2: W - M.r, y2: M.t + ih, class: "axisline" }, svg);
+
+  let d = "", area = "";
+  pts.forEach((p, i) => {
+    d += (i ? " L" : "M") + X(i) + "," + Y(p.rate);
+  });
+  area = d + ` L${X(pts.length - 1)},${M.t + ih} L${X(0)},${M.t + ih} Z`;
+  el("path", { d: area, fill: "var(--series-1)", "fill-opacity": "0.10" }, svg);
+  el("path", { d, fill: "none", stroke: "var(--series-1)", "stroke-width": "2",
+               "stroke-linejoin": "round", "stroke-linecap": "round" }, svg);
+
+  /* hourly x labels */
+  for (let h = 0; h <= 24; h++) {
+    const b = (h * 60) / BUCKET;
+    if (b < first || b > last) continue;
+    const i = b - first;
+    const t = el("text", { x: X(i), y: H - 8, "text-anchor": "middle" }, svg);
+    t.textContent = String(h).padStart(2, "0");
+  }
+
+  /* crosshair + nearest-point tooltip across the whole plot */
+  const cross = el("line", { y1: M.t, y2: M.t + ih, class: "gridline",
+                             stroke: "var(--axis)", opacity: "0" }, svg);
+  const dot = el("circle", { r: 4.5, fill: "var(--series-1)",
+                             stroke: "var(--surface-1)", "stroke-width": "2",
+                             opacity: "0" }, svg);
+  const hit = el("rect", { x: M.l, y: M.t, width: iw, height: ih,
+                           fill: "transparent" }, svg);
+  hit.addEventListener("mousemove", evt => {
+    const bb = svg.getBoundingClientRect();
+    const px = (evt.clientX - bb.left) * (W / bb.width);
+    let i = pts.length < 2 ? 0
+          : Math.round(((px - M.l) / iw) * (pts.length - 1));
+    i = Math.max(0, Math.min(pts.length - 1, i));
+    const p = pts[i];
+    cross.setAttribute("x1", X(i)); cross.setAttribute("x2", X(i));
+    cross.setAttribute("opacity", "1");
+    dot.setAttribute("cx", X(i)); dot.setAttribute("cy", Y(p.rate));
+    dot.setAttribute("opacity", "1");
+    showTip(evt,
+      `<div class="t">${clock(p.b * BUCKET)}</div>` +
+      `<b>${Math.round(p.rate)}</b> keys/min<br>` +
+      `<span class="t">${compact(p.keys)} keys · ${Math.round(p.active)}s active</span>`);
+  });
+  hit.addEventListener("mouseleave", () => {
+    hideTip(); cross.setAttribute("opacity", "0"); dot.setAttribute("opacity", "0");
+  });
+
+  document.getElementById("tblDay").innerHTML = tableHtml(
+    ["Time", "Keys/min", "Keys", "Active (s)"],
+    pts.filter(p => p.keys > 0).map(p =>
+      [clock(p.b * BUCKET), Math.round(p.rate), p.keys, Math.round(p.active)]));
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   2. Heatmap — weekday × hour, sequential blue, 6 bins + zero
+   ═══════════════════════════════════════════════════════════════════════ */
+function renderHeat() {
+  const svg = document.getElementById("svgHeat");
+  const grid = Array.from({ length: 7 }, () => new Array(24).fill(0));
+  let max = 0, any = false;
+  for (const row of DATA.hours) {
+    const k = hourVal(row, "keys");
+    if (!k) continue;
+    any = true;
+    const d = dowOf(row[0]), h = row[1];
+    if (d >= 0 && d < 7 && h >= 0 && h < 24) {
+      grid[d][h] += k;
+      if (grid[d][h] > max) max = grid[d][h];
+    }
+  }
+  const sw = document.getElementById("scaleSw");
+  if (!any) {
+    emptyNote(svg, "No activity in the last " + DATA.days + " days yet.");
+    sw.innerHTML = ""; document.getElementById("scaleHi").textContent = "";
+    document.getElementById("tblHeat").innerHTML = "";
+    return;
+  }
+
+  const CELL = 26, GAPS = 2, LEFT = 40, TOP = 20;
+  const W = LEFT + 24 * (CELL + GAPS), H = TOP + 7 * (CELL + GAPS) + 6;
+  clear(svg);
+  svg.setAttribute("width", W); svg.setAttribute("height", H);
+  svg.setAttribute("viewBox", `0 0 ${W} ${H}`);
+
+  /* 6 bins: past ~7 classes adjacent steps blur, so the ramp stops there and
+     the exact value lives in the tooltip and the table. */
+  const binOf = v => v <= 0 ? 0 : Math.min(6, Math.ceil((v / max) * 6));
+
+  for (let h = 0; h < 24; h += 2) {
+    const t = el("text", { x: LEFT + h * (CELL + GAPS) + CELL / 2, y: TOP - 7,
+                           "text-anchor": "middle" }, svg);
+    t.textContent = String(h).padStart(2, "0");
+  }
+  for (let d = 0; d < 7; d++) {
+    const y = TOP + d * (CELL + GAPS);
+    const t = el("text", { x: LEFT - 8, y: y + CELL / 2 + 4, "text-anchor": "end" }, svg);
+    t.textContent = DOW[d];
+    for (let h = 0; h < 24; h++) {
+      const v = grid[d][h];
+      const r = el("rect", {
+        x: LEFT + h * (CELL + GAPS), y, width: CELL, height: CELL, rx: 3,
+        fill: `var(--heat-${binOf(v)})`
+      }, svg);
+      r.addEventListener("mousemove", evt => showTip(evt,
+        `<div class="t">${DOW[d]} ${String(h).padStart(2, "0")}:00</div>` +
+        `<b>${compact(v)}</b> keys`));
+      r.addEventListener("mouseleave", hideTip);
+    }
+  }
+
+  sw.innerHTML = [0, 1, 2, 3, 4, 5, 6]
+    .map(i => `<i style="background:var(--heat-${i})"></i>`).join("");
+  document.getElementById("scaleHi").textContent = compact(max) + " keys";
+
+  const rows = [];
+  for (let d = 0; d < 7; d++)
+    rows.push([DOW[d], ...grid[d].map(v => v || 0)]);
+  document.getElementById("tblHeat").innerHTML = tableHtml(
+    ["Day", ...Array.from({ length: 24 }, (_, h) => String(h).padStart(2, "0"))], rows);
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   3. Correction rate through the day — line, single series (orange)
+   ═══════════════════════════════════════════════════════════════════════ */
+function renderCorr() {
+  const svg = document.getElementById("svgCorr");
+  const byHour = new Map();
+  for (const row of DATA.today) {
+    const h = Math.floor(row[0] / 60);
+    const cur = byHour.get(h) || { chars: 0, bksp: 0 };
+    cur.chars += todayVal(row, "chars");
+    cur.bksp += todayVal(row, "bksp");
+    byHour.set(h, cur);
+  }
+  /* An hour with almost nothing typed produces a wild ratio off a handful of
+     characters. Below this floor it is noise, not a fatigue signal, so it is
+     left out rather than drawn as a spike somebody would try to explain. */
+  const MIN_CHARS = 60;
+  const pts = [...byHour.entries()]
+    .filter(([, v]) => v.chars >= MIN_CHARS)
+    .sort((a, b) => a[0] - b[0])
+    .map(([h, v]) => ({ h, rate: (v.bksp / v.chars) * 100, chars: v.chars, bksp: v.bksp }));
+
+  if (pts.length < 2) {
+    emptyNote(svg, "Not enough typing on " + DATA.focus + " to show a trend"
+                 + " (needs a couple of hours with " + MIN_CHARS + "+ characters).");
+    document.getElementById("tblCorr").innerHTML = "";
+    return;
+  }
+
+  const W = plotWidth(svg, 560), H = 180;
+  const M = { t: 12, r: 40, b: 26, l: 44 };
+  const iw = W - M.l - M.r, ih = H - M.t - M.b;
+  const ticks = niceTicks(Math.max(2, ...pts.map(p => p.rate)), 4);
+  const top = ticks[ticks.length - 1];
+  const X = i => M.l + (pts.length < 2 ? iw / 2 : (i / (pts.length - 1)) * iw);
+  const Y = v => M.t + ih - (v / top) * ih;
+
+  clear(svg);
+  svg.setAttribute("width", W); svg.setAttribute("height", H);
+  svg.setAttribute("viewBox", `0 0 ${W} ${H}`);
+  for (const t of ticks) {
+    el("line", { x1: M.l, y1: Y(t), x2: W - M.r, y2: Y(t), class: "gridline" }, svg);
+    const lab = el("text", { x: M.l - 8, y: Y(t) + 4, "text-anchor": "end" }, svg);
+    lab.textContent = t.toFixed(t < 10 ? 1 : 0) + "%";
+    lab.style.fontVariantNumeric = "tabular-nums";
+  }
+  el("line", { x1: M.l, y1: M.t + ih, x2: W - M.r, y2: M.t + ih, class: "axisline" }, svg);
+
+  let d = "";
+  pts.forEach((p, i) => { d += (i ? " L" : "M") + X(i) + "," + Y(p.rate); });
+  el("path", { d, fill: "none", stroke: "var(--series-2)", "stroke-width": "2",
+               "stroke-linejoin": "round", "stroke-linecap": "round" }, svg);
+
+  pts.forEach((p, i) => {
+    const t = el("text", { x: X(i), y: H - 8, "text-anchor": "middle" }, svg);
+    t.textContent = String(p.h).padStart(2, "0");
+    const c = el("circle", { cx: X(i), cy: Y(p.rate), r: 4.5,
+                             fill: "var(--series-2)", stroke: "var(--surface-1)",
+                             "stroke-width": "2" }, svg);
+    /* the ring is part of the hit target — a 9px dot is not something to ask
+       anybody to land on */
+    const hit = el("circle", { cx: X(i), cy: Y(p.rate), r: 13,
+                               fill: "transparent" }, svg);
+    hit.addEventListener("mousemove", evt => showTip(evt,
+      `<div class="t">${String(p.h).padStart(2, "0")}:00</div>` +
+      `<b>${p.rate.toFixed(1)}%</b> correction rate<br>` +
+      `<span class="t">${compact(p.bksp)} backspaces / ${compact(p.chars)} chars</span>`));
+    hit.addEventListener("mouseleave", hideTip);
+  });
+
+  /* one direct label, on the endpoint — the last hour is the one the fatigue
+     question is about */
+  const lastP = pts[pts.length - 1];
+  const lbl = el("text", { x: X(pts.length - 1) + 10, y: Y(lastP.rate) + 4 }, svg);
+  lbl.textContent = lastP.rate.toFixed(1) + "%";
+  lbl.setAttribute("fill", "var(--text-secondary)");
+  lbl.setAttribute("font-weight", "600");
+
+  document.getElementById("tblCorr").innerHTML = tableHtml(
+    ["Hour", "Correction rate", "Backspaces", "Characters"],
+    pts.map(p => [String(p.h).padStart(2, "0") + ":00", p.rate.toFixed(1) + "%",
+                  p.bksp, p.chars]));
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   4. Active time per day — columns, single series
+   ═══════════════════════════════════════════════════════════════════════ */
+function renderDays() {
+  const svg = document.getElementById("svgDays");
+  const byDay = new Map();
+  for (const row of DATA.hours) {
+    byDay.set(row[0], (byDay.get(row[0]) || 0) + hourVal(row, "active"));
+  }
+  const days = [...byDay.entries()].filter(([, s]) => s > 0)
+                                   .sort((a, b) => a[0] < b[0] ? -1 : 1)
+                                   .map(([ymd, s]) => ({ ymd, mins: s / 60 }));
+  if (!days.length) {
+    emptyNote(svg, "No active time recorded in the last " + DATA.days + " days.");
+    document.getElementById("tblDays").innerHTML = "";
+    return;
+  }
+
+  const W = plotWidth(svg, 560), H = 190;
+  const M = { t: 12, r: 14, b: 30, l: 44 };
+  const iw = W - M.l - M.r, ih = H - M.t - M.b;
+  const band = iw / days.length;
+  const bw = Math.min(24, Math.max(3, band - 2));   /* 2px surface gap, ≤24px */
+  const ticks = niceTicks(Math.max(30, ...days.map(d => d.mins)), 4);
+  const top = ticks[ticks.length - 1];
+  const Y = v => M.t + ih - (v / top) * ih;
+
+  clear(svg);
+  svg.setAttribute("width", W); svg.setAttribute("height", H);
+  svg.setAttribute("viewBox", `0 0 ${W} ${H}`);
+  for (const t of ticks) {
+    el("line", { x1: M.l, y1: Y(t), x2: W - M.r, y2: Y(t), class: "gridline" }, svg);
+    const lab = el("text", { x: M.l - 8, y: Y(t) + 4, "text-anchor": "end" }, svg);
+    lab.textContent = hm(t);
+    lab.style.fontVariantNumeric = "tabular-nums";
+  }
+  el("line", { x1: M.l, y1: M.t + ih, x2: W - M.r, y2: M.t + ih, class: "axisline" }, svg);
+
+  const every = Math.ceil(days.length / 12);
+  days.forEach((d, i) => {
+    const x = M.l + i * band + (band - bw) / 2;
+    const y = Y(d.mins);
+    const isFocus = d.ymd === DATA.focus;
+    const p = el("path", {
+      d: colPath(x, y, bw, M.t + ih - y, 4),
+      fill: "var(--series-1)",
+      "fill-opacity": isFocus ? "1" : "0.55",
+      cursor: "pointer"
+    }, svg);
+    p.addEventListener("mousemove", evt => showTip(evt,
+      `<div class="t">${d.ymd}${isFocus ? " · shown above" : ""}</div>` +
+      `<b>${hm(d.mins)}</b> active<br><span class="t">click to open this day</span>`));
+    p.addEventListener("mouseleave", hideTip);
+    p.addEventListener("click", () => setFocus(d.ymd));
+    if (i % every === 0 || isFocus) {
+      const t = el("text", { x: x + bw / 2, y: H - 10, "text-anchor": "middle" }, svg);
+      t.textContent = shortDate(d.ymd);
+    }
+  });
+
+  document.getElementById("tblDays").innerHTML = tableHtml(
+    ["Date", "Active"], days.map(d => [d.ymd, hm(d.mins)]));
+}
+
+/* ── the table twin every chart needs ───────────────────────────────────── */
+function tableHtml(head, rows) {
+  return "<table><thead><tr>" + head.map(h => `<th>${h}</th>`).join("") +
+         "</tr></thead><tbody>" +
+         rows.map(r => "<tr>" + r.map(c => `<td>${c}</td>`).join("") + "</tr>").join("") +
+         "</tbody></table>";
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   Wiring
+   ═══════════════════════════════════════════════════════════════════════ */
+function post(msg) {
+  if (window.chrome && chrome.webview) chrome.webview.postMessage(msg);
+}
+function setFocus(ymd) {
+  if (ymd === DATA.focus) return;
+  post({ cmd: "focus", day: ymd });
+}
+function setRange(days) {
+  post({ cmd: "range", days: days });
+}
+
+document.getElementById("rangeSeg").addEventListener("click", evt => {
+  const b = evt.target.closest("button");
+  if (b) setRange(parseInt(b.dataset.days, 10));
+});
+document.getElementById("daySel").addEventListener("change", evt => {
+  setFocus(evt.target.value);
+});
+document.getElementById("tableBtn").addEventListener("click", evt => {
+  showTables = !showTables;
+  evt.target.setAttribute("aria-pressed", String(showTables));
+  document.querySelectorAll(".tablewrap")
+          .forEach(t => t.classList.toggle("on", showTables));
+});
+
+let resizeTimer = 0;
+addEventListener("resize", () => {
+  clearTimeout(resizeTimer);
+  resizeTimer = setTimeout(renderAll, 120);
+});
+
+function renderAll() {
+  renderKpis(); renderDay(); renderHeat(); renderCorr(); renderDays();
+}
+
+window.mma = {
+  /* AHK calls this with the whole payload — full state every time, the same
+     contract webview_main_window.ahk uses. There is one copy of the truth and
+     it is on the AHK side. */
+  load(payload) {
+    DATA = payload;
+    resolveFields();
+
+    const known = [...new Set(DATA.hours.map(h => h[0]))].sort().reverse();
+    if (!known.includes(DATA.focus)) known.unshift(DATA.focus);
+    const sel = document.getElementById("daySel");
+    sel.innerHTML = known.map(d =>
+      `<option value="${d}"${d === DATA.focus ? " selected" : ""}>${d}</option>`).join("");
+
+    document.querySelectorAll("#rangeSeg button").forEach(b =>
+      b.setAttribute("aria-pressed", String(parseInt(b.dataset.days, 10) === DATA.days)));
+
+    document.getElementById("sub").textContent =
+      "Counts only — no text is ever recorded.  ·  updated " + DATA.generated;
+
+    renderAll();
+  },
+  theme(dark) {
+    document.documentElement.dataset.theme = dark ? "dark" : "light";
+    renderAll();
+  }
+};
+
+/* Tell the host we are up. Until this arrives it must not ExecuteScript, or
+   the call lands on a document that has not defined window.mma yet. */
+post({ cmd: "ready" });
+</script>
+</body>
+</html>

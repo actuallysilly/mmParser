@@ -16,7 +16,7 @@
 ;  fail to. Nothing here calls AltStageCommit, so nothing can send.
 ; ═══════════════════════════════════════════════════════════════════════════════
 
-#Include "../src/core/utils.ahk"
+#Include "../../src/core/utils.ahk"
 
 ; `try`, because "*" is stdout and there ISN'T one when this is double-clicked or
 ; launched without a redirect — FileAppend then throws "the handle is invalid" and

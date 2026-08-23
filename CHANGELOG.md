@@ -1,5 +1,1054 @@
 ﻿# Changelog
 
+## 2.0.4 — 2026-08-23
+
+### Clicking the next chat while f1.7 is still going out no longer splits the follow-up
+
+A follow-up is not one message. `f1`, `f1.5` and `f1.7` go out as three, with a pause between
+each, so a single keypress owns the chat box for a good second. Click the next conversation
+inside that second and the parts still in flight land in the chat you just moved to — one fan
+gets half a follow-up and a stranger gets the other half, and nothing anywhere says so.
+
+MMA already dropped a stray **key** pressed mid-send; it has done since the anti-fumble guards
+went in. All three of them were blind to this, because a click on the conversation list is not
+a hotkey at all — it is the browser doing exactly what it was told.
+
+So while a send is running there is now a wall over the list. **The click is held, not lost:**
+its position is remembered, and the moment the send lands it is played back at the same point.
+You click once, nothing appears to happen for a beat, and then the chat opens.
+
+- **Nothing to calibrate.** The walled rectangle is `[ClickWall] Region` if you set one, else
+  the conversation list you already measured for reply timers, else everything to the left of
+  the `[NextFu]` pane — which is the list, on any install where the follow-up walker works.
+- **It checks the list has not moved before clicking.** Infloww sorts conversations by most
+  recent message, and the send holding your click is what makes one most recent — so a point
+  that meant "row 4" when you pressed it can mean a different fan a second later. The wall
+  keeps a patch of pixels from under the pointer and re-reads it before playing back; if the
+  rows moved it says so and leaves the click to you, rather than opening the wrong chat.
+- **Only the list, only while sending.** Clicks anywhere else are never touched — no hotkey is
+  even registered for them — and drags and double-clicks behave exactly as they did.
+- Off in Easy mode, and a checkbox in **Settings ▸ Features ▸ Sending** otherwise, read fresh
+  on every send so unticking it takes hold on the next follow-up rather than the next restart.
+
+### The hotkey editor keeps your place, and reads like a list of features
+
+Changing a key sent you back to the top. Every time. The editor rebuilds its whole list after
+an edit — it has to, because one new key can change the clash report of a row thirty lines
+further down — and a rebuilt ListView scrolls to the top and forgets what was selected. So
+rebinding the last three hotkeys in the list meant scrolling to the bottom three separate
+times, and the further down you worked the worse it got.
+
+Now the row is remembered **by id** and the scroll position by its top line, and both are put
+back after the rebuild. Searching still starts at the top, because there the row set itself
+changed and the top of a new list is the right place to be.
+
+The same rebuild had a second bug in it: clicking a column header sorted the rows while the
+panel's index of them stayed in insertion order, so from that click on, every button acted on
+a different row than the highlighted one. Sorting is off — the list is grouped by feature, so
+there was never a sort worth having.
+
+**And it looks like something now.** The `Feature` column that repeated a name down the left
+edge is gone, replaced by what it was trying to be: a blank line and a heading per feature, so
+the groups separate whichever column your eye is in. Around that:
+
+- **A search box that says what it searches**, and a **Show** dropdown next to it — everything,
+  only what you have changed, only what clashes, only what is unassigned.
+- **A mark per row.** ● means you have edited it and not saved; ○ means it is saved but is not
+  what the defaults say. "What have I actually touched here" used to need the ini open beside
+  the window.
+- **A count on the right of the toolbar** — keys, unsaved edits, clashes, and how many are
+  switched off. It counts the whole registry, never the filtered view.
+- **Right-click a row** for set / default / disable / copy key.
+- Mouse buttons read as `Mouse 4` and `Wheel up` rather than `XButton1` and `WheelUp`, and an
+  unassigned key is an em dash rather than an empty cell — everywhere those labels appear,
+  including the hotstring window's key capture.
+- The capture overlay names the action it is about to rebind, and shows the key it has now.
+- The standalone `hotkeys_window.ahk` follows the theme like every other window, instead of
+  being the one grey box in a tinted set.
+
+`tools/test/hotkeys_panel_test.ahk` is new and covers the scroll bug directly: it fills the
+real list, scrolls it, edits through the real method and reads the scroll position back off
+the control. It writes nothing — Save is never called.
+
+### Reply timers — the list tells you a fan has been waiting four minutes
+
+Infloww's conversation list gives you a wall-clock stamp and nothing else. Turning `7:45 am`
+into "four minutes" is a subtraction you do in your head, against a clock you have to go and
+look at, once per row, forty times an hour — and the row you get wrong is always the one you
+were about to scroll past.
+
+So MMA does the subtraction and paints the answer. Any conversation that is **unread** and has
+been sitting past a threshold gets a thick border in that threshold's colour:
+
+| waiting | box |
+|---|---|
+| under 3 min | nothing |
+| 3–4 min | yellow |
+| 4–6 min | red |
+| 6–10 min | pink |
+| 10 min+ | bright white |
+
+Those are the **defaults**, not the design. There is no "five tiers" anywhere in the code —
+`[ReplyBox] Tier1..TierN` is read until it runs out, so a sixth colour is a sixth line. Times
+and colours are edited under **Settings ▸ General ▸ Reply timers** (a colour picker per tier,
+clear a row's minutes to delete it), and the whole thing lives in `[ReplyBox]` in
+`mass_gui.cfg` if you would rather type it.
+
+**Only unread rows, and that is what makes it maintenance-free.** A box means "this fan is
+waiting", so the row has to be one that is. Infloww marks those with a coral `#ff7c71` dot at
+the right-hand end, and that dot is what MMA looks for — which means nothing has to notice you
+replying. Open the conversation, the dot goes, the box goes with it on the next tick, and
+there is no state kept anywhere to get out of step. Boxing *every* row was the alternative and
+it is much worse than it sounds: the list is sorted by recency and runs off the bottom of the
+screen, so every conversation you had already answered would keep a frame until it scrolled
+away.
+
+Four things are worth knowing about how it reads the screen:
+
+- **It is calibrated by drawing, twice**, and it ships doing nothing until it is. Both
+  measurements are rectangles on *your* screen at *your* window size, so neither has a default
+  worth shipping. **Calibrate the list…** stores the region in the **window's client
+  coordinates**, so moving or maximising Infloww takes it along. **Calibrate a row…** takes both
+  numbers a row needs off one drag round a single conversation: the height is the box you drew,
+  and the offset is where the unread dot turned out to be inside it. That second number matters
+  more than it sounds — **the dot is not in the middle of its row**. It shares a line with the
+  timestamp, below the fan's name, so centring the box on it drew every frame high by the
+  difference. It is measured now rather than assumed.
+- **A scroll blanks the layer instantly.** Finding the dots is one BitBlt and a walk down a
+  46px band — sub-millisecond — while reading the stamps is Windows OCR at tens of
+  milliseconds. So they run at different rates: the fast tick (400ms) exists mainly to notice
+  that the set of dot positions *moved* and take every box down at once, because a frame that
+  lingers half a second over the row that slid into its place is worse than no frame at all.
+  The OCR pass follows at 5s.
+- **One OCR for the whole column**, not one per row — same price for twelve rows as for one —
+  and it reads only the right-hand strip. That is worth more than the speed: a preview reading
+  *"see you at 9:30"* is a clock time in the same font as the stamp, and a wider box would have
+  made it one.
+- **A stamp one minute in the future is clock skew, not yesterday.** A message that lands at
+  7:45:50 is stamped `7:45` and may be read at 7:45:20. Subtract naively and you get −1, which
+  wraps to 1439 minutes — so the *newest* message in the list wears the *loudest* colour in the
+  palette, the exact inverse of the feature. There is a two-minute grace window on the future
+  side, and `tools/test/reply_tiers_test.ahk` (64 assertions) is what holds it there, along
+  with midnight wrap, `12:15 am` vs `12:15 pm`, and 24-hour locales.
+
+`Yesterday` and bare dates are floored at midnight today, so their wait comes out as however
+long today has been — deliberately a floor, never an estimate. It can only ever understate,
+which is the safe direction.
+
+The frames are click-through (`WS_EX_TRANSPARENT`) — the entire point of a conversation row is
+that you click it — `WS_EX_NOACTIVATE` so nothing can steal focus from what you are typing, and
+`WDA_EXCLUDEFROMCAPTURE` so the next tick's scan reads Infloww's dots and never MMA's own
+borders. Each one is a single window with its middle cut out by `SetWindowRgn`, so there is no
+chroma key anywhere near it and none of the three failures `tab_marks.ahk` documents can
+happen here.
+
+That last flag has a cost nobody expects until they hit it: **the boxes do not appear in
+screenshots.** That is the feature working, but it also means you cannot show anyone what you
+are looking at. **Settings ▸ General ▸ Reply timers ▸ "Keep the boxes out of screenshots"**
+turns it off when you need a picture. Safe with the shipped palette — the nearest tier colour to
+the unread coral is red, 50 away against a tolerance of 20 — but pick a coral-ish tier of your
+own with it off and MMA can start seeing its own borders as unread dots.
+
+**Off by default.** Switch it on under **Settings ▸ Features** or in the **Tools** window,
+where it has a live running state like every other background tool. `[gui] toggleReplyBox`
+shows and hides the frames without stopping the service, and ships unbound.
+
+*Also:* the system colour dialog moved to `THEME_ChooseColour` in `core/theme.ahk` — the tab
+bars and the reply tiers both need it, and one hand-packed 72-byte x64 struct is enough.
+
+### Typelog — mine your own Infloww typing for hotstrings
+
+The old standalone `typelog` project is now an MMA background service. It records the text
+you type **while Infloww is in front** into `userdata\typelog\YYYY-MM-DD.log`, so you can find
+your most-repeated phrases and turn them into hotstrings — the Hotstrings manager's job from
+the other end.
+
+It is wired in exactly like the pinger and the automation listener: a headless Python process
+(needs `pynput`) with no console and no window, launched via a `.vbs`, driven by a named
+stop-event, kept alive by the watchdog, and toggled from **Settings ▸ Features ▸ Typelog** or
+the **Tools** window with a live running state.
+
+Two things set it apart, both on purpose:
+
+- **It is OFF by default, and it is the one tool that keeps *what* you type.** The activity
+  tracker was built so it structurally cannot; this is built to. Within Infloww that includes
+  fan handles and message text, so it ships off and must be switched on deliberately — the same
+  consent gate as the tracker, for a stronger reason. The log lives under `userdata\`
+  (gitignored) and never leaves the machine.
+- **Pause it before typing anything private.** The `[typelog] pause` hotkey (default
+  `^!F9`) lives in `hotkeys.ini` like every other key and is edited in the Hotkeys GUI —
+  but bound by Python (pynput), same arrangement as `[automation]`. `typelog.pyw` converts
+  the AHK key string into pynput's format so `^!F9` just works.
+
+### Autoword — next-word suggestions trained on your own typing
+
+Typelog collects the corpus; this is the thing that reads it back. While you type in Infloww,
+Autoword predicts the next word and offers it on **Tab**. Because the corpus is what you typed
+*by hand*, and everything you send through a hotstring never passes a key hook at all, it is
+trained by construction on exactly the phrasing no hotstring covers yet.
+
+**Ctrl+Tab** runs the other way: instead of the next word it offers other words for the one you
+just finished — `touched` → `caressed`, `stroked`, `grazed` — out of a group file you own, with
+the inflection carried across so `touched` does not become `caress`.
+
+It is wired like the pinger and typelog: a headless Python process (needs `pynput`), no console
+and no window, launched via a `.vbs`, stopped by a named event, watched by the watchdog, and
+toggled from **Settings ▸ Features ▸ Autoword** or the **Tools** window.
+
+**Off by default, and it ships blind on top of that.** Typelog is off because it keeps what you
+type; Autoword is off for that reason *and* one of its own — Tab puts text into the message box,
+and nothing that types on your behalf should ever arrive already switched on. So switching the
+feature on still shows no UI: it starts in `Render=off`, predicting normally and writing what it
+*would* have suggested to `debuglogs\autoword_shadow.log`. That measures accuracy against your
+real typing with nothing on screen and no wrong suggestion able to cost you a keystroke. Set
+`Render=strip` in `userdata\autoword.ini` when you want to see it.
+
+Two seams are protocols rather than classes — `Predictor` (the trigram model) and `Renderer`
+(`off` / `strip` / `ghost`) — so swapping either is one new class and one line in `autoword.pyw`.
+`ghost` — grey text drawn at the caret — is deliberately **not implemented**; `strip` anchors to
+the foreground window instead, which is the whole reason it is the simple one, since it needs no
+accessibility API and nothing about it breaks when the target app re-renders.
+
+`python autoword.pyw --evaluate` reports held-out accuracy and changes nothing; `--train`
+rebuilds the model from the corpus.
+
+### Grab a message off the screen and make it the follow-up
+
+The OCR grab (`^+o`) has always ended in the same place: **Add Hotkey**, which writes a
+hotstring — a trigger you type. But the text you drag a box around is usually a message you
+just sent **by hand**, and the reason you grabbed it is that it worked better than the
+follow-up MMA has. That belongs in the mass, and until now the only route was to remember it,
+find the model's tab, find the right box and retype it.
+
+```
+drag a box (^+o)  →  Replace follow-up…  →  model · mass · follow-up  →  Replace
+```
+
+**The three dropdowns open on the follow-up you last sent.** That is the whole ergonomics of
+it: you press f2, the fan does not bite, you write something better yourself, grab it — and
+the window is already aimed at f2 of that model's live mass. The engine notes model, mass slot
+and group on every follow-up and PPV press (`[LastSent]` in `mass_gui.cfg`), on the **press**
+rather than on a successful send, because a follow-up that had nothing to send is exactly the
+one you are about to go and write.
+
+Two verbs, on one window:
+
+- **Replace** overwrites the trunk — what the plain key sends. One message per line, up to
+  three; a fourth is refused with both counts rather than dropped. Sub-slots the new text does
+  not fill are **cleared**, so a replace can never leave an old `f2.7` trailing a new `f2`.
+- **Add as alt** files the same text as a branch instead — the overload, offered on the
+  follow-up key with `Tab`.
+
+It is the **Add alt-FU** window, not a new one: same four questions, same preview of what the
+follow-up says right now, same `::name` parsing. It only differs in the two places it must —
+where the dropdowns open, and whether it saves. Reached from a capture it commits (through the
+same `ApplyFile` the Save button calls, so the library still has exactly one writer), because
+during a capture the main window is behind Infloww and "now go and press Save" is a trip that
+would not be made. Reached from the Variants grid it still writes into the grid and waits, so a
+mistake is undone by closing the window. The line under the buttons says which of the two you
+are in.
+
+The Add Hotkey window is left open behind it — a grab is expensive to make twice, and
+cancelling over there should not cost you the text.
+
+### A branch builder — draw the conversation, get a mass
+
+`^!b` opens a visual editor for the thing the old `docs/proposals/branching.md` asked
+for: a conversation drawn as a tree, with what **the fan says back** as a node in it.
+
+```
+!mm  →  fan replies  →  f1  →  fan replies  →  f2  →  f3
+```
+
+One column per follow-up, so the room you have left is on screen *before* you run out of
+it. Cards carry the message; the orange chip on top is what the fan said to get there.
+`+ next` continues a route, `+ fork` adds another thing they might have said, and two
+routes can **merge** back into a shared ending — edited once, sent by each.
+
+**It compiles to an ordinary mass, and that is the whole trick.** One root-to-leaf path
+through the tree = one named branch. The first route is the trunk (f1/f2/f3); the rest
+become `::named` branches, named after the fan reply that forked them — so `::plays-along`
+instead of `::br2` when you are staring at a picker window mid-shift. Nothing in the
+engine or the parser changed: the builder emits the same `!mma` text `Export !mma`
+already writes. The preview pane under the canvas shows exactly what MMA will receive,
+and it is produced by the same compiler that Save uses, so the two cannot disagree.
+
+**Limits are reported with a count, never truncated.** A route with four messages after
+the opener has nowhere to put the fourth, and seven forks is one more than a mass holds.
+Both say so, and say which route — losing a message you typed is the one failure a
+builder can hand you that looks like success.
+
+`Copy !mma` puts the compiled text on the clipboard for the normal paste-and-Parse flow;
+`Save to a mass…` writes it straight into a model's slot. Flows live in
+`userdata\branch_trees.json` and autosave as you type.
+
+### An activity tracker, and a chart of how you actually work
+
+New background tool, **off by default**: it counts keystrokes, characters, backspaces,
+mouse clicks and active seconds into `userdata\activity\`, one row per counter per minute.
+`^!g` opens the chart — four KPI tiles, a timeline of the day, a weekday×hour heatmap of
+when you actually work, and the correction-rate curve through the day.
+
+Beyond keys-per-minute it answers the questions keys-per-minute cannot:
+
+- **Keys per *active* minute.** Wall-clock minutes only measure how long the window was
+  open. A second counts as active when there has been physical input in the last two
+  seconds (`[Activity] IdleMs`), so breaks come out of the denominator instead of
+  flattening the average.
+- **Correction rate** — backspaces per 100 characters, by hour. It climbs as you tire,
+  and it is the clearest end-of-shift signal in the data.
+- **Longest stall**, recorded in the minute it *ended*, so a pause is attached to the
+  time you would look at when asking what happened around then.
+- **Mouse share**, for whether a shift went through the keyboard or the mouse.
+
+**It counts and never records what.** The file format has nowhere to put a character —
+`minute,counter,value`, with a closed list of counter names. No text, no window titles, no
+hotstring triggers. MMA's own sends are excluded (`MinSendLevel := 1`), so a mass paste
+does not inflate your typing speed — otherwise the number would go *up* the more work MMA
+did for you. Off by default because "counts your keystrokes" is something you switch on
+deliberately, not something you find already running; its hotkey is dead while it is off.
+
+Nothing is written for a minute you were not there, so leaving MMA running overnight adds
+no rows at all and a year of this stays in the low megabytes. `[Activity] KeepDays`
+prunes older files; `0`, the default, keeps everything, because this is a log kept in
+order to spot a pattern across months.
+
+The chart is drawn by WebView2 — the same runtime the WebView main window uses — and the
+tracker keeps recording whether or not it is open.
+
+### A mass can be written under a bare `!mma`, and the `!mm` box can hold it
+
+The shape people actually paste — the marker alone on the top line, the message under it:
+
+```
+!mma:
+
+If you were my artist, how would you picture me? 🎨
+
+Would my curves take over the entire canvas...
+Or would you only sketch the parts you couldn't stop thinking about? :3
+
+Would your artwork be bold enough to leave people speechless? ♡
+```
+
+That is **one** message. The blank lines in it are paragraph breaks, not group separators.
+
+**What it did before.** Every other form puts the mass *on* the marker line, so a marker with
+nothing after it set the mass to the empty string — and then positional mode read the paragraphs
+as `f1`, `f2`, `f3` and dropped the fourth with a line in the log. The opener went out as three
+replies, or as nothing at all, and the only thing that said so was `__mm` reporting an empty slot.
+
+The block ends at a `---` fence (eaten with it), at a labelled line — a field name, an `f`/`fu`
+prefix, `ppv`, a `::branch` — or at the end of the paste. **Close it with a fence if follow-ups
+come after it**, because positional follow-ups carry no label to stop it with themselves.
+`Export !mma` writes exactly that form whenever the mass spans lines, so a multi-line mass
+round-trips through Export and back.
+
+The `!mm` box in the window is **multi-line** now, like `ppv`. It had to be: a single-line Edit
+renders those paragraph breaks as little boxes you cannot see past or edit around, which would
+have made the mass unreadable in the one place you edit it.
+
+### Tab marks are now just bars, and they stop flickering
+
+The stars are gone and the divider is the whole feature — and it went from **four hotkeys to one**.
+
+`^!,` puts a bar where the pointer is. That is the entire keyboard surface. Everything else is the
+bar itself: **left-drag** to move it, **right-click** for its menu — remove · colour (eight presets,
+the system colour picker under *Custom…*, or apply one to every bar) · size (taller / shorter /
+wider / narrower) · add another · hide the lot. Colour is **per bar**, so you can group the strip by
+more than position; the cfg line grows a third field for it (`Bar2 = 338,44,4AC9FF`).
+
+**Why there were four keys.** The bars were click-through — every click landing on the tab
+underneath as if they were not there — because they sit on the most-clicked object on the monitor.
+A window you cannot click is a window you cannot drag or right-click, so every verb had to become a
+key, and moving one needed a whole mode to turn the click-through off and back on.
+
+The reasoning was sound and the conclusion was wrong, because of the scale: a bar is **five pixels
+wide** and it goes in the *gap* between two tabs, which is where a divider goes by definition. The
+thing being protected was five pixels of a 180-pixel tab, in the one place on the strip you were
+never aiming at. Not worth three hotkeys and a mode. The bars are ordinary little windows now. They
+keep the half that matters — clicking one never takes focus off the chat box you are typing in — and
+`[Marks] ClickThrough=1` puts the old behaviour back for anyone the five pixels does bite.
+
+Dragging is **Windows' own move loop**, not a timer. An earlier cut had a "carry" mode where a
+picked-up bar chased the pointer at 25 ms, and it felt awful for a reason no tuning fixes: a timer
+polls, a drag loop is driven by the mouse messages themselves. Forty ticks a second still trails the
+cursor and arrives after you stop.
+
+Bars are also **wider and taller** by default — 5×36 rather than 3×26.
+
+**The flicker was a real bug, not a tuning problem.** `MARKS_Sync` cached the client rect so a still
+window would not redraw, then called `MARKS_Build`, whose first act cleared that cache. The guard
+could therefore never hold, and a full-client-width, always-on-top, layered window was **destroyed
+and recreated every 400 ms, forever**, on top of a compositing browser. Each rebuild also showed a
+full-width magenta band for one frame, because a transparency key can only be applied to a window
+that already exists.
+
+**And they were placed wrong on any display above 100 % scaling.** The overlay had no `-DPIScale`.
+`Gui.Show` multiplies its coordinates by the display scaling; `MouseGetPos` does not — so at 125 %
+a bar placed at x=400 landed at x=500. Every other screen-coordinate overlay in the tree already
+carries that flag and says why.
+
+Both are structural to the old design, so the design changed: **a bar is now its own tiny window**,
+three pixels wide, filled with its own colour. No chroma key (nothing to punch out), no controls, no
+glyph, no font. Moving one is a `WinMove`; the timer never creates or destroys anything. That is
+also why the stars had to go — a glyph is what needed the transparency key that caused all of it.
+
+Existing `Mark1 = sep,412,44` lines are converted to `Bar1 = 412,44` on the first start. `star` lines
+are dropped, with a line in the log for each. `[Marks] GrabPx` sets how close the pointer has to be
+to pick a bar up.
+
+### Lock a model, and the side buttons stop asking
+
+"I pick" mode opens a window on every shared follow-up key to ask which model. That is the right
+question when you do not know, and the wrong one for how a shift is actually worked: every message
+for one model, then the next model. Twenty minutes of the same side button is twenty windows for
+one answer — and a window you dismiss by reflex has stopped being a safeguard.
+
+**Locking answers once.** While a lock is on, every `[mass.active]` key — the side mouse buttons
+included — sends that model, with no window and nothing read off the screen. The sequence it is
+built around:
+
+> pick the model in the window → **`^!l`** → clear that model's messages → **`^!l`** → next model
+
+The lock is also a **toggle in the "Send follow-up" window itself** — the checkbox on its bottom
+row, which names the key beside it and flips the lock the moment you click it, reading
+`Locked to <name>` while on. Clicking a different model button with it ticked *moves* the lock.
+There is a **Lock to *name*** button in the main window too, which locks to the model tab in front
+(hence the name on it). All three write one setting, so none of them can disagree.
+
+`^!l` locks to whichever model is already resolved — in "I pick", the one you last chose. If MMA
+has no answer it **refuses and beeps low**; locking to a guess is the one thing this must not do.
+
+**Moving to the next model does not need an unlock:** press its `^!N` and the lock *moves*. The
+unlock in the sequence above is there to put the "which model?" net back for the model you have not
+chosen yet.
+
+A small **LOCKED** badge sits in the corner naming the locked model for as long as the lock lasts.
+It never takes focus, and **clicking it unlocks** — as does `^!l` again, or the button, which reads
+`Unlock (name)` while a lock is live. Unlocking gives the picker back, unchanged.
+
+That badge is not decoration; it is the condition on which the whole feature is offered. A lock is
+a mode in which a key you press sends to a model **nothing on screen identifies**, which is exactly
+the shape of mistake that puts one model's message in another model's chat — reached on purpose
+this time, and only acceptable because something on screen says so. A tooltip could not do the job
+(they expire; this state lasts twenty minutes) and neither could MMA's own window, which is behind
+Infloww all shift. Move it if it is in the way — `[Lock] BadgeX` / `BadgeY` in `mass_gui.cfg`, in
+screen pixels — but keep it where you will see it.
+
+It is a lock, not a fourth strategy: it applies whatever Settings ▸ Models says, so it will
+override a working detector if you ask it to. The numbered per-model keys are untouched by it, as
+by everything else in that section.
+
+### `::branch` on its own line now parses — and two of them are not four follow-ups
+
+A mass written the way a mass is actually written did not parse:
+
+```
+which curve of mine entices you the most        <- f2
+
+::tits
+would you mind if I smothered you with them?
+
+::ass
+I want to make you my personal throne
+```
+
+Two separate faults, and the result was worse than nothing happening. `::tits` with no text after
+it was read as *"this branch has nothing to say here"*, so the sentence underneath **fell through to
+the trunk's f3** — one branch's wording became the message every fan gets. Then the `::ass` block
+was counted as a **fourth** follow-up group, and there is no fourth, so it was **dropped entirely**.
+One line in the log for the second one; nothing at all for the first.
+
+Both are fixed:
+
+- **A marker alone on its line owns the lines under it.** `::tits` followed by a sentence means that
+  sentence is the branch's, and several lines under one marker are several parts of its answer (f3,
+  then f3.5) — exactly as repeating the marker would be. A marker *with* text on its line still
+  keeps its hands off the next line, which is what every mass written before this relies on, and a
+  marker with nothing under it still says nothing rather than sending a blank line.
+- **A group that opens with a marker is the next follow-up, and consecutive branch-led groups share
+  it.** They are choices at the same step, not successive messages. In the paste above that is one
+  f2 asking a question and two f3s answering it, with **no trunk f3 at all** — which is correct,
+  since what goes out depends on her answer.
+
+It also works in the labelled modes, where an unlabelled line under a marker used to be dropped on
+the floor for having no slot of its own. A line carrying its own `f2` / `ppv` label always closes the
+capture — without that precedence one marker would have eaten the entire rest of the paste, which is
+exactly what the first version of this fix did until the test caught it.
+
+`branch_parse_test.ahk` covers the reported paste and both boundaries: 62 assertions, up from 40.
+
+**`docs/mass-format.md` was describing a format MMA does not read** — `alt:` and `--Name`, both
+removed a while ago — which is a fair part of why this looked like a parser bug rather than a
+syntax mismatch. That section is rewritten around `::name`, and the guide gained the own-line form
+and the branch-led-group rule.
+
+### Stars and separators you can stick on your own tabs
+
+Eight near-identical tabs are hard to read at a glance, and no amount of detection helps: the
+problem is not that MMA cannot tell them apart, it is that you cannot, quickly, forty times an hour.
+
+So draw on them. **`^!.`** puts a star on the tab under the pointer, **`^!,`** puts a thin separator
+there for splitting the strip into groups, and either key pressed over an existing mark takes it off
+again — that is the whole of removal, because the layer has to be click-through and therefore cannot
+be clicked. **`^!0`** hides the lot when you want the tabs bare. Off switch in **Features ▸ Tools**.
+
+**A star means whatever you meant by it.** MMA never moves one, never reads one, and never works out
+which model is which from one. That is deliberate and worth stating plainly: a mark MMA also
+*maintained* would be a second, silent claim about which model is which, and this tree has already
+paid for one of those. Which model is live is the LOCKED badge's job, and it looks nothing like a
+star.
+
+Marks live in `mass_gui.cfg [Marks]` as `kind,x,y` in the target window's own coordinates — so they
+ride along when you move or resize it, and **nothing has to be calibrated first**, which is what
+lets this work on a strip MMA cannot read at all. The same section carries the look (`StarChar`,
+`StarColor`, `StarSize`, `SepColor`, `SepWidth`, `SepHeight`) and `WinMatch` for which window they
+belong to. Deleting the section clears them.
+
+Three things it was made to get right, all of them measured rather than assumed: every click passes
+through to the tab underneath and the layer can never take focus off a chat box; the overlay asks
+Windows to leave it out of screen capture, so MMA's own tab-strip scan reads the tabs and not the
+stars; and the glyph is drawn with a magenta transparency key, because a discreet near-black key —
+the obvious choice, and the first one tried — does not key at all and paints every star into a solid
+black box.
+
+### A Fansly model is no longer offered as an Infloww tab
+
+**Settings ▸ Models** built both order rows out of every model: one dropdown per model on each
+site, each listing all of them. On a mixed setup that is a question with no right answer in it —
+"which model is Infloww tab 3" has none when only one of your four models is worked in Infloww, and
+offering a Fansly model as the answer invites a mapping that sends that model's mass into an
+Infloww tab, silently, at a real fan.
+
+Each row is now built from the **Platform** column above it: as many dropdowns as that site has
+models, each listing only those models, with `no models are set to Infloww` in place of the row when
+a site has none. It follows the Platform dropdowns **live**, so moving a model to Fansly takes it
+out of the tab order in front of you rather than after a save and a reopen.
+
+Two things that come with it: the saved order is written through the same filtered list the row was
+built from (a dropdown's index is no longer the model number, and getting that wrong would write
+"tab 1 = model 2" while the screen said something else), and positions the site does not have are
+written as **0** — read as *"no answer"*, so the shared keys do nothing instead of acting on a
+stale `Pos3=3` left behind by a model that has since moved sites.
+
+### The Discord Ctrl+click import is quicker off the mark
+
+It opened the context menu, slept a flat **250 ms**, and then looked for "Copy Text" exactly once —
+paying the full 250 on every import even when the menu was up in 60, and failing outright if it was
+not up yet, because there was no second look.
+
+It now polls: first look at 60 ms, again every 55 ms, up to 600 ms from the right-click. Each look
+is also cheaper — the OCR read is boxed to a rectangle around the cursor (the menu opens *at* the
+cursor) instead of reading the whole Discord window at scale 2, which was ~157 ms a go, and the
+bitmap match's search box shrank with it. If the boxed reads all come up empty it still falls back
+to one whole-window read, so nothing that worked before stops working; that fallback says so in the
+log, since a common one means the box is too small.
+
+The log line now carries how many looks it took and the ms from the right-click, so "is it actually
+faster on this machine" is a question the log answers.
+
+### A hotstring can have a hotkey now
+
+Some messages go out often enough that typing the trigger is the slow part. Any hotstring can
+optionally have a key as well: select it in the Hotstrings window, press **Hotkey…**, press the
+key. Esc cancels, Backspace removes one, and a new **Key** column shows what is bound.
+
+The trigger keeps working exactly as before — the key is a second way to fire the same thing.
+Overloaded hotstrings still offer their variants from the key, because the handler goes through
+`Overload_Run`, the same path the trigger takes. What gets sent is read from your `.ahk` source at
+load through the same index the Hotstrings window uses, so **the message is never copied**:
+reword it and the key's message changes with it.
+
+It is stored in `hotkeys.ini` under `[hotstring]`, one line per binding, `trigger = key` — the
+same file, format and conflict report as every other key in MMA. Binding one checks for a clash
+first and names what already owns that key.
+
+This is the sanctioned version of something that was already happening: `content\accounts\TEMP.ahk`
+has had bare `!9::` and `!8::` blocks written straight into it, each sending one message. Those
+work, and they are invisible to the Hotkeys tab, invisible to the conflict report, and lost the
+first time that file is tidied — TEMP.ahk's own header says as much about the `!1::` before them.
+
+**Add hotstring… has a Record button**, so a key can go on at the moment you write the message —
+which is when you know it is one you will send forty times a day, rather than later in another
+window having remembered. Press Record, press the chord, press Append. Nothing is written until
+Append, and Clear drops it. It is recorded rather than typed: the Hotkey box in that dialog has
+always accepted `^!9` as *text*, but that writes a bare hotkey block into the message file, which
+is the invisible-to-everything shape described above.
+
+**Duplicates are refused, in both places** — you are told what already owns the key and asked to
+pick another, with no "bind it anyway". Elsewhere in MMA two ids may share a key when their window
+contexts do not overlap; a hotstring key is global, so it overlaps with everything, and "both fire
+and whichever script loaded last wins" is not a state worth offering as a confirm button. The
+check is `HK_KeyOwner`, which reads the ini rather than the calling process's own declarations —
+the GUI has never heard of an id declared only in a message script, and a duplicate check that
+only knows one process's ids goes quiet exactly when it matters.
+
+Two more things worth knowing:
+
+- **The key is global**, like the hotstring it stands in for. A hotstring fires wherever you type,
+  so its key fires wherever you press it. Pick chords you would not otherwise hit.
+- **A new binding restarts the message script that owns it**, and says so — a script reads its
+  keys when it loads, so until it does the key does nothing, which is indistinguishable from the
+  feature being broken. Changing an existing key applies live.
+
+#### Dotted triggers, and a rule that was pointed the wrong way
+
+The first cut of this refused any trigger containing a dot, on the grounds that hotkey ids are
+`section.name` and split at the **last** one — so `hotstring...intro` read as a section that does
+not exist, and the key would have been written in one place and read from another. That reasoning
+was right and the conclusion was backwards: 23 of the 110 triggers in the library are named
+`..intro`, `..ppv4f2`, `..bump2`. It was a rule about MMA's id format, dressed up as a rule about
+someone's triggers, and it turned away a fifth of them.
+
+`HK_Split` splits `[hotstring]` ids at the **first** dot instead — that section has no
+sub-sections, so everything after it is the key, and the ini reads exactly as the trigger is
+written: `..intro = ^!1`. Every other id still splits at the last dot.
+
+The one character that genuinely cannot work is `=`, and the guard for it is at the two windows
+that write a binding rather than at the reader — which is worth writing down, because the reader
+is the obvious place to put one and it would be dead code there. `IniWrite` of the trigger `a=b`
+emits `a=b=^!1`, which reads back as a trigger called `a`: mangled before any reader exists to
+object. No trigger in the library has one.
+
+The ids are declared **after every static one**, which is load-bearing rather than tidy: the
+Actions menu runs an action by broadcasting its index in `HK_ORDER`, and these come from the ini,
+so a script started before you bound a hotstring has a shorter list than one started after. Keeping
+them in a tail past everything static means every static index still means the same thing in every
+process, and the Actions menu skips these rows so nothing it displays can shift.
+`tools/test/hotstring_key_test.ahk` asserts exactly that, plus the sort that keeps the tail stable
+and the dot refusal.
+
+### Variants ▸ Add alt-FU… — a form, instead of knowing how the grid works
+
+The Variants grid shows a whole mass at once, which is the right shape for reading one and the
+wrong shape for adding a line to it. To add an alternative there you had to already know that a
+row is a branch, that a column is a follow-up, that the row needs a NAME before the picker can
+offer it, and that a second wording goes on a second *line* of one cell rather than in the next
+column. None of that is written anywhere on the window.
+
+The new button asks the four questions in order — **which model · which mass · which follow-up ·
+what does it say** — and shows what that follow-up currently says, plus which branch names are
+already taken, because you are writing another wording of something and the something was the
+one thing you had to go and look up.
+
+The paste box takes either form, and that is the point rather than a convenience:
+
+- **No markers** — the box is one branch, one message per line. Named from the Branch name box,
+  or `alt`, then `alt1`, `alt2`… if the mass already has one. A name you *type* is never renamed
+  behind your back: typing one that exists means "add to that branch".
+- **`::name` lines** — parsed exactly as a real paste is, markers kept, **nothing auto-added**,
+  several branches in one go. Working alt code copied out of Discord goes straight in. A bare
+  line under a marker continues that branch; a line *above* the first marker is the trunk being
+  copied along for context, and it is dropped rather than filed as an alternative of itself.
+
+Detection is `BranchMarker()` from `mass/parser.ahk`, not a regex of the new window's own — two
+answers to "is this a marker" is two behaviours, and the one that would be wrong is the one a fan
+sees.
+
+It writes into the **grid**, never to `masses.json`: you see what it did before committing, Save
+to file stays the only writer of your library, and closing the window undoes a mistake. The
+status line says as much after every Add, because "it worked and nothing is saved yet" is the
+state people get wrong.
+
+`tools/test/altfu_build_test.ahk` covers it — 52 checks over the writer, the auto-naming, the
+paste rules and the window build.
+
+### The self-tests moved to `tools/test/`
+
+A probe binds a key and stays resident so you can look at your screen through it; a test asserts,
+prints `N passed, M failed`, and exits. They had nothing in common except a folder, and the only
+thing that distinguished them was the filename — which lied in both directions.
+
+The eleven assertion files are in [tools/test/](tools/test/) now, with a README covering how to
+run one by hand and which of them write real settings. `model_detect_test.ahk` and
+`discord_header_test.ahk` stayed in `tools/` because they are **probes** despite their names —
+`debug_panel.ahk` has always listed the first of them under `PROBES`. Renaming those two to
+`*_probe.ahk` is worth doing and is not done here.
+
+Two things came out of it: `branch_parse_test.ahk` was written and then never added to
+**Settings ▸ Debug ▸ Run all**, so it only ever ran by hand — it is in the list now, along with
+the new alt-FU test. And nothing broke in the move, which is worth a line: `MMA_ROOT` comes from
+`A_LineFile` in `paths.ahk` and not from `A_ScriptDir`, so a test one folder deeper still
+resolves every path in MMA. Only the tests' own `#Include "../src/…"` lines needed the extra
+`../`.
+
+### The Hotstrings window was too narrow for its own footer
+
+Its footer is two clusters that grow towards each other — six buttons pinned left, Sort and Text
+size pinned right — and the width was a round number rather than a measured one. Left cluster
+ends at 686px, right cluster claims the last 310: that is 996 with the two touching, against a
+1000px default and a **900px minimum**. So at the default there were four pixels between them,
+and anywhere below 996 the buttons were drawn *underneath* the dropdowns.
+
+Now 1120 wide with a 1020 minimum, both derived from those measurements and written down next to
+them. The window also lays itself out through its own `OnSize` on open instead of trusting the
+coordinates each control was created with — a Gui does not fire `Size` on `Show`, so the window
+you got before touching it was laid out by one set of rules and the window you got after dragging
+it by another.
+
+### Settings ▸ Models is about one question now, and asks it once
+
+The tab was three settings stacked in the order they were written: model rows, the wait time,
+then "Which model is on screen" — a heading that named a symptom rather than the feature. What
+all of it actually configures is **one key per action instead of one per action per model**, so
+that is what it is called: **Use a single hotkey for all masses**.
+
+It now reads top to bottom as one decision:
+
+- **Enabled** — a new `[Settings] SharedKeys`. Off, every `[mass.active]` key bails and says so
+  in the log, and the numbered per-model keys carry on untouched. That is a real answer, not a
+  broken one, for a machine where nothing on screen identifies the model and a picker window in
+  front of every keypress is not wanted. Read per keypress, so it applies to the next key —
+  no restart. It is deliberately **not** a `FEAT`: Easy mode switches off everything in that
+  registry, and doing it here would silently kill every shared key on a setup that has nothing
+  else. See `SharedKeysOn()` in `core/active_model.ahk`.
+- **Strategy — Manual, or Automatic.** "I pick" is gone as a name; the mode it described is
+  Manual, and the window does the picking (`mass/model_picker.ahk`). Its "I pick — active model"
+  dropdown went with it. That value still exists in `[Settings] CurrentModel`, written by the
+  picker and by the `[mass.select]` keys — but it is a consequence of what you last picked, not
+  a thing to set, and a dropdown for it was a second place to answer a question the window
+  already answers.
+- **Automatic, per site.** Two sites, two detectors, two answers, and a mixed setup is the
+  normal case. **OnlyFans (Infloww)** keeps `[Settings] ModelMatch` (`name` / `position`), which
+  is all that key has ever described. **Fansly** gets `[Fansly] Match` — which has existed since
+  the rail detector shipped and had **no control anywhere**; setting it meant hand-editing
+  `mass_gui.cfg`. The rail order (`[FanslyPos]`) was in the same state and now has its dropdowns
+  next to Infloww's tab order.
+
+Manual greys out every automatic control the moment you click it, and switching the section off
+greys the strategy too — rather than at Save, or not at all. A control that is live but ignored
+is the shape of every "I set that and it did nothing" this window has produced.
+
+### New tab: General
+
+The **wait time** was on the Models tab, between the model rows and the detector block, splitting
+the one page you go there to read. It says nothing about a model. It is on a **General** tab of
+its own now — the first tab, with room for the next setting that belongs to MMA rather than to
+one feature — and it carries the warning it never had: it is the one setting stored as *source
+code*, so saving it rewrites `core\utils.ahk` and restarts the scripts.
+
+Every tab after it shifted by one. Settings is eight tabs.
+
+### Smaller things
+
+**Button labels are bold again**, on every MMA window and on every theme —
+`THEME_BoldButtons()` in `core/theme.ahk`, applied after the controls exist. It is deliberately
+not part of the theme pass: that returns early on the classic theme, where Windows owns the
+colours, and a classic window should still have readable buttons. Weight is not palette.
+
+**Changing the theme restarts MMA.** It used to repaint in place, which reached the background
+and the input boxes but not the colours baked into controls when they are created — the label
+ink and the tab strip's accent — so the window ended up half in the new theme and looked broken.
+Now it reloads, the same as changing the model count.
+
+**Settings ▸ Debug has a "Desktop shortcut" button.** It writes `MMA.lnk` pointing at
+AutoHotkey with `MMA.ahk` as its argument, not at the `.ahk` file itself: a bare `.ahk` shortcut
+goes through the file association, which might be v1 or missing on another machine, and then the
+shortcut fails in a way that looks like MMA is broken rather than unlaunchable.
+
+**Hotstrings' "Add hotkey…" button is "Add hotstring…"** — it is called what it makes. (The
+dialog it opens is shared with the grab-selection hotkey and still calls itself Add Hotkey.)
+
+**The empty corner has someone in it.** `assets\anime_girl.png` is drawn in the dead space under
+the right panel's button stack, above the credit — the one block that is empty at every window
+size, because the stack is a fixed height and the panel is not. Any source image works; the
+aspect ratio is kept. No file, no picture, no error.
+
+She is scaled to the space rather than pinned to one size: eight copies are built at startup and
+the largest that fits is shown — 156x180 in a default window, **312x360** maximised on 1080,
+468x540 on a bigger screen, and 113x130 at the minimum window size. She sits at the bottom of
+the z-order, so any control that ever reaches that corner is painted over her, not under.
+
+Which one fits is decided against the panel's actual control rectangles, not a box drawn under
+the whole button stack. That rule was far too mean: the stack's bottom half is a status line and
+a grey note, both left-aligned in a panel half again as wide, so it threw away a tall column of
+genuinely empty space and capped her at a third of what fits. Two labels down there were also
+wider than anything they hold (320px and 330px), and empty pixels inside a control are not free
+when something else is sizing itself to what no control claims — they are 220 and 300 now.
+
+(Eight copies, and not one that resizes, because a Picture control scales its bitmap when it is
+*created* and AHK v2 cannot destroy a single control — the alternative was rebuilding the window
+on every drag. The steps are spaced rather than fine because each one is a GDI+ scale of the
+source at startup.)
+
+### Alts and branches were never two things
+
+A mass could carry two kinds of alternative and they were the same idea wearing different
+clothes. An **alt** (`alt:` / `alt0:`) was another wording of one follow-up. A **branch**
+(`--Name`, in a block of its own at the bottom) was another wording of one follow-up that also
+implied the next two. Two syntaxes to write, two shapes on disk, two halves of the Variants
+window to edit — and at send time the follow-up key merged them back into one list anyway,
+which is what you actually saw in the chat box.
+
+So there is one of them now, and it is the branch:
+
+```
+!mma the mass
+
+follow up 1
+::alt folow up 1 alternative
+::mexican mehico
+::german germaniaaaaa
+::german gernabiaaa22222
+
+follow up 2
+::alt fu2
+::alt ffu2.1
+::mexican
+```
+
+**`::name text` is the only marker.** `alt` is not a feature — it is the name you give a branch
+when the wording has no better name. A branch keeps its identity by *name* across the whole
+mass, so the `::mexican` under follow-up 2 is the same mexican you picked at follow-up 1, and
+picking it still commits you to it for f2, f3 and the PPV.
+
+**The same name twice in one group is one branch with two parts**, not two choices: `::german`
+above answers f1 with two messages, which go out as f1 and f1.5 — exactly as two unmarked lines
+are the trunk's f1 and f1.5. Three per group, the same three sub-slots the trunk has.
+
+**A branch is written where it belongs**, in the follow-up it answers, instead of in a block at
+the end that repeated the whole positional layout. `::mexican` with nothing after it says
+nothing for that group — it does not send an empty message.
+
+**Six branches per mass**, up from three, because branches now carry what the three alt fields
+used to.
+
+#### The Variants window is a grid
+
+|          | FU1 | FU2 | FU3 | PPV |
+|----------|-----|-----|-----|-----|
+| main     | *(echo of the main panel)* | | | |
+| mexican  | mehico | | | |
+| german   | germaniaaaaa<br>gernabiaaa22222 | | | |
+
+It was four cells — one per follow-up — each listing "main", three alt boxes and three branch
+boxes. One branch was therefore four boxes in four corners of the window, tied together only by
+a repeated row label, and the alt boxes in between belonged to no branch at all. Answering
+"what does mexican say?" meant looking in four places.
+
+Now: across a row is one branch's whole conversation, down a column is every way to answer that
+one follow-up — which is the list the key stages and <kbd>Tab</kbd> walks. The name is edited in
+the row it names.
+
+#### What this costs
+
+The `fu<N>_alt<i>` fields are **left on disk and no longer read**. Nothing is deleted, so going
+back to 2.0.2 finds your alts intact — but until a mass is re-pasted, alts written in the old
+syntax are not sent. `--Name` branch blocks parse as ordinary message lines now; the branches
+already *saved* from them are untouched and still work, since a branch is stored exactly as it
+was.
+
+`tools/branch_parse_test.ahk` covers the format: 40 checks over the shipping parser, including
+the example above.
+
+### "Manual" is not a platform
+
+Settings ▸ Models offered **Infloww (detect) / Manual (you say) / Fansly (detect)** per model.
+The middle one is not a site — it is a way of deciding which model is on screen, and that
+question already had its own setting three rows further down (**Decide which model by: I pick**).
+One question with two answers in two places, and the two could disagree.
+
+The dropdown is now **Infloww / Fansly**. A config still holding `Platform2=manual` reads as
+Infloww; the word stays on disk and nothing rewrites it. "I pick" is unchanged and still does
+what it always did.
+
+**The import prompt now asks which site a model is on.** Ctrl+clicking a Discord message from a
+channel MMA has not seen before opens *Import — route to model*, which is the moment you are
+telling MMA about that model — so it asks there, once, instead of leaving the platform on its
+default in a window you have no reason to open. It follows the model dropdown (platform is a
+fact about the slot) and is saved whether or not "Remember this name" is ticked.
+
+### The selected model is purple, and Load/Save follow it
+
+The tab strip marks the selected tab with a few pixels of shading. On the dark theme that is
+close to nothing, so "which model am I typing into" was a question you could get wrong for a
+whole mass — and the way you find out is a save into the wrong model's file.
+
+**The selected model's name in the tab strip is now violet and bold.** The others are not.
+Same strip, same tabs, same names — only the one you are on is coloured. (A tab control gives
+you no say over its text colour, so MMA draws the labels itself: the system still draws the
+tab shapes in your visual style, and only the text is ours.) On the classic theme, where
+Windows owns every colour and a hard-coded hue could land unreadably on a high-contrast
+scheme, the selection is marked with bold alone.
+
+**The right panel's load/save grid is now one Load and one Save.** They act on the tab in front
+of you and they carry its name — **Load Bellarama**, **Save Bellarama** — and both relabel the
+moment you switch tab.
+
+The grid was a fair layout at two models, where it was four buttons. At eight it is sixteen,
+wrapped over six rows, and picking `save Bellarama` out of them is a reading task performed at
+speed next to `save Bella` — while the tab in front of you already said which model you meant.
+
+Nothing about *what* a save writes has changed: it is still the **mass #** picked on that
+model's own tab.
+
+**Settings → GUI → "Use legacy Load/Save UI"** brings the per-model grid back. It is a real
+fallback, not a courtesy: the grid can load or save a model you are *not* looking at, and the
+pair cannot. It decides which controls the main window builds, so ticking it reloads MMA —
+same as the model count.
+
+### The bottom strip loses five things it was only holding for lack of anywhere better
+
+The main window's bottom row is what you reach across on every send, and half of it was
+things you touch a few times a year. Nothing here is removed as a feature — four of the five
+moved to where you are already standing when you want them.
+
+**Open with Code** and **How to Use** are in **Settings → Scripts**, on the row that already
+holds Wipe TEMP and Check update. One opens an editor over the whole source tree and the
+other opens the manual in a browser; on the strip they sat *between* Settings and Add Hotkey,
+which are things you press mid-shift, so every real press had to read past them.
+
+**Add Hotkey** is in the **Hotstrings** window, at the top beside the title. What it writes
+*is* a hotstring in one of the message files — the very files that window indexes, searches,
+overloads and deletes — so "add one" now sits beside all of that instead of on the row you
+reach across mid-send. The "grab selection → Add Hotkey" hotkey is unchanged, and so is the
+window itself, New Script and all. (Hotstrings is a separate process and the dialog is built out of the main
+window's own state, so the button asks the main window to open it. If MMA is not running, it
+says so rather than opening a dialog that could not save anywhere.)
+
+**New Script** is at the bottom of the **Add Hotkey** window. The only reason to make an
+account file is to have somewhere for a hotkey to go, and Add Hotkey is where you choose that
+somewhere — so the new file now drops straight into that window's File dropdown and is
+selected. That also retires the prompt it used to end on: *"Reload to show toggle button?"*,
+which reloaded MMA for the sake of a button that no longer exists.
+
+**The `◻ NAME` script toggles are gone, and so are the "Visible scripts" checkboxes in
+Settings that decided which of them appeared.** Their one honest use — a message script stops
+responding, you click it off and on again — is now **Hotstrings → Startup scripts**, and it
+does that job properly for the first time:
+
+* **It reads the state instead of remembering it**, on a one-second timer. The old button's
+  *label* was the state, and the label only changed when you clicked it — so a script that
+  died on its own, or was restarted by the watchdog, or by Add Hotkey appending to it, left
+  the button reading the exact opposite of the truth. The one moment you go looking is the one
+  moment it lied.
+* **Restart is one press**, not off-then-on-and-hope-the-label-was-right.
+* It shows **which scripts Settings auto-starts**, read-only, so the live view and the config
+  cannot disagree. Settings → Scripts still owns "Run on startup" and the watchdog.
+
+It lives under Hotstrings because these files *are* the hotstring library: the manager lists
+what is inside them, this lists whether they are running.
+
+The `HiddenScripts` cfg key is left on disk unread rather than deleted, so nothing is lost by
+going back to 2.0.2.
+
+### **Pinger: ON** is now **Tools**, and it covers all five background tools instead of one
+
+MMA runs five background tools: the unread pinger, the stats overlay, the Infloww model
+detector, the Fansly rail detector and the automation listener. One of them had a button on
+the main window — because it was the one people asked about — and the other four were a
+window, a tab, a checkbox and a **Save** away in Settings. That is a lot of clicks for
+something you switch on and off several times a shift.
+
+**Tools** opens a window with a row per tool: what it is, whether it is running *right now*,
+and an **On** / **Off** that greys out on the side it is already on.
+
+* **The state is read, not remembered.** The pinger and the listener answer through the named
+  events they hold; the three AHK tools through their hidden windows. Same fix as the script
+  toggles above — `Pinger: ON` was a *label*, refreshed on a timer that only ran while the
+  main window was up.
+* **Three states, not two.** *running*, *off*, and **on, not up** — which is what a missing
+  Python or a crashed detector looks like, and what a plain on/off paints over.
+* **On and Off write the same cfg keys the Features tab writes**, so this is the same
+  statement as the checkbox over there rather than a temporary override of it. Open Settings
+  afterwards and the box agrees. It also has to work that way in both directions: `Launch*`
+  gates on the key, so launching without writing it first does nothing at all — and the
+  watchdog restarts anything whose key is on, so an "off" that skipped the write would come
+  back by itself within five seconds.
+* **The button counts.** `Tools (2)` means two of the five are up. That is what is left of the
+  old label, except it is read on the watchdog's tick and covers everything.
+
+Easy mode still switches every tool off, and the window says so out loud rather than letting
+the buttons look broken.
+
+
+### `__mm` asks which model, and the numbered triggers stop at twelve instead of three
+
+**`__mm1` / `__mm2` / `__mm3` are now `__1mm` / `__2mm` / … / `__12mm`.** The old names
+are gone, not deprecated — typing `__mm1` now expands `__mm` on the second `m` and leaves
+a stray `1` behind, so this is a retrain, and it is the point of the change. `__mm` is
+declared `:*X:`, which fires the instant the trigger is typed with no ending character, so
+while `__mm` was live the `1` in `__mm1` was never reached. The two could only ever be
+mutually exclusive, and `UniversalSendActive` / `NumberedSendActive` existed solely to
+arrange that: bare `__mm` was live exactly when the numbered form was dead.
+
+Putting the digit in front dissolves it. `__1mm` shares no prefix with `__mm`, so both are
+live at once with nothing gating either. It also does not run out at nine — `__mm11` could
+never have fired, `__11mm` is just another trigger — which is what lets these follow
+`ModelCount` all the way to twelve. They are registered by a loop rather than written out,
+because a hand-kept list of three is precisely what went stale when 2.0.2 made the count a
+setting.
+
+The loop sits at the **top** of `mass/runtime.ahk`, far from the trigger it belongs beside.
+Top-level code stops running at the first hotstring definition in the script, and `__mm` is
+one; written next to it, the loop would parse cleanly, read correctly in a diff, and never
+execute — the numbered triggers would simply not exist, with nothing in the log to say so.
+
+**Bare `__mm` now asks.** One model configured, it pastes that model's live mass exactly as
+before. Two or more, it opens the "I pick" window — generalised from a follow-up group to a
+`"mass"` group — with **the first line of each model's mass printed on the button that will
+paste it**. Previously `__mm` resolved through the detector, which meant that away from it,
+finding out which mass you were about to paste meant going back to Discord to read it.
+
+The preview is also the only place in MMA that shows an **empty** mass slot *before* you
+paste it. "`__mm` does nothing" is almost always a live `massNo` pointing at a slot nobody
+filled in; that slot now reads `(empty)` on its button instead of failing into the log
+after the keypress.
+
+`__mm` is **ungated** now. It used to sit behind `UniversalSendActive()`, which meant it
+went dead in exactly the situation it is most wanted in: several models, no detector, no
+way to be sure which one you were on. A window can answer that question; a silent no-op
+could not.
+
+Picking a model for `__mm` aims that one paste and **nothing else** — unlike the follow-up
+pick, it does not call `SetManualModel`. Choosing a model for a follow-up is a statement
+about which model you are working on, and the shared `[mass.active]` keys should follow it.
+Choosing one to paste a mass is not, and making it stick would be a mode change wearing a
+convenience's clothes.
+
+### The shared PPV keys ask too, and F4/F5 are now shared
+
+The picker was follow-ups only. The shared PPV keys had the follow-up keys' exact
+failure shape — in "I pick" mode they send, confidently, to a model nothing on screen
+names — and a PPV goes out with a price attached to a specific account. `ppv` and
+`ppvFus` now open the same window, with the PPV base (or the first PPV follow-up, and
+how many follow it) previewed on each button.
+
+Behind **its own** Features switch, `Ask which model on the shared PPV keys`, not the
+follow-up picker's. The follow-up keys fire constantly and the window is a rhythm you
+either want or do not; the PPV keys fire a handful of times a shift, so wanting the ask
+on one and not the other is a reasonable position. Like the follow-up ask, it only bites
+in "I pick" mode — with a detector resolving the model there is nothing to ask.
+
+A PPV pick **sticks** (it calls `SetManualModel`), with the follow-ups rather than with
+`__mm`. A PPV opens an exchange the follow-ups then continue; answering "model 3" for the
+PPV and having the next fu1 go elsewhere would be the wrong-fan bug with extra steps.
+
+**F4 and F5 moved from `[mass.1]` to `[mass.active] mPpv` / `mPpvFus`.** They meant model
+1 and nothing else; they now follow the active model and ask which one when it cannot be
+read. `[mass.1] ppv` / `ppvFus` are left **empty** rather than repointed — a key bound in
+two sections registers twice in the one engine process and the later registration
+silently wins, so "model 1's PPV on F4" and "the active model's PPV on F4" cannot both be
+true. F16/F17 keep working; `mPpv`/`mPpvFus` are the overload slots, and nothing in them
+requires the second key to be on a mouse.
+
+Which exposed a bug: **`_MassApplyMouseControl` darkened slots by NAME.** Any slot
+starting with `m` was treated as a mouse binding, so turning off "Mouse-button follow-ups"
+would have killed F4/F5 — a setting about mouse buttons reaching across to unbind two
+function keys, with nothing to connect the two for anyone debugging it. It tests the bound
+KEY now (`_IsMouseKey`, modifiers stripped, wheel included), which is what the setting was
+always about.
+
+### Notes
+
+Both gate functions are deleted, with a note at their old site in `core/active_model.ahk`
+saying where they went; their assertions in `active_model_test.ahk` and `position_test.ahk`
+go with them. Nothing replaces those assertions, deliberately: the thing worth testing is
+that `__<n>mm` aims model *n* and not the last one, and firing that handler ends in
+`DoMass()`, which puts text on the clipboard and presses Ctrl+V into whatever window is in
+front. See `ARCHITECTURE.md` §5.2.
+
 ## 2.0.2 — 2026-08-01
 
 ### N models, not three

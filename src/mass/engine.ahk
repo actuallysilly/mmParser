@@ -29,6 +29,13 @@
 #Include "runtime.ahk"
 #Include "../chat/nav.ahk"
 #Include "../sequences/composer.ahk"
+; Vertical divider bars on your own tab strip. Included here rather than by
+; runtime.ahk because nothing in the mass runtime calls into it — it is a thing this
+; process hosts, not a thing a mass does.
+#Include "../screen/tab_marks.ahk"
+; The mouse half of the anti-fumble guards. Same reasoning as tab_marks above: the
+; mass runtime never calls into it, this process hosts it. See HK_OnSend below.
+#Include "../screen/click_wall.ahk"
 
 ; ── the library ───────────────────────────────────────────────────────────────
 ; MASS_DOC itself is declared and first loaded in runtime.ahk — the file that
@@ -59,6 +66,43 @@ MassBindActive()
 MassBindSelect()
 
 NavBind()
+
+; ── the lock badge ────────────────────────────────────────────────────────────
+;  Lock mode aims every shared key at one model and takes the "which model?"
+;  window away (core/active_model.ahk). The badge is what stops that being a
+;  silent re-aim, so it is not optional decoration — see ui/lock_badge.ahk.
+;
+;  Once now, so a lock survives an engine restart mid-shift with the badge coming
+;  straight back up. Then on a timer, because THIS process is not the only writer:
+;  the GUI's Lock button is in main_window.ahk, another process entirely, and a
+;  poll costs one ini read where a message contract would cost a number, a handler
+;  and a way to be out of date.
+LOCKBADGE_Sync()
+SetTimer(LOCKBADGE_Sync, 700)
+
+; ── the tab bars ──────────────────────────────────────────────────────────────
+;  Divider bars you stick on your own tab strip — decoration, and deliberately
+;  nothing more (screen/tab_marks.ahk). Here for the same two reasons as the badge:
+;  this process is the one that is always running, and it already owns the keys.
+;
+;  MARKS_Start binds its three keys through HK_Bind, so the `tabMarks` feature being
+;  off means they never register — no check needed here.
+MARKS_Start()
+
+; ── the click wall ────────────────────────────────────────────────────────────
+;  Holds a click on the conversation list while a follow-up is still going out,
+;  and plays it back when the send lands (screen/click_wall.ahk).
+;
+;  Installed HERE rather than inside hotkeys.ahk, which publishes the two edges but
+;  must not know what listens on them: that file is included by every process MMA
+;  runs — the GUI, the account scripts, each background service — and naming CW_Arm
+;  in it would be a load-time "nonexistent function" in all of them. This process is
+;  the one that owns the message keys, so it is the one that owns the guard around
+;  them, for the same reason it hosts the lock badge and the tab bars.
+;
+;  Ungated by design: CW_Arm checks FEAT("clickWall") itself on every send, so the
+;  Features checkbox takes effect immediately rather than at the next engine start.
+HK_OnSend(CW_Arm, CW_Release)
 
 ; The line that answers "are the mass hotkeys alive at all on this machine?".
 ;

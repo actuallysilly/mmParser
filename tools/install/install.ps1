@@ -219,15 +219,16 @@ if ($wantPython) {
     }
 
     if ($py) {
-        Say '    installing packages: numpy, pillow, opencv-python ...'
+        Say '    installing packages: numpy, pillow, opencv-python, pynput ...'
         # numpy  -> automation.py imports it at module level; without it the
         #           listener cannot start at all.
         # pillow -> automation.py's ocr_read(), i.e. the ^!s count-sales hotkey.
         # opencv -> pinger.pyw only.
+        # pynput -> typelog.pyw only (global keyboard capture for the recorder).
         # Deliberately NOT --upgrade: if numpy/opencv are already present and
         # working, moving them to a new major version is a good way to break
         # automation.py for someone who only ran this to get a shortcut.
-        $pipArgs = @($py.Prefix) + @('-m', 'pip', 'install', '--quiet', 'numpy', 'pillow', 'opencv-python')
+        $pipArgs = @($py.Prefix) + @('-m', 'pip', 'install', '--quiet', 'numpy', 'pillow', 'opencv-python', 'pynput')
 
         # Two PowerShell 5.1 traps in these four lines:
         #  • `2>&1` on a NATIVE command wraps each stderr line in an ErrorRecord,
@@ -244,10 +245,10 @@ if ($wantPython) {
             & $py.Cmd @pipArgs 2>&1 | ForEach-Object { Say "      $_" }
             $pipCode = $LASTEXITCODE
 
-            $probe = @($py.Prefix) + @('-c', 'import numpy, PIL, cv2')
+            $probe = @($py.Prefix) + @('-c', 'import numpy, PIL, cv2, pynput')
             & $py.Cmd @probe 2>&1 | ForEach-Object { Say "      $_" }
             if ($LASTEXITCODE -eq 0) {
-                Ok 'numpy, pillow and opencv-python are importable'
+                Ok 'numpy, pillow, opencv-python and pynput are importable'
                 $pythonReady = $true
             } elseif ($pipCode -ne 0) {
                 Fail "pip install failed (exit $pipCode) - are you online?"

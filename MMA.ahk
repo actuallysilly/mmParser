@@ -21,5 +21,9 @@ if !FileExist(MMA_SRC_GUI) {
     ExitApp
 }
 
-Run '"' A_AhkPath '" "' MMA_SRC_GUI '"'
+; WHICH window, though, is Settings ▸ GUI ▸ Main window: the Win32 one or the
+; WebView one. The check above is still against MMA_SRC_GUI on purpose — that is
+; the file whose absence means a broken install, whereas a missing WebView shell
+; only means the preference falls back, which MMA_ShellPath already does.
+Run '"' A_AhkPath '" "' MMA_ShellPath() '"'
 ExitApp

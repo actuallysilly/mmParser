@@ -3,6 +3,12 @@
 #Include "theme.ahk"
 #Include "hotkeys.ahk"
 #Include "../hotstrings/overloads.ahk"
+; HSI_Files / HSI_ParseFile, for the hotstring keys at the bottom of this file.
+; A file that names a function includes the file that defines it, and AHK loads
+; any given file once — so this costs nothing where index.ahk is already in the
+; tree, and it is what stops "a key bound to a hotstring" being a load-time
+; 'nonexistent function' in every message script.
+#Include "../hotstrings/index.ahk"
 ; Model identity moved to its own file so the GUI can use it too — main_window
 ; must not include utils.ahk (hotstrings, send helpers), and calling these from
 ; there was a load-time error until they lived somewhere both could reach.
@@ -129,18 +135,24 @@ global ALT_ON_PICK := ""
 ;  question — "which wording goes out for f<N>?" — so they are one list and one
 ;  key now, and TAB walks the whole thing.
 ;
-;  What actually differed was never worth a second button: an ALT is a different
-;  wording of this one follow-up, a BRANCH is a different wording of this one
-;  follow-up that also implies the next two. So the only thing the merge has to
-;  keep is the implication, and that is what `branch` on each variant carries —
-;  pick a branch variant at f1 and f2/f3/ppv start on that same branch.
+;  The merge finished in the DATA, not just here: there are no alt fields any
+;  more. Everything that is not the trunk is a named branch, and "alt" is simply
+;  the name you give one when the wording has no better name — see the record
+;  shape in mass/store.ahk and the `::name` marker in mass/parser.ahk. This
+;  function used to concatenate two lists (alts, then branches); it now reads one,
+;  and the picker looks exactly the same.
+;
+;  What a branch carries that a loose wording did not is the IMPLICATION: pick a
+;  branch variant at f1 and f2/f3/ppv start on that same branch. That is what
+;  `branch` on each variant is for, and it is now true of every alternative there
+;  is — which is the point. An "alt" that answered f1 and then left you back on
+;  the trunk at f2 was never a different thing, only a branch nobody had named.
 ;
 ;  Each variant is { parts, label, branch }:
 ;      parts   the messages to send, in order
-;      label   what the staged list calls it ("main", "alt 1", or the --Name)
+;      label   what the staged list calls it ("main", or the branch's name)
 ;      branch  0 for the trunk, else which branch it commits you to
 AltVariants(m, group) {
-    global MASS_ALT_MAX
     out := []
     base := []
     for _, sfx in ["", "_5", "_7"] {
@@ -150,17 +162,10 @@ AltVariants(m, group) {
     }
     if base.Length
         out.Push({ parts: base, label: "main", branch: 0 })
-    Loop MASS_ALT_MAX {
-        key := "fu" group "_alt" (A_Index - 1)
-        if !m.HasOwnProp(key)
-            continue
-        parts := MASS_SplitParts(m.%key%)
-        if parts.Length
-            out.Push({ parts: parts, label: "alt " A_Index, branch: 0 })
-    }
-    ; The branches, as more variants of the same question. A branch with nothing
-    ; in THIS group is skipped rather than shown empty — branches are commonly
-    ; f1-only, and an empty row you can TAB onto and send is a way to send silence.
+    ; The branches, as the other ways to answer the same question. A branch with
+    ; nothing in THIS group is skipped rather than shown empty — branches are
+    ; commonly f1-only, and an empty row you can TAB onto and send is a way to
+    ; send silence.
     for bi, b in BranchList(m) {
         if !b.fu[group].Length
             continue
@@ -182,8 +187,12 @@ AltPpvVariants(m) {
     return out
 }
 
-; ── Named branches (--Name) ───────────────────────────────────────────────────
-; A branch is a whole alternate follow-up sequence sent after the shared trunk.
+; ── Named branches (`::name`) ─────────────────────────────────────────────────
+; A branch is a named alternative to the trunk: its own fu1/fu2/fu3/ppv, any of
+; which may be empty. Picking one at f1 continues on it at f2/f3/ppv. Since the
+; alt fields went, this is the ONLY kind of alternative there is — "alt" is just
+; the name people give a branch that has no better one.
+;
 ; These helpers are pure (take the mass object) so utils.ahk stays free of any
 ; CurMass/massNo dependency — the model files own the hotkey handlers.
 
@@ -194,7 +203,7 @@ BranchList(m) {
     ; No branches means every branch key and window finds nothing to do, which is
     ; the pre-branch behaviour. Gating here rather than at each of the six call
     ; sites keeps the mass data itself untouched — switch branches back on and the
-    ; --Name blocks are still there.
+    ; `::name` wordings are still there.
     if !FEAT("altFollowups")
         return out
     Loop MASS_BRANCH_MAX {
@@ -383,10 +392,9 @@ AltStageText() {
         body := ""
         for _, p in v.parts
             body .= (body != "" ? psep : "") p
-        ; The label earns its place now that branches are in this list: "main" and
-        ; "alt 2" are obvious from position, but which --Name you are about to
-        ; commit to is not, and committing to the wrong one silently redirects the
-        ; next two follow-ups.
+        ; The label earns its place: "main" is obvious from position, but which
+        ; BRANCH you are about to commit to is not, and committing to the wrong one
+        ; silently redirects the next two follow-ups.
         out .= (out != "" ? vsep : "") mark (v.branch ? "[" v.label "] " : "") body
     }
     return out
@@ -713,8 +721,8 @@ AltStageActive(*) {
 
 ; `startAt` is which variant the marker opens on. Not always 1: once you have
 ; picked a branch at f1, f2 opens on THAT branch, so walking a branch is press-
-; Enter, press-Enter, press-Enter rather than TAB-hunting for the same --Name
-; three times. TAB still reaches every other variant, so nothing is locked in.
+; Enter, press-Enter, press-Enter rather than TAB-hunting for the same name three
+; times. TAB still reaches every other variant, so nothing is locked in.
 AltStageBegin(group, variants, editable := false, startAt := 1) {
     global _altVariants, _altStaged, _altGroup, _altEditable, _altHotkeysOn
     global _altWin, _altInBox, ALT_STAGE_TIMEOUT_MS, ALT_STAGE_WATCH_MS
@@ -841,7 +849,17 @@ AltStageCommit(*) {
     ; load the engine. Calling _BranchKey() from here would throw in those.
     if ALT_ON_PICK
         try ALT_ON_PICK.Call(v.branch)
-    SendAltVariant(grp, v.parts, edit)
+    ; The send edges, by hand, because THIS send does not come through _HK_Fire.
+    ; Enter is a hotkey AltStageBegin registered directly, so nothing in
+    ; hotkeys.ahk knows a message is about to go out — and a staged variant is a
+    ; multi-part follow-up like any other, with the same second of exposure to a
+    ; click on the next conversation. Missing it here would leave the one send
+    ; path that involves a deliberate pause as the only unguarded one.
+    HK_SendBegin()
+    try
+        SendAltVariant(grp, v.parts, edit)
+    finally
+        HK_SendEnd()
 }
 
 AltStageCancel(*) {
@@ -1077,8 +1095,17 @@ Overload_Register() {
         ; A trigger that fails to register here keeps its STATIC definition, so it
         ; still fires — it just sends the one fixed message instead of offering
         ; the variants. "My overload stopped asking" with no error is exactly that.
-        LOG_Try("overload.register", "register " trg,
-                () => Hotstring(":" e.options ":" trg, Overload_Handler.Bind(e)), &ok)
+        ;
+        ; ent/name are NOT redundant. A fat-arrow closure does not capture a FOR
+        ; LOOP's variables: read `e` or `trg` from inside the lambda and it throws
+        ; "This local variable has not been assigned a value" at call time, so
+        ; every overload fails to register and the picker silently stops
+        ; appearing. Ordinary locals capture correctly, so copy them out first.
+        ; (Renaming the loop variable does not help — it is the for-loop binding,
+        ; not the name.)
+        ent := e, name := trg
+        LOG_Try("overload.register", "register " name,
+                () => Hotstring(":" ent.options ":" name, Overload_Handler.Bind(ent)), &ok)
         if ok
             n++
     }
@@ -1124,6 +1151,115 @@ Overload_Choose(labels) {
 
 ; Wire up whatever overloads this script owns (a no-op for scripts that own none).
 Overload_Register()
+
+; ═══════════════════════════════════════════════════════════════════════════════
+;  A KEY FOR A HOTSTRING
+; ───────────────────────────────────────────────────────────────────────────────
+;  Some messages go out so often that typing the trigger is the slow part. This
+;  binds a key to one, optionally, per hotstring — the trigger keeps working
+;  exactly as it did, and the key is a second way to fire the same thing.
+;
+;  It is also the sanctioned version of something that was already happening.
+;  content\accounts\TEMP.ahk has had bare `!9::` and `!8::` blocks written
+;  straight into it, each sending one message: a hotkey that is neither data nor
+;  declared in hotkeys.ini, invisible to the Hotkeys tab, invisible to the
+;  conflict report, and lost the moment that file is tidied. TEMP.ahk's own
+;  header comment says as much about the `!1::` that came before them. Same
+;  capability, in the ini, where every other key in MMA lives.
+;
+;  ─── THE MESSAGE IS NEVER COPIED ─────────────────────────────────────────────
+;  The binding stores a TRIGGER and a KEY. Nothing else. What gets sent is read
+;  from the .ahk source at load, through the same index the Hotstrings window
+;  uses, so editing a message updates the key's message too — there is one copy
+;  of your words and it is the one you wrote. Storing the text alongside the
+;  binding would have been less code and would drift the first time you reworded
+;  something.
+;
+;  ─── AND NEITHER IS THE SENDING ──────────────────────────────────────────────
+;  The handler goes through Overload_Run, the same path the trigger takes. So an
+;  overloaded hotstring bound to a key still asks (or still picks at random) —
+;  the key does what the trigger does, rather than what the trigger did before it
+;  was overloaded. A plain hotstring is one variant, which Overload_Pick sends
+;  without asking.
+;
+;  ─── SCOPE: GLOBAL, LIKE THE HOTSTRING ───────────────────────────────────────
+;  No window context. A hotstring fires wherever you type, so a key that stands
+;  in for one fires wherever you press it — the alternative is a key that works
+;  in Infloww and mysteriously does nothing in Discord. The cost is real and is
+;  worth stating: `!9` bound to a message will send that message in whatever
+;  window has focus. Pick chords you would not otherwise press.
+HotstringKeys_Register() {
+    binds := HK_HotstringTriggers()
+    if !binds.Length
+        return
+
+    ; Only THIS script's own hotstrings, and only its own file is read. Each
+    ; message script is a separate process that owns its own triggers, exactly as
+    ; Overload_Register works — and a script that binds a key for a trigger it
+    ; does not define would send nothing while quietly claiming the key from the
+    ; script that does.
+    rel := ""
+    for f in HSI_Files()
+        if (StrLower(OL_BaseName(f)) = StrLower(A_ScriptName)) {
+            rel := f
+            break
+        }
+    if (rel = "") {
+        LOGV("hotstring.key", A_ScriptName " is not one of the message files, so it"
+                            . " owns no hotstring keys")
+        return
+    }
+
+    mine := Map()
+    recs := []
+    HSI_ParseFile(rel, MMA_CONTENT "\" rel, recs)
+    for r in recs
+        mine[StrLower(r.trigger)] := r
+
+    n := 0, notMine := 0
+    for trg in binds {
+        if !mine.Has(StrLower(trg)) {
+            notMine++
+            continue
+        }
+        ; HK_Bind, not a bare Hotkey(): it reads the key from the ini, honours a
+        ; blank as "disabled", answers the reload broadcast, and puts the binding
+        ; where the conflict report can see it.
+        HK_Bind(HK_HotstringId(trg), HotstringKey_Handler.Bind(trg, mine[StrLower(trg)]))
+        n++
+    }
+    if n
+        LOGI("hotstring.key", n " hotstring(s) in " rel " have a key bound ("
+                            . notMine " belong to other message files)")
+}
+
+; What the key sends. Resolved at PRESS time, not at bind time, for the overload:
+; you can overload a trigger while MMA is running, and the key must follow it the
+; same moment the trigger does.
+;
+; `rec` is this trigger's parsed source, captured at load. That is the one thing
+; read ahead of time, because re-parsing the file on every keypress to send one
+; message would be a disk read in the typing path.
+HotstringKey_Handler(trigger, rec, *) {
+    e := OL_LoadOne(trigger)
+    if IsObject(e) && e.variants.Length {
+        LOGV("hotstring.key", trigger " is overloaded — the key offers the same"
+                            . " variants the trigger does")
+        Overload_Run(e.variants, e.mode)
+        return
+    }
+    if !rec.steps.Length {
+        LOG_Bail("hotstring.key", trigger " has a key bound but its block sends"
+                                . " nothing — nothing was sent. Has the hotstring"
+                                . " been emptied or deleted since MMA started?")
+        return
+    }
+    LOGI("hotstring.key", "sending " trigger " (" rec.steps.Length " step(s)) from"
+                        . " its key rather than its trigger")
+    Overload_Send(rec.steps)
+}
+
+HotstringKeys_Register()
 
 Unread() {
     MouseGetPos &cx, &cy

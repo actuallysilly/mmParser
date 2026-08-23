@@ -142,21 +142,29 @@ ArchiveDayStamp(ts) {
 }
 
 ; The archived copy of this mass from the last ArchiveDupDays days, or 0 if there
-; is none. Re-parsing the same paste is routine (fixing one line and hitting parse
-; again), and every parse used to append: 21 of the first 59 entries were
-; duplicates, one mass stored 9 times in under two minutes.
+; is none. A hit means Parse does NOT archive — silently, see the caller.
+;
+; Re-parsing the same paste is routine (fixing one line and hitting parse again),
+; and every parse used to append: 21 of the first 59 entries were duplicates, one
+; mass stored 9 times in under two minutes.
+;
+; The window defaults to 0 — the SAME CALENDAR DAY, nothing older. That is the rule
+; the archive is meant to enforce: one entry per mass per day. A wider window would
+; start dropping the genuine case of the same mass going out again next week, which
+; is a real thing that happened and which the archive should record. ArchiveDupDays
+; is still read, so a wider window is a one-line ini edit if you want one.
 ;
 ; The model is deliberately NOT part of the match. Scoping by name missed two real
 ; cases: the same mass genuinely does get archived for two models, and a blank
 ; model name wrote a "[]" header that then matched nothing at all — which is how
 ; "Pop or rock music?" got in twice three seconds apart. A same-model hit is
-; returned in preference to a cross-model one so the prompt names the closest
-; entry, but either one is worth asking about.
+; returned in preference to a cross-model one so the log line names the closest
+; entry, but either one counts as already archived.
 ArchiveFindDuplicate(mName, raw) {
     global CFG_FILE
     ; Reached from Parse, so an unparseable ArchiveDupDays threw every time you
     ; pressed Parse with archiving on — i.e. the core action of the app.
-    window := LOG_IniInt(CFG_FILE, "Settings", "ArchiveDupDays", 1, "archive")
+    window := LOG_IniInt(CFG_FILE, "Settings", "ArchiveDupDays", 0, "archive")
     if window < 0
         return 0
     want  := NormalizeMass(raw)
@@ -181,22 +189,10 @@ ArchiveFindDuplicate(mName, raw) {
     return other
 }
 
-; A duplicate is never stored or dropped on its own: this asks. The dialog says
-; when the mass was already archived and for which model, and No is the default
-; button, so leaning on Enter cannot grow the archive.
-ArchiveDuplicatePrompt(dup, mName) {
-    who  := Trim(dup.model) = "" ? "(untagged)" : dup.model
-    prev := ArchiveFlatten(dup.preview)
-    if StrLen(prev) > 120
-        prev := SubStr(prev, 1, 120) "..."
-    msg := "This mass is already in the archive.`n`n"
-         . "Saved:  " dup.ts "`n"
-         . "Model:  " who
-         . (StrLower(Trim(dup.model)) = StrLower(Trim(mName)) ? "" : "   (archiving now for " mName ")") "`n`n"
-         . prev "`n`n"
-         . "Archive it again anyway?"
-    return MsgBox(msg, "Archive - duplicate mass", 0x4 | 0x100 | 0x30) = "Yes"
-}
+; ArchiveDuplicatePrompt stood here: a Yes/No dialog raised mid-parse whenever the
+; mass was already archived. It is gone, not disabled — a duplicate is now just
+; skipped, which is what "No" (its default button) did on every one of them. See
+; the caller in ParseCurrent.
 
 ClearArchiveTip() {
     ToolTip()
@@ -301,6 +297,7 @@ OpenArchive(*) {
     ag.OnEvent("Size",              DoSize)
 
     ArchiveDarkTheme(ag, [lv, edDetail, edSearch])
+    THEME_BoldButtons(ag)
     Populate("")
     ag.Show("w720 h542")
     return
@@ -461,25 +458,51 @@ ExportMMA(*) {
         return edCtrls.Has(ck) ? Trim(edCtrls[ck].Value) : ""
     }
 
-    v := GetVal("mass")
-    if (v != "")
-        result .= "!mma " v "`n"
+    ; One branch's lines for one group, as `::name text` — the same marker the
+    ; parser reads, so an export pasted back in rebuilds what it came from.
+    ; Branches with nothing in this group contribute nothing, which is why an
+    ; f1-only branch does not litter the f2 block with empty markers.
+    BranchLines(grp) {
+        out := ""
+        Loop MASS_BRANCH_MAX {
+            k  := A_Index
+            nm := GetVal("br" k "_name")
+            if (nm = "")
+                nm := "br" k          ; unnamed but filled in: it still has to round-trip
+            for _, part in MASS_SplitParts(GetVal("br" k "_" grp))
+                out .= "::" nm " " part "`n"
+        }
+        return out
+    }
 
-    for _, grp in fuGroups {
+    v := GetVal("mass")
+    if (v != "") {
+        v := StrReplace(StrReplace(v, "`r`n", "`n"), "`r", "`n")
+        ; A mass that spans lines cannot go on the marker line — the line ends at
+        ; the first break and the rest would come back as follow-ups. It is written
+        ; as a block under a bare `!mma`, closed by a `---` fence so whatever
+        ; follows is still read as the follow-ups it is. MassHeaderBlock in
+        ; mass/parser.ahk is the half that reads this back.
+        result .= InStr(v, "`n") ? "!mma`n" v "`n---`n" : "!mma " v "`n"
+    }
+
+    for gi, grp in fuGroups {
         block := ""
         for _, prop in grp {
             v := GetVal(prop)
             if (v != "")
                 block .= v "`n"
         }
+        block .= BranchLines("fu" gi)
         if (block != "")
             result .= "`n" block
     }
 
     v := GetVal("ppv_base")
-    if (v != "") {
+    _ppvBr := BranchLines("ppv")
+    if (v != "" || _ppvBr != "") {
         v := StrReplace(StrReplace(v, "`r`n", "`n"), "`r", "`n")
-        result .= "`n" v "`n"
+        result .= "`n" (v != "" ? v "`n" : "ppv`n") _ppvBr
     }
 
     block := ""

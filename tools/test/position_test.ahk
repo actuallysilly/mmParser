@@ -17,7 +17,7 @@
 ;  Prints to stdout. Exit 0 = all passed.
 ; ═══════════════════════════════════════════════════════════════════════════════
 
-#Include "../src/core/active_model.ahk"
+#Include "../../src/core/active_model.ahk"
 
 Out(s) => FileAppend(s "`n", "*")
 OnError(Err)
@@ -223,12 +223,11 @@ SetManualModel(3)
 st := _PositionalStatusUncached(DetectorCfg())
 Ck("no manual platforms -> no answer", st.no, 0)
 
-; And the __mm gating follows: a resolvable model means bare __mm is live.
-SetModelPlatform(3, "manual")
-SetManualModel(3)
-_AM_CACHE_T := 0                       ; bust the cache so this reads fresh
-Ck("mixed: __mm live",      UniversalSendActive(), 1)
-Ck("mixed: __mm3 not live", NumberedSendActive(3), 0)
+; The two __mm gating assertions that used to close this file are gone with the
+; functions they called (UniversalSendActive / NumberedSendActive). Bare __mm no
+; longer depends on whether a model resolves — it asks in a window instead. The
+; positional resolution above is what this file is actually about, and it is
+; unchanged.
 
 if (_savedWin = "") {
     try IniDelete(MMA_CFG, "Detector", "WinMatch")

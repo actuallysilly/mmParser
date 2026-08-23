@@ -1,5 +1,5 @@
 #Requires AutoHotkey v2.0
-#Include "../src/core/paths.ahk"
+#Include "../../src/core/paths.ahk"
 ; ═══════════════════════════════════════════════════════════════════════════════
 ;  log_test.ahk — does the logger actually log, and does each switch switch?
 ; ───────────────────────────────────────────────────────────────────────────────

@@ -45,6 +45,14 @@ global MMA_MSG_MASSES_CHANGED := 0x8006
 ;  pastes and parses it. The one message that travels TOWARD the window.
 global MMA_MSG_AUTOPARSE      := 0x8010
 
+; ─── Hotstrings → the GUI ─────────────────────────────────────────────────────
+;  "Add hotkey…" lives in the Hotstrings window now, and that window is its own
+;  PROCESS: the Add Hotkey dialog is built out of main_window.ahk's globals (the
+;  account file list, the default target file, the snd/SendText writers), so it
+;  cannot simply be called from there. This asks the window that owns it to open
+;  it. No payload.
+global MMA_MSG_ADD_HOTKEY     := 0x8011
+
 ; ─── The hotkey registry ──────────────────────────────────────────────────────
 ;  Broadcast by HK_Broadcast to every MMA script (see hotkeys.ahk), which is why
 ;  they are numbered clear of the per-feature messages above.

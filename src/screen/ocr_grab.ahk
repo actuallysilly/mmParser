@@ -31,7 +31,14 @@ OcrSelectRegion() {
     static SM_XVIRTUALSCREEN := 76, SM_YVIRTUALSCREEN := 77
          , SM_CXVIRTUALSCREEN := 78, SM_CYVIRTUALSCREEN := 79
     ; WS_EX_NOACTIVATE: these overlays must never steal focus from the chat.
-    static NOACTIVATE := "+E0x08000000"
+    ;
+    ; -DPIScale is NOT cosmetic here, it is the whole grab. Gui.Show multiplies w
+    ; and h by A_ScreenDPI/96 (x and y pass through untouched), so at 125% the box
+    ; drawn under the cursor came out 25% wider and taller than the rect handed to
+    ; OCR — you dragged until the blue box covered the message, and the capture was
+    ; the last 80% short of it. That is why the end of every sentence went missing.
+    ; Mouse coordinates are physical pixels; these two windows must be too.
+    static NOACTIVATE := "-DPIScale +E0x08000000"
     vx := SysGet(SM_XVIRTUALSCREEN), vy := SysGet(SM_YVIRTUALSCREEN)
     vw := SysGet(SM_CXVIRTUALSCREEN), vh := SysGet(SM_CYVIRTUALSCREEN)
 
@@ -47,7 +54,10 @@ OcrSelectRegion() {
     box := Gui("+AlwaysOnTop -Caption +ToolWindow " NOACTIVATE)
     box.BackColor := "22A0FF"
 
-    hint := Gui("+AlwaysOnTop -Caption +ToolWindow " NOACTIVATE)
+    ; The hint keeps +DPIScale, deliberately: it is a text banner, not a
+    ; measurement. Its font grows with the DPI, so its window has to as well or
+    ; the one line explaining how to get out of the overlay gets clipped.
+    hint := Gui("+AlwaysOnTop -Caption +ToolWindow +E0x08000000")
     hint.BackColor := "101010"
     hint.SetFont("s10 cWhite", "Segoe UI")
     ; Say every way out, because until one of them happens the whole desktop is

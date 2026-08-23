@@ -1,0 +1,471 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>MMA</title>
+<!--
+  ═══════════════════════════════════════════════════════════════════════════
+   main_window.html — the WebView2 face of MMA's main window.
+  ───────────────────────────────────────────────────────────────────────────
+   Same window, same controls, same positions as the AHK original — the tab
+   strip, the fourteen field rows with their gutter toggles, the mass # row,
+   the paste panel and its four buttons, the load/save pair, the bottom strip.
+   Nothing was added and nothing was moved. What changed is who DRAWS it.
+
+   This file owns no state. Every value on screen comes from a sync message
+   AHK pushes (window.mma.sync), and every edit goes straight back out through
+   window.chrome.webview.postMessage. That is deliberate: the AHK side already
+   holds the shim controls that parser.ahk, archive.ahk and alt_fu_window.ahk
+   write into, so making the page authoritative would mean two copies of the
+   truth and a class of bug where a Parse fills boxes nobody can see.
+
+   The palette comes over the wire too, from core/theme.ahk, because a theme
+   is a name in mass_gui.cfg that every MMA process reads for itself — see the
+   header of that file. Hard-coding it here would be a fourth answer.
+  ═══════════════════════════════════════════════════════════════════════════
+-->
+<style>
+:root{
+  /* Overwritten by applyTheme() on the first sync. These are the pink values,
+     so the very first paint is already right rather than flashing white. */
+  --bg:#FEF7F9;
+  --card:#FFFFFF;
+  --text:#241E29;
+  --dim:#8C7B86;
+  --input-bg:#FFFFFF;
+  --input-text:#241E29;
+  --border:#EEDFE6;
+  --border-strong:#DFCAD6;
+  --accent:#6D28D9;
+  --accent-ink:#FFFFFF;
+  --accent-soft:rgba(109,40,217,.13);
+  --hover:#F8EDF3;
+  --radius:7px;
+}
+
+*{box-sizing:border-box}
+html,body{height:100%;margin:0;overflow:hidden}
+body{
+  background:var(--bg);
+  color:var(--text);
+  font:13px/1.35 "Segoe UI Variable Text","Segoe UI",system-ui,sans-serif;
+  -webkit-user-select:none;user-select:none;
+  cursor:default;
+}
+/* Text you can type in is text you can select. Everything else is chrome. */
+input,textarea{-webkit-user-select:text;user-select:text;font:inherit}
+::-webkit-scrollbar{width:11px;height:11px}
+::-webkit-scrollbar-thumb{background:var(--border-strong);border-radius:6px;border:3px solid transparent;background-clip:content-box}
+::-webkit-scrollbar-thumb:hover{background:var(--dim);background-clip:content-box;border:3px solid transparent}
+::-webkit-scrollbar-track{background:transparent}
+
+#app{display:flex;height:100vh;padding:10px;gap:14px}
+#left{flex:1 1 66%;min-width:0;display:flex;flex-direction:column;min-height:0}
+#right{flex:0 0 34%;min-width:360px;display:flex;flex-direction:column;min-height:0}
+
+/* ── tab strip ─────────────────────────────────────────────────────────────
+   One tab per model. The selected one is the accent colour and bold, which is
+   the same signal the owner-drawn Tab3 carries in the AHK window — "which
+   model am I typing into" is a question whose wrong answer is a save into the
+   wrong model's file, so a few pixels of shading was never enough. */
+#tabs{display:flex;gap:2px;flex:0 0 auto;overflow-x:auto;border-bottom:1px solid var(--border);padding-bottom:0}
+#tabs::-webkit-scrollbar{height:0}
+.tab{
+  appearance:none;border:0;background:none;color:var(--dim);
+  padding:8px 15px 7px;font:inherit;font-weight:500;cursor:pointer;
+  white-space:nowrap;border-bottom:2px solid transparent;border-radius:6px 6px 0 0;
+  margin-bottom:-1px;
+}
+.tab:hover{background:var(--hover);color:var(--text)}
+.tab.on{color:var(--accent);font-weight:700;border-bottom-color:var(--accent)}
+
+/* ── the field list ───────────────────────────────────────────────────────
+   Three columns, the same three the AHK layout has: the toggle gutter, the
+   right-aligned label, and the box. */
+#fields{flex:1 1 auto;overflow-y:auto;overflow-x:hidden;min-height:0;padding:14px 10px 14px 2px}
+.row{display:grid;grid-template-columns:60px 58px minmax(0,1fr);align-items:center;gap:10px;margin-bottom:6px}
+.row.tall{align-items:start}
+.lab{text-align:right;color:var(--dim);font-size:12px;white-space:nowrap}
+.row.tall .lab{padding-top:7px}
+.gut{display:flex;align-items:center;min-height:1px}
+
+.in{
+  width:100%;padding:6px 9px;
+  border:1px solid var(--border-strong);border-radius:var(--radius);
+  background:var(--input-bg);color:var(--input-text);
+  outline:none;transition:border-color .1s,box-shadow .1s;
+}
+.in:hover{border-color:var(--dim)}
+.in:focus{border-color:var(--accent);box-shadow:0 0 0 3px var(--accent-soft)}
+textarea.in{resize:none;line-height:1.45;display:block}
+textarea#f_ppv_base{height:108px;resize:vertical}
+
+.sep{height:1px;background:var(--border);margin:11px 0 13px 128px}
+
+.chk{display:inline-flex;align-items:center;gap:5px;font-size:11px;color:var(--dim);cursor:pointer;white-space:nowrap}
+.chk:hover{color:var(--text)}
+.chk input{accent-color:var(--accent);width:13px;height:13px;margin:0;cursor:pointer}
+
+/* ── mass # ───────────────────────────────────────────────────────────────
+   The row that says which of this model's masses the boxes above are. Radios
+   in the AHK window; segmented pills here, which is the same one-of-N choice
+   with the selection actually visible at a glance. */
+.slots{display:flex;gap:6px}
+.slot{
+  appearance:none;min-width:38px;padding:5px 0;cursor:pointer;font:inherit;font-weight:600;
+  border:1px solid var(--border-strong);border-radius:var(--radius);
+  background:var(--card);color:var(--text);
+}
+.slot:hover{background:var(--hover)}
+.slot.on{background:var(--accent);border-color:var(--accent);color:var(--accent-ink)}
+
+/* ── buttons ──────────────────────────────────────────────────────────────
+   Flat, one border, one radius. The bold label is kept from the AHK window
+   (THEME_BoldButtons) because these are read at a glance mid-send. */
+.btn{
+  appearance:none;padding:7px 15px;font:inherit;font-weight:600;cursor:pointer;
+  border:1px solid var(--border-strong);border-radius:var(--radius);
+  background:var(--card);color:var(--text);white-space:nowrap;
+  transition:background .1s,border-color .1s;
+}
+.btn:hover{background:var(--hover);border-color:var(--dim)}
+.btn:active{transform:translateY(1px)}
+.btn.pri{background:var(--accent);border-color:var(--accent);color:var(--accent-ink)}
+.btn.pri:hover{filter:brightness(1.1)}
+.btn.wide{flex:1 1 0;min-width:0}
+.btn[hidden]{display:none}
+
+#strip{flex:0 0 auto;display:flex;flex-wrap:wrap;gap:8px;padding:12px 2px 2px}
+
+/* ── right panel ──────────────────────────────────────────────────────────*/
+.hd{display:flex;align-items:baseline;gap:10px;flex:0 0 auto;padding-bottom:6px}
+.hd b{font-weight:600}
+.hd .hint{color:var(--dim);font-size:11.5px}
+#paste{flex:1 1 auto;min-height:110px;white-space:pre;overflow:auto;resize:none}
+.btnrow{display:flex;gap:9px;flex:0 0 auto;padding-top:12px}
+hr{border:0;border-top:1px solid var(--border);margin:14px 0 0}
+#loaded{color:var(--dim);font-size:12px;min-height:17px;padding-top:8px}
+
+/* The corner she stands in. Same idea as ApplyLayout's rung ladder: she takes
+   whatever the controls leave and nothing more, so she can never draw over a
+   button — here that is one line of CSS instead of an overlap test. */
+#credit{flex:1 1 auto;display:flex;flex-direction:column;justify-content:flex-end;align-items:flex-end;gap:6px;min-height:0;padding-top:8px}
+#credit img{max-height:100%;max-width:100%;object-fit:contain;object-position:bottom right;display:block}
+#credit img[hidden]{display:none}
+#credit .t{color:var(--dim);font-size:11px;flex:0 0 auto}
+
+/* Nothing has been drawn yet: hide the shell rather than show an empty one
+   that fills in a frame later. */
+#app.pending{visibility:hidden}
+</style>
+</head>
+<body>
+
+<div id="app" class="pending">
+  <div id="left">
+    <div id="tabs"></div>
+    <div id="fields"></div>
+    <div id="strip">
+      <button class="btn" data-cmd="settings">Settings</button>
+      <button class="btn" data-cmd="hotstrings" id="b_hotstrings">Hotstrings</button>
+      <button class="btn" data-cmd="tools" id="b_tools">Tools</button>
+      <button class="btn" data-cmd="variants" id="b_variants">Variants&hellip;</button>
+    </div>
+  </div>
+
+  <div id="right">
+    <div class="hd">
+      <b>Paste block:</b>
+      <span class="hint">(blank = group sep &nbsp;*&nbsp; ppv = ppv section)</span>
+    </div>
+    <textarea id="paste" class="in" wrap="off" spellcheck="false"></textarea>
+
+    <div class="btnrow">
+      <button class="btn pri" data-cmd="parse">Parse</button>
+      <button class="btn" data-cmd="clear">Clear</button>
+      <button class="btn" data-cmd="export">Export !mma</button>
+      <button class="btn" data-cmd="archive" id="b_archive">Archive&hellip;</button>
+    </div>
+    <hr>
+    <div class="btnrow">
+      <button class="btn wide" data-cmd="load" id="b_load">Load</button>
+      <button class="btn wide pri" data-cmd="save" id="b_save">Save</button>
+    </div>
+    <div id="loaded"></div>
+
+    <div id="credit">
+      <img id="credit_img" hidden alt="">
+      <span class="t">made by actually.silly</span>
+    </div>
+  </div>
+</div>
+
+<script>
+"use strict";
+(function () {
+
+// ── the field list, in block order ──────────────────────────────────────────
+//  The same fourteen rows as fieldDefs in main_window.ahk, with the same
+//  separators and the same gutter toggles on f1/f2/f3. `gut` is which toggle
+//  sits in that row's gutter: "s<n>" is the per-model single, "e<n>" the
+//  global editable, stacked exactly as the AHK window stacks them (single on
+//  the f<n> row, editable on the f<n>.5 row below it).
+const FIELDS = [
+  { p:"mass",     l:"!mm",    sep:true },
+  { p:"fu1",      l:"f1",     gut:"s1" },
+  { p:"fu1_5",    l:"f1.5",   gut:"e1" },
+  { p:"fu1_7",    l:"f1.7",   sep:true },
+  { p:"fu2",      l:"f2",     gut:"s2" },
+  { p:"fu2_5",    l:"f2.5",   gut:"e2" },
+  { p:"fu2_7",    l:"f2.7",   sep:true },
+  { p:"fu3",      l:"f3",     gut:"s3" },
+  { p:"fu3_5",    l:"f3.5",   gut:"e3" },
+  { p:"fu3_7",    l:"f3.7",   sep:true },
+  { p:"ppv_base", l:"ppv",    multi:true },
+  { p:"ppv_f1",   l:"ppvfu1" },
+  { p:"ppv_f2",   l:"ppvfu2" },
+  { p:"ppv_f3",   l:"ppvfu3" }
+];
+
+const THEMES = {
+  pink: {
+    bg:"#FEF7F9", card:"#FFFFFF", text:"#241E29", dim:"#8C7B86",
+    inputBg:"#FFFFFF", inputText:"#241E29",
+    border:"#EEDFE6", borderStrong:"#DFCAD6",
+    accent:"#6D28D9", accentInk:"#FFFFFF", accentSoft:"rgba(109,40,217,.13)",
+    hover:"#F8EDF3", scheme:"light"
+  },
+  // The dark palette's window/input pair is core/theme.ahk's, to the digit —
+  // 1E1D26 and 2A2833 — so a WebView window and an AHK subwindow opened from
+  // it are the same colour rather than nearly.
+  dark: {
+    bg:"#1E1D26", card:"#26242F", text:"#FFFFFF", dim:"#A7A2B8",
+    inputBg:"#2A2833", inputText:"#FFFFFF",
+    border:"#332F3F", borderStrong:"#403B4E",
+    // NOT the 6D28D9 the AHK tab strip uses. That deep violet is chosen to
+    // read against a tab shape the visual style keeps LIGHT on every theme
+    // (see THEME_ApplyTo); here the strip is ours and it is dark, so the
+    // accent has to come up to meet it. Same hue family, readable ink.
+    accent:"#B89CFF", accentInk:"#1B1A24", accentSoft:"rgba(184,156,255,.16)",
+    hover:"#2E2B39", scheme:"dark"
+  },
+  // Classic means "the system decides" in AHK, and there is no system colour
+  // to inherit inside a WebView. The nearest honest answer is a plain neutral
+  // that follows the OS light/dark preference for its scrollbars and nothing
+  // else — no MMA tint, which is what picking classic asks for.
+  classic: {
+    bg:"#F3F3F3", card:"#FFFFFF", text:"#1A1A1A", dim:"#6B6B6B",
+    inputBg:"#FFFFFF", inputText:"#1A1A1A",
+    border:"#E1E1E1", borderStrong:"#CDCDCD",
+    accent:"#3B5BDB", accentInk:"#FFFFFF", accentSoft:"rgba(59,91,219,.13)",
+    hover:"#EAEAEA", scheme:"light"
+  }
+};
+
+const $  = (id) => document.getElementById(id);
+const app = $("app");
+
+// The last state AHK sent. Read by the click handlers so a toggle knows what
+// it is toggling away from without keeping a second copy of the truth.
+let S = null;
+let built = 0;          // how many tabs the strip was built for
+let tabNames = "";      // and under which names — a rename rebuilds it
+
+function post(msg) {
+  if (window.chrome && window.chrome.webview) window.chrome.webview.postMessage(msg);
+}
+
+// ── theme ───────────────────────────────────────────────────────────────────
+function applyTheme(name) {
+  const t = THEMES[name] || THEMES.pink;
+  const r = document.documentElement.style;
+  r.setProperty("--bg", t.bg);
+  r.setProperty("--card", t.card);
+  r.setProperty("--text", t.text);
+  r.setProperty("--dim", t.dim);
+  r.setProperty("--input-bg", t.inputBg);
+  r.setProperty("--input-text", t.inputText);
+  r.setProperty("--border", t.border);
+  r.setProperty("--border-strong", t.borderStrong);
+  r.setProperty("--accent", t.accent);
+  r.setProperty("--accent-ink", t.accentInk);
+  r.setProperty("--accent-soft", t.accentSoft);
+  r.setProperty("--hover", t.hover);
+  document.documentElement.style.colorScheme = t.scheme;
+}
+
+// ── the tab strip ───────────────────────────────────────────────────────────
+function buildTabs(names) {
+  const strip = $("tabs");
+  strip.textContent = "";
+  names.forEach((nm, i) => {
+    const b = document.createElement("button");
+    b.className = "tab";
+    b.textContent = nm;
+    b.dataset.n = String(i + 1);
+    b.addEventListener("click", () => post({ cmd:"tab", n:i + 1 }));
+    strip.appendChild(b);
+  });
+  built = names.length;
+  tabNames = names.join(" ");
+}
+
+// ── the field rows ──────────────────────────────────────────────────────────
+//  Built ONCE, for whichever model is in front. Switching tab re-fills them
+//  rather than rebuilding: a tab is a model, and every model has the same
+//  fourteen fields, so there is nothing structural to rebuild.
+function buildFields(slots) {
+  const host = $("fields");
+  host.textContent = "";
+
+  for (const f of FIELDS) {
+    const row = document.createElement("div");
+    row.className = "row" + (f.multi ? " tall" : "");
+
+    const gut = document.createElement("div");
+    gut.className = "gut";
+    if (f.gut) {
+      const kind = f.gut[0], n = +f.gut[1];
+      gut.appendChild(makeChk(kind === "s" ? "single" : "edit",
+                              kind === "s" ? "chk_s" + n : "chk_e" + n,
+                              kind === "s" ? { cmd:"single", f:n } : { cmd:"editfu", f:n }));
+    }
+    row.appendChild(gut);
+
+    const lab = document.createElement("div");
+    lab.className = "lab";
+    lab.textContent = f.l + ":";
+    row.appendChild(lab);
+
+    const box = document.createElement(f.multi ? "textarea" : "input");
+    box.className = "in";
+    box.id = "f_" + f.p;
+    box.spellcheck = false;
+    if (!f.multi) box.type = "text";
+    // The key AHK files these under is "m<model>_<field>" — the model is read
+    // off the state at send time, so a tab switch needs no re-binding here.
+    box.addEventListener("input", () => post({ cmd:"set", k:"m" + S.tab + "_" + f.p, v:box.value }));
+    row.appendChild(box);
+
+    host.appendChild(row);
+    if (f.sep) {
+      const s = document.createElement("div");
+      s.className = "sep";
+      host.appendChild(s);
+    }
+  }
+
+  // ── which of this model's masses these boxes are ──────────────────────────
+  const row = document.createElement("div");
+  row.className = "row";
+  row.appendChild(document.createElement("div"));
+  const lab = document.createElement("div");
+  lab.className = "lab";
+  lab.textContent = "mass #:";
+  row.appendChild(lab);
+  const wrap = document.createElement("div");
+  wrap.className = "slots";
+  for (let i = 1; i <= slots; i++) {
+    const b = document.createElement("button");
+    b.className = "slot";
+    b.id = "slot" + i;
+    b.textContent = String(i);
+    b.addEventListener("click", () => post({ cmd:"massSlot", s:i }));
+    wrap.appendChild(b);
+  }
+  row.appendChild(wrap);
+  host.appendChild(row);
+}
+
+function makeChk(label, id, msg) {
+  const l = document.createElement("label");
+  l.className = "chk";
+  const i = document.createElement("input");
+  i.type = "checkbox";
+  i.id = id;
+  i.addEventListener("change", () => post(Object.assign({}, msg, { v: i.checked ? 1 : 0 })));
+  l.appendChild(i);
+  l.appendChild(document.createTextNode(label));
+  return l;
+}
+
+// ── put a value in a box ────────────────────────────────────────────────────
+//  Only when it actually differs. Assigning to .value moves the caret to the
+//  end, and this runs after every command — including ones fired while a box
+//  has focus, such as clicking Save with the cursor still in f2.
+function setBox(el, v) {
+  if (el && el.value !== v) el.value = v;
+}
+
+// ── one sync ────────────────────────────────────────────────────────────────
+window.mma = {
+  sync(state) {
+    S = state;
+    applyTheme(state.theme);
+
+    if (state.models.length !== built || state.models.join(" ") !== tabNames)
+      buildTabs(state.models);
+    if (!$("f_mass")) buildFields(state.slots);
+
+    for (const b of document.querySelectorAll(".tab"))
+      b.classList.toggle("on", +b.dataset.n === state.tab);
+
+    const pfx = "m" + state.tab + "_";
+    for (const f of FIELDS)
+      setBox($("f_" + f.p), state.fields[pfx + f.p] || "");
+    setBox($("paste"), state.paste);
+
+    for (let i = 1; i <= state.slots; i++)
+      $("slot" + i).classList.toggle("on", i === state.massNo);
+
+    for (let n = 1; n <= 3; n++) {
+      const s = $("chk_s" + n), e = $("chk_e" + n);
+      if (s) s.checked = !!state.single[n - 1];
+      if (e) e.checked = !!state.editFu[n - 1];
+    }
+
+    $("b_load").textContent  = state.loadLabel;
+    $("b_save").textContent  = state.saveLabel;
+    $("b_tools").textContent = state.toolsLabel;
+    $("loaded").textContent  = state.loaded;
+
+    // A feature switched off hides its button and closes the gap, exactly as
+    // FeatCtrl + the reflowing bottom strip do in the AHK window.
+    $("b_archive").hidden    = !state.feat.archive;
+    $("b_hotstrings").hidden = !state.feat.hotstrings;
+    $("b_variants").hidden   = !state.feat.variants;
+    $("b_tools").hidden      = !state.feat.tools;
+
+    const img = $("credit_img");
+    if (state.credit) {
+      if (img.getAttribute("src") !== state.credit) img.setAttribute("src", state.credit);
+      img.hidden = false;
+    } else {
+      img.hidden = true;
+    }
+
+    document.title = state.title;
+    app.classList.remove("pending");
+  }
+};
+
+// ── plumbing ────────────────────────────────────────────────────────────────
+document.addEventListener("click", (e) => {
+  const b = e.target.closest("[data-cmd]");
+  if (b) post({ cmd:b.dataset.cmd });
+});
+
+$("paste").addEventListener("input", () => post({ cmd:"set", k:"paste", v:$("paste").value }));
+
+// F12 opens the dev tools, which is the one thing a prototype of a window
+// needs that the window itself does not.
+document.addEventListener("keydown", (e) => {
+  if (e.key === "F12") { post({ cmd:"devtools" }); e.preventDefault(); }
+});
+
+post({ cmd:"ready" });
+
+})();
+</script>
+</body>
+</html>

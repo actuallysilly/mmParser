@@ -1,0 +1,7 @@
+# MMA typelog dependency.
+# Install with:  pip install -r requirements.txt
+#   (install.bat WithPython installs this alongside the pinger/automation deps.)
+
+# Global keyboard capture for the recorder. The scope check and the named
+# stop-event use ctypes (standard library), so this is the only third-party need.
+pynput>=1.7

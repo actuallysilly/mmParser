@@ -163,10 +163,25 @@ ApplyModeToRunning() {
     else
         StopDetector()
 
+    if FEAT("fanslyDetector")
+        LaunchFanslyDetector()
+    else
+        StopFanslyDetector()
+
     if FEAT("statsOverlay")
         LaunchStatsOverlay()
     else
         StopStatsOverlay()
+
+    if FEAT("typelog")
+        LaunchTypelog()
+    else
+        StopTypelog()
+
+    if FEAT("replyBox")
+        LaunchReplyBox()
+    else
+        StopReplyBox()
 
     ; The detector writes the active model name; with it stopped that file goes
     ; stale and ModelIsActive() would keep gating every model's keys off against a
@@ -175,5 +190,5 @@ ApplyModeToRunning() {
     if !FEAT("modelDetector")
         try IniWrite("", MMA_DETECTOR, "detector", "active_model")
 
-    try RefreshPingerLabel()
+    try RefreshToolsLabel()
 }

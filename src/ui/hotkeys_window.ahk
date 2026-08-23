@@ -19,7 +19,17 @@ WIN_H := 640
 PAD   := 12
 
 g := Gui("+Resize +MinSize790x320", "MMA Hotkeys")
-g.SetFont("s9", "Segoe UI")
+; The same theme as every other MMA window. This one used to be the exception —
+; a system-grey box next to a set of tinted ones — and it is the window you open
+; precisely when the main GUI is not available, so it should not look like a
+; different program. Read here rather than passed in: nothing else in this process
+; knows the theme, and the file is run directly.
+_bg := THEME_WindowBg()
+if (_bg != "")
+    g.BackColor := _bg
+; Colour on the window font, BEFORE any control is added — see THEME_ApplyTo on
+; why a label cannot be given its colour afterwards.
+g.SetFont("s9" THEME_FontOpt(), "Segoe UI")
 g.OnEvent("Close", OnClose)
 g.OnEvent("Escape", OnClose)
 g.OnEvent("Size", OnSize)
@@ -27,6 +37,11 @@ g.OnEvent("Size", OnSize)
 panel := HotkeysPanel(g, PAD, PAD, WIN_W - PAD * 2, WIN_H - PAD * 2, true)
 btnClose := g.Add("Button", "x" (WIN_W - PAD - 194) " y" (WIN_H - PAD - 68) " w90 h30", "Close")
 btnClose.OnEvent("Click", OnClose)
+
+; After every control exists: on dark this is what stops black labels on a black
+; window, and the bold pass runs on every theme.
+THEME_ApplyTo(g)
+THEME_BoldButtons(g)
 
 g.Show("w" WIN_W " h" WIN_H)
 

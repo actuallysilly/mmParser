@@ -38,17 +38,23 @@ path**, which is how `HK_Broadcast` and `processes.ahk` find and close them.
 | [1_mass.ahk](content/models/1_mass.ahk) | Model 1. Three `mN := {...}` data blocks + `MassInit(1)`. Also owns the always-on nav/chat/utility keys, because it is the one model script always running. |
 | [2_mass.ahk](content/models/2_mass.ahk) / [3_mass.ahk](content/models/3_mass.ahk) | Models 2 and 3. Pure data + `MassInit(n)`. |
 | [general.ahk](content/general.ahk) | Always-on shared message hotstrings (`::_gns1::` etc.). |
-| [acc/ALIW.ahk](content/accounts/ALIW.ahk) [acc/BRI.ahk](content/accounts/BRI.ahk) [acc/TEMP.ahk](content/accounts/TEMP.ahk) [acc/UND.ahk](content/accounts/UND.ahk) | Per-account message hotstrings. Toggled on/off from the main window; `TEMP.ahk` is the scratch target for Add Hotkey. |
+| [acc/ALIW.ahk](content/accounts/ALIW.ahk) [acc/BRI.ahk](content/accounts/BRI.ahk) [acc/TEMP.ahk](content/accounts/TEMP.ahk) [acc/UND.ahk](content/accounts/UND.ahk) | Per-account message hotstrings. Started/stopped from **Hotstrings → Startup scripts**; `TEMP.ahk` is the scratch target for Add Hotkey. |
 | [sequences.ahk](src/sequences/sequences.ahk) | Recorded click/type macros — Discord open, and the Ctrl+click mass import that OCRs the Discord channel header to pick a model. |
 | [capitalizer.ahk](src/capitalizer.ahk) | Capitalizes the first letter after Enter / `.!?`+space. |
 | [model_detector.ahk](src/screen/model_detector.ahk) | Background service. Pixel-scans the Infloww tab strip for the active model pill, OCRs its name on change, writes it to `detector_status.ini`. This is what lets one set of F-keys serve whichever model tab is focused. |
 | [stats_overlay.ahk](src/screen/stats_overlay.ahk) | Background service. OCRs Sales / PPVs-sent / Fans-chatted off the Infloww **Home** window (via PrintWindow, so unfocused) and shows a colour-graded ratio overlay. |
+| [reply_box.ahk](src/screen/reply_box.ahk) | Background service, **off by default**. Draws a coloured frame round any conversation in the Infloww list that is **unread** and has been waiting past a threshold — yellow at 3 minutes through white at 10, all of it in `[ReplyBox]`. Finds the rows by their coral `#ff7c71` unread dot (so replying clears the box with no state kept) and reads the stamps with one OCR of the timestamp column. Two ticks: a cheap dot scan at 400ms that exists to notice a **scroll** and blank the layer, and the OCR pass at 5s. Two files are split out for the reason `pill_scan.ahk` gives — the service and its calibrator must agree: the arithmetic is [reply_tiers.ahk](src/core/reply_tiers.ahk) and the dot scan is [reply_scan.ahk](src/screen/reply_scan.ahk). Needs **two** one-off calibrations (the list, then one row — the dot is not centred in its row, so the offset is measured rather than assumed); **Settings ▸ General ▸ Reply timers**. |
+| [reply_scan.ahk](src/screen/reply_scan.ahk) | Pure. Finds the unread dots in a band at the right-hand end of the list — never the full row width, because an avatar is a photograph and contains every colour there is (`rail_scan.ahk` has the long version). Shared by the overlay and by Settings' "Calibrate a row…", which finds the dot inside the box you drew to measure how far below the row top it sits. `RBS_Defaults()` holds the shipped numbers so the two callers cannot fall back to different ones. |
+| [activity/tracker.ahk](src/activity/tracker.ahk) | Background service, **off by default**. Counts keys, characters, backspaces, clicks and active seconds into `userdata\activity\`, one row per counter per minute. It counts and never records *what* — see §8. Owns the `gui.activity` key. |
+| [branch_window.ahk](src/ui/branch_window.ahk) | **The branch builder.** Draws a conversation as a tree — your messages, what the fan says back, forks and merges — and compiles it into an ordinary mass. A WebView2 shell over [webview/branch_builder.html](src/ui/webview/branch_builder.html); the compiler is [branch/tree.ahk](src/branch/tree.ahk) and lives on this side, so the live preview and Save cannot disagree. See §9. |
+| [activity_window.ahk](src/ui/activity_window.ahk) | The chart over what the tracker recorded — KPI tiles, a day timeline, a weekday×hour heatmap, the correction-rate curve. A WebView2 shell over [webview/activity.html](src/ui/webview/activity.html); its own process, opened by the key above, and closing it stops no recording. |
 | [hotkeys_gui.ahk](src/ui/hotkeys_window.ahk) | Standalone window: rebind every hotkey. A pure view over `hotkeys.ini`. |
 | [hotstrings_gui.ahk](src/ui/hotstrings_window.ahk) | Standalone window: search the whole message library by trigger *or* by the text inside, jump to source, create overloads. |
 | [recorder.ahk](src/sequences/recorder.ahk) | Records mouse/keyboard into a new sequence and **writes AHK code into `sequences.ahk` and `hotkeys.ahk`**. |
 | [updater.ahk](src/updater.ahk) | Pulls updates from the GitHub raw URL, then relaunches `mass_gui.ahk`. Separate process so it can overwrite the GUI. |
 | [automation/automation.py](src/services/automation/automation.py) | Python background listener. Serves the `[automation]` hotkeys (hop kebabs, unsend last, count sales) by locating Infloww UI elements from a measured geometry map. Optional. |
 | [pinger/pinger.pyw](src/services/pinger/pinger.pyw) | Python background service. Beeps when an Infloww fan tab goes unread, by scanning for the `#ff7c71` unread dot/badge. Optional. |
+| [typelog/typelog.pyw](src/services/typelog/typelog.pyw) | Python background service, **off by default**. Records the text you type **while Infloww is in front** into `userdata\typelog\`, to mine for hotstrings. The mirror image of the activity tracker: that one is built so it *cannot* keep what you type, this one is built to. Same consent gate, stronger reason. Owns the `[typelog] pause` hotkey (bound by pynput, like the automation keys). Optional. |
 
 ### 1.2 Libraries — `#Include`-only, never run alone
 
@@ -67,8 +73,14 @@ path**, which is how `HK_Broadcast` and `processes.ahk` find and close them.
 | [processes.ahk](src/core/processes.ahk) | Start/stop/watch the five children. AHK ones are found by window title; the two Python ones sign in with a **named event** instead. |
 | [actions_menu.ahk](src/ui/actions_menu.ahk) | Searchable window over every registered action, generated from `HK_ORDER`. Runs actions by broadcasting their index — including actions with no key bound. |
 | [modes_gui.ahk](src/ui/modes_window.ahk) | The Easy/Advanced + per-feature checkbox window, generated from `modes.ahk`. |
+| [tools_window.ahk](src/ui/tools_window.ahk) | The **Tools** button's window: one row per background tool (pinger, stats overlay, both detectors, automation listener), live running state on a timer, On/Off writing the same feature keys Settings does. |
+| [startup_scripts.ahk](src/ui/startup_scripts.ahk) | **Hotstrings → Startup scripts**: one row per message script, live running state, Start/Restart/Stop. Replaced the `◻ NAME` toggles. |
+| [credit.ahk](src/ui/credit.ahk) | The picture in the main window's empty corner. Finds `assets\decoration\anime_girl*.gif` (else `*.png`), scales it with GDI+ to whichever rung of heights fits the space the controls leave, and plays it frame by frame if it is animated. One Picture control, re-imaged with `STM_SETIMAGE` — replaced a ladder of hidden copies scaled at startup. Switched on and pointed at a file by **Settings ▸ GUI ▸ Corner picture** (`CreditPicture`, `CreditImage`); `CREDIT_Refresh()` applies both live, with no reload. |
+| [lock_badge.ahk](src/ui/lock_badge.ahk) | The **LOCKED** strip that sits on screen for as long as lock mode is on (§5.1.2.2), naming the model every shared key is pinned to, and acting as the unlock button. Always-on-top, `WS_EX_NOACTIVATE` so it can never eat a keystroke meant for a chat box, deliberately un-themed. Owned by the **engine** (a poll, since the GUI's Lock button is another process) because the engine is what sends. It is not decoration: it is the reason a mode that re-aims every shared key is safe to offer at all. |
 | [hotstring_index.ahk](src/hotstrings/index.ahk) | Parses `:*:trigger::{ snd("…") }` blocks out of the message `.ahk` files into records. The one writer is `HSI_DeleteBlock`. |
 | [hotstring_overloads.ahk](src/hotstrings/overloads.ahk) | Lets one trigger have several variants (ask / random) **without ever rewriting your source files** — it re-points the trigger at runtime. |
+| [tab_marks.ahk](src/screen/tab_marks.ahk) | **Stars and separators you stick on your own browser tabs.** Decoration, and firmly nothing else — a star means whatever you meant by it; MMA never moves one, reads one, or infers a model from one, because a mark it also *maintained* would be a second silent claim about which model is which (§4.8). Marks are stored in `[Marks]` as `kind,x,y` in the TARGET WINDOW's client coordinates, so they ride along when it moves and need no calibrated tab geometry at all. The overlay is click-through (`WS_EX_TRANSPARENT`) so the strip stays clickable, `WS_EX_NOACTIVATE` so it cannot eat a keystroke, and `WDA_EXCLUDEFROMCAPTURE` so MMA's own pill scan reads the tabs and not the stars. Two measured gotchas in its header: a near-black chroma key does not key at all, and `BackgroundTrans` on a click-through window paints black. Hosted by the engine. |
+| [click_wall.ahk](src/screen/click_wall.ahk) | **The mouse half of the anti-fumble guards.** A follow-up is three messages with a `waitTime` pause between each, so one keypress owns the chat box for a second or more; click the next conversation inside that second and the parts still in flight land in the chat you moved to. `_HK_Fire`'s three guards (§5.1) cannot see that — a click on the list is not a hotkey. So while a send runs this claims `*LButton` over the list, **remembers** the click and plays it back when the send lands, so you click once and never re-click. A hotkey rather than a transparent window on purpose: a window outlives the process that raised it, so an engine that dies mid-send would leave an invisible wall nobody can see or lower, while a hotkey claim dies with its process. Before playing a click back it re-grabs a patch of pixels from under it and compares — Infloww sorts the list by most recent message, and the send holding your click is what makes a conversation most recent, so the rows can move underneath it. `[ClickWall]`, region falling back to `[ReplyBox] Region` and then to *everything left of `[NextFu]`*, so an ordinary install needs no calibration. Hosted by the engine, off the `HK_OnSend` hooks. |
 | [ocr_grab.ahk](src/screen/ocr_grab.ahk) | Drag a box on screen → OCR it → text. Feeds Add Hotkey. |
 | [features.ahk](src/sequences/composer.ahk) | 933 bytes, two functions: click the 2nd grey icon in the composer strip, plus a debug tooltip version. Included only by `1_mass.ahk`. Misnamed — nothing "features" about it. |
 | [lib/OCR.ahk](src/vendor/OCR.ahk) | **Vendored third party** (`lib/OCR.LICENSE`). Wraps `Windows.Media.Ocr` — offline, nothing to install. |
@@ -81,7 +93,7 @@ These are mixed together in the root today, and the git rules for them are incon
 |---|---|---|
 | [hotkeys.default.ini](userdata/hotkeys.default.ini) | ships | yes — correct |
 | `hotkeys.ini` | user | no — correct, `HK_Init` creates it from the default |
-| `userdata/mass_gui.cfg` | user | **was yes — wrong, now fixed.** Holds your model names, `HiddenScripts`, calibrated OCR rects and the `DefaultFu3` message body. Same class of personal data as `hotkeys.ini`, which is correctly ignored. UTF-16LE. |
+| `userdata/mass_gui.cfg` | user | **was yes — wrong, now fixed.** Holds your model names, `StartupScripts`, calibrated OCR rects and the `DefaultFu3` message body. Same class of personal data as `hotkeys.ini`, which is correctly ignored. UTF-16LE. |
 | `userdata/hotstring_overloads.ini` | user | **was yes — now untracked**, same rule as the rest |
 | `detector_status.ini` | machine | no — correct |
 | `mass_archive.txt` | user | no — correct |
@@ -94,9 +106,33 @@ These are mixed together in the root today, and the git rules for them are incon
 |---|---|
 | [model_detect_test.ahk](tools/model_detect_test.ahk) | The prototype `model_detector.ahk` grew out of. Hard-codes "grey on the left = AW, right = BUT". Superseded. |
 | [discord_header_test.ahk](tools/discord_header_test.ahk) | Still useful: tunes the `[Discord]` header band that the mass-import fallback OCRs. |
+| [detection_overlay_debug.ahk](tools/detection_overlay_debug.ahk) | **What MMA thinks it can see, live, while you work.** Which platform is in front, which tab/row reads as selected, what OCR reads off it *next to what it should read*, which model+mass slot the `[mass.active]` keys would use, and which follow-up is already in the chat. Two views over one state function: a flat 60px **strip** (the default — five cells, colour carries the verdict, meant to be left up all shift beside Infloww) and a **detail** panel with the working shown under each row, `^!F11` between them. The cheap half refreshes twice a second; the two OCR reads are rationed (name on a tab change, `next_fu` on `^!F10`). Reads only — it never writes a cfg key, and unlike the services it does not seed `[Fansly]`. It includes `mass/runtime.ahk` for `CurMass()`, so it `Suspend`s itself at load and marks its own three keys `#SuspendExempt` — otherwise this process would answer `__mm` alongside the real engine. |
 | [detector_probe.ahk](tools/detector_probe.ahk) | **Calibrates the model detector**, which cannot be calibrated by guessing — see §4.8. Put Infloww in front, press F10: it prints the colours actually in the tab strip, what the current `[Detector]` settings find, and what it would hand to OCR. Reads pixels only; never clicks or types. `--now` probes immediately, for scripted checks. |
 | `infloww ui elements/` | Gitignored. Five Python detector prototypes, the sliced element bitmaps, annotated screenshots, and the technique write-ups. Contains **real fan handles** in the screenshots — that is why it is ignored. |
 | [pinger/test_detect.py](src/services/pinger/test_detect.py) | Pinger's detection test against the reference PNGs. |
+
+### 1.4.1 `tools/test/` — the self-tests, which are the opposite of the above
+
+A rig or probe **binds a key and stays resident**, so you can look at your own screen
+through it. A test **asserts, prints `N passed, M failed`, and exits**. They had nothing in
+common except living in the same folder, and the only thing distinguishing them was the
+filename — which lied in both directions: `model_detect_test.ahk` is a probe (and
+`debug_panel.ahk` correctly lists it under `PROBES`), while `settings_build_test.ahk` is a
+test that happens to flash a window.
+
+The eleven assertion files are in [tools/test/](tools/test/) now, with a
+[README](tools/test/README.md) covering how to run one by hand and which of them write real
+settings. `DebugPanel.TESTS` in [debug_panel.ahk](src/ui/debug_panel.ahk) is the list
+**Settings ▸ Debug ▸ Run all** walks — a test not in that list only ever runs by hand.
+
+The two misnamed probes stayed in `tools/` with the other probes rather than being renamed,
+because a rename is a separate change with its own links to fix. `*_probe.ahk` is the
+convention the newer ones already follow.
+
+Nothing broke in the move, and that is worth one line: `MMA_ROOT` comes from `A_LineFile` in
+[paths.ahk](src/core/paths.ahk), not from `A_ScriptDir`, so a test one folder deeper still
+resolves every path in MMA. Only the tests' own `#Include "../src/…"` lines needed the extra
+`../`. That is exactly the property paths.ahk's header was written to promise.
 
 ### 1.5 Install / packaging
 
@@ -110,12 +146,13 @@ Python + deps, and **switches the Python features off in the cfg if you decline*
 [README.md](README.md) (install + features; its "File structure" section is now out of date),
 [CHANGELOG.md](CHANGELOG.md), **[docs/guide.html](docs/guide.html)** (the user guide — every
 button, the paste format, the advanced features and a troubleshooting table; this is what the
-main window's **How to Use** button opens),
+Settings → Scripts' **How to Use** button opens),
 [docs/mass-format.md](docs/mass-format.md) (the paste format alone, in markdown, for reading in
 an editor), [branching_feature.md](docs/proposals/branching.md)
-(unimplemented proposal for a web branch editor),
+(the proposal the branch builder came from — **built**, see §9),
 [automation/UI-ELEMENT-MAP.md](src/services/automation/UI-ELEMENT-MAP.md) (measured Infloww geometry —
-the source of truth for `automation.py`), [pinger/README.md](src/services/pinger/README.md).
+the source of truth for `automation.py`), [pinger/README.md](src/services/pinger/README.md),
+[typelog/README.md](src/services/typelog/README.md).
 
 ### 1.7 Delete
 
@@ -183,12 +220,19 @@ MMA/
 │   │   ├── utils.ahk              snd/Sendt, AFK, the active-model gate
 │   │   ├── coords.ahk             named screen coordinates
 │   │   ├── crashlog.ahk           OnError → error_log.txt
+│   │   ├── reply_tiers.ahk        how long is that wait, and what colour. pure
 │   │   └── processes.ahk          start/stop/watch the children
 │   │
 │   ├── ui/                     ─ every window you look at
 │   │   ├── main_window.ahk        the GUI (was mass_gui.ahk — see §4.6)
 │   │   ├── actions_menu.ahk
 │   │   ├── modes_window.ahk       (was modes_gui.ahk)
+│   │   ├── tools_window.ahk       the Tools button: background tools, live state
+│   │   ├── startup_scripts.ahk    Hotstrings ▸ Startup scripts: live state per script
+│   │   ├── credit.ahk             the corner picture: GDI+ scaling + GIF playback
+│   │   ├── lock_badge.ahk         the LOCKED strip, while lock mode is on (§5.1.2.2)
+│   │   ├── activity_window.ahk    the typing-stats chart    ← standalone entry point
+│   │   ├── webview/activity.html  the page it draws (SVG; no CDN, no libraries)
 │   │   ├── hotkeys_window.ahk     (was hotkeys_gui.ahk)     ← standalone entry point
 │   │   └── hotstrings_window.ahk  (was hotstrings_gui.ahk)  ← standalone entry point
 │   │
@@ -206,10 +250,21 @@ MMA/
 │   │   ├── index.ahk              parse hotstrings out of the message sources
 │   │   └── overloads.ahk          one trigger, several variants
 │   │
+│   ├── branch/                ─ the conversation tree behind the builder. BR_
+│   │   └── tree.ahk              its file, its compiler, its !mma emitter
+│   │
+│   ├── activity/              ─ how you work, counted. ACT_
+│   │   ├── tracker.ahk           the recorder                ← entry point
+│   │   └── record.ahk            the per-minute counter format + its reader
+│   │
 │   ├── screen/                 ─ everything that reads pixels
 │   │   ├── ocr_grab.ahk           drag a box → text
+│   │   ├── tab_marks.ahk          stars + separators you stick on your own tabs
+│   │   ├── click_wall.ahk         holds a click on the list while a send runs
 │   │   ├── model_detector.ahk     which model tab is active   ← entry point
-│   │   └── stats_overlay.ahk      the KPI overlay             ← entry point
+│   │   ├── stats_overlay.ahk      the KPI overlay             ← entry point
+│   │   ├── reply_scan.ahk         the unread-dot scan. pure, shared
+│   │   └── reply_box.ahk          boxes rows kept waiting     ← entry point
 │   │
 │   ├── vendor/                 ─ third party. never edited. LICENSE stays beside it.
 │   │   ├── OCR.ahk  OCR.LICENSE   (was lib/)
@@ -222,7 +277,8 @@ MMA/
 │   │
 │   ├── services/               ─ background processes with their own lifecycle
 │   │   ├── automation/            automation.py + .vbs + UI-ELEMENT-MAP.md
-│   │   └── pinger/                pinger.pyw + .vbs + reference/ + requirements.txt
+│   │   ├── pinger/                pinger.pyw + .vbs + reference/ + requirements.txt
+│   │   └── typelog/               typelog.pyw + .vbs + scope_debug.py + requirements.txt
 │   │
 │   ├── capitalizer.ahk         ← entry point; too small for a folder of its own
 │   └── updater.ahk             ← entry point
@@ -239,20 +295,24 @@ MMA/
 │   ├── masses.json                your masses — GUI-owned (§5, was 1/2/3_mass.ahk)
 │   ├── hotstring_overloads.ini    your overload variants
 │   ├── mass_archive.txt           every mass you have parsed
+│   ├── branch_trees.json          the conversation trees the builder draws (§9)
+│   ├── activity/                  one CSV per day per process — counts, never text
 │   ├── detector_status.ini        machine state
 │   └── error_log.txt              machine state
 │
-├── assets/                     copy_text.png, icon.ico
+├── assets/                     copy_text.png, icon.ico, anime_girl*.gif|png (§ credit.ahk)
 │
 ├── tools/                      dev only. never runs in a session.
+│   ├── test/                   the self-tests. assert, print, exit. §1.4.1
 │   ├── install/                install.ps1, createShortcut.bat
 │   ├── installer/              MMA.iss, build.bat, WELCOME.txt
-│   ├── discord_header_test.ahk
-│   ├── model_detect_test.ahk   (or delete — superseded)
+│   ├── *_probe.ahk             bind a key and stay resident. the opposite of a test
+│   ├── discord_header_test.ahk (a probe, despite the name)
+│   ├── model_detect_test.ahk   (a probe, despite the name — or delete, superseded)
 │   └── ui-research/            (was "infloww ui elements" — the space is hostile)
 │
 └── docs/
-    ├── guide.html              the user guide — what "How to Use" opens
+    ├── guide.html              the user guide — Settings > Scripts > "How to Use"
     ├── mass-format.md          (was guide.md) — the paste format, in markdown
     └── proposals/branching.md  (was branching_feature.md)
 ```
@@ -440,7 +500,7 @@ fires all three. Everything below exists only to stop that:
 | Mechanism | Where | What it's for |
 |---|---|---|
 | `StartFuGating` / `UpdateFuGating` | [utils.ahk:81](src/core/utils.ahk#L81) | A **350 ms timer, in each process**, re-reading `detector_status.ini` off disk to flip the other models' keys `Off` |
-| `UniversalSendActive` | [utils.ahk:67](src/core/utils.ahk#L67) | Picks one process to answer `__mm` — "otherwise all three would expand the hotstring at once and triple-backspace the typed trigger" |
+| ~~`UniversalSendActive`~~ | *removed* | Picked one process to answer `__mm` — "otherwise all three would expand the hotstring at once and triple-backspace the typed trigger". Moot since the three mass processes became one `engine.ahk`; deleted outright in §5.2 |
 | `HK_ModelSendIds` | [hotkeys.ahk:359](src/core/hotkeys.ahk#L359) | Lists which ids are shared, so gating knows what to toggle |
 | Conflict-report exemption | [hotkeys_gui.ahk:145](src/ui/hotkeys_window.ahk#L145) | Model send keys must be exempt from each other's duplicate check |
 | `FuGate()` | [utils.ahk:60](src/core/utils.ahk#L60) | Per-handler re-check at fire time |
@@ -525,6 +585,66 @@ in `[Settings] CurrentModel`, and the shared keys follow it until you press anot
 Pressing one also switches `ModelMatch` to `manual`, because a key labelled "active model
 = 2" that left the detector in charge would be lying about what it does.
 
+The shared follow-up and PPV keys don't rely on that memory any more — in this mode they
+open the picker window and send on your answer (§ `model_picker.ahk`). The remembered model
+survives underneath it, for the two shared keys that don't ask and for the mixed-platform
+fallback, which is why Settings has no dropdown for it: it is a consequence, not a setting.
+
+### 5.1.2.1 Four keys, one section of Settings
+
+Settings ▸ Models writes all four, and nothing else does:
+
+| key | values | means |
+|---|---|---|
+| `[Settings] SharedKeys` | `1` / `0` | do the `[mass.active]` keys resolve a model at all. Off, they bail and log it; the numbered keys are unaffected. Read per keypress by `SharedKeysOn()` |
+| `[Settings] ModelMatch` | `manual` / `name` / `position` | `manual` is the Strategy radio. The other two are the **OnlyFans (Infloww)** auto strategy — this key has only ever described that side |
+| `[Fansly] Match` | `name` / `position` | the Fansly auto strategy. Defaults the other way round, because the rail truncates its labels — see `core/fansly_model.ahk` |
+| `[Positional] Pos<i>` / `[FanslyPos] Pos<i>` | model slot | which model tab *i* / rail row *i* is. Two different windows, two orders, no reason to match |
+
+### 5.1.2.2 Lock mode — the picker's answer, given once
+
+The window in §5.1.2 asks *which model* on every shared follow-up key, and that is right for
+the question it asks and wrong for the way the work arrives. A shift is worked one model at a
+time: every message for Aliw, then every message for Rama. Asking per keypress means twenty
+windows for one answer, and **a window you dismiss by reflex has stopped being a safeguard** —
+it is a keystroke tax that also trains you to click without reading.
+
+The shape it is built for, stated as the sequence it is:
+
+> pick the model in the window → **lock** → clear that model's messages → **unlock** → next model
+
+`[Settings] LockedModel` (0 = off) is that answer, stored once. While it is set, `_RunOnActiveModel`
+returns the locked model **before the mode check and before any pixel is read**: no picker, no
+detector, no fallback chain. Three entry points write the one key — the `mass.select.lock` key,
+a **live toggle in the picker window** (a checkbox that flips the lock on click, not a promise about
+the pick that follows: the sequence above locks *after* the model is settled), and the main window's
+Lock button (a different process, hence a 700 ms poll rather than a message) — and none of them
+needs to know the others exist.
+
+Two decisions in it are worth keeping:
+
+**A select key MOVES a lock.** `^!2` under a lock re-aims it rather than being ignored, because
+"done with this model, on to the next" is the sentence the feature was asked for. Refusing would
+cost three keys for one thought; ignoring it silently would print a toast naming a model the
+shared keys were not going to send.
+
+**It is not a fourth `ModelMatch` value.** A lock applies in name and position mode too, where it
+overrides a working detector. That is a thing you would only ask for deliberately — and it is
+only safe to offer because of the badge below.
+
+#### The badge is the condition, not the decoration
+
+This is a mode in which a key you press sends to a model **nothing on screen identifies** —
+precisely the failure shape §4.8 is about, arrived at on purpose this time. So `ui/lock_badge.ahk`
+puts a small always-on-top strip on screen for as long as the lock lasts, naming the model, not
+taking focus (`WS_EX_NOACTIVATE` — every keystroke here belongs to a chat box), and acting as the
+unlock button. A tooltip could not do it: tooltips expire and this state lasts twenty minutes.
+MMA's own window could not either — it is behind Infloww all shift, which is the one place you are
+not looking.
+
+The general rule, stated once: **the visible indicator is what buys the shortcut.** Without it
+this feature would be a silent re-aim of every shared key, and would not be worth shipping.
+
 ### 5.1.3 Positional mode: which TAB, then which MODEL
 
 Two steps, and only one of them is a measurement:
@@ -555,6 +675,27 @@ is more than half the winner (one pill straddling two slots, i.e. `TabPitch` is 
 
 Verified live: pill at x116 spanning 28–184 — 156px, matching the 150 pitch — resolving
 to tab 1, model 1, with OCR reading `AW` alone rather than `AW Bellarama`.
+
+#### 5.1.3.1 Which site is in front — a title is not evidence
+
+`FanslyWindowUp` and `DetectorWindowUp` both used to be one `WinActive(WinMatch)` call, on
+the assumption that each site is its own application with its own title. On a real desk it
+is not: **Infloww shows both sites**, so the two windows are the same executable, both
+titled `Infloww Messages`, one per monitor — and the word `Fansly` that `[Fansly] WinMatch`
+looks for turns up in the *OnlyFans* window too, because a model is named `KB FANSLY`.
+Since `ActiveModelStatus` asks Fansly **first** and returns on any answer but `off`, that
+one title took the shared keys away from the site you were working in, silently.
+
+Two things fixed it, in order of authority:
+
+| test | where | what it adds |
+|---|---|---|
+| **the visual cue** | `FanslyCueSays`, `screen/fansly_scan.ahk` | OCRs a **window-relative** band (`[Fansly] Cue*`) and looks for `CueText`, vetoed by `CueNotText`. The only test that can separate two windows of one program. Cached per window handle for `CueMs`, because this is on the keystroke path. `CueW=0` (shipped default) leaves it off. |
+| **the geometry gate** | `PILL_ActiveHolds`, `screen/pill_scan.ahk` | the window in front must *cover* the region about to be scanned. A region that is not inside it is about to measure some other window's pixels. Decisive when the two sites are separate apps or separate monitors. |
+
+The negative test is not decoration: Infloww's own sidebar says **"All inboxes"**, which
+contains "Inbox". A cue of `Inbox` alone therefore fires on both sites, and being wrong in
+that direction is the expensive one.
 
 ### 5.1.4 Mixed platforms — some models are somewhere MMA cannot see
 
@@ -592,34 +733,64 @@ Switching back to Infloww needs no keypress; the window being focused is the sig
 now" and nothing else. Letting it reach `TeachPosition` would map whatever Infloww tab
 happened to be lit to a Fansly model and quietly reroute that tab's sends.
 
-### 5.2 `__mm` in manual mode — DECIDED, and shipped
+### 5.2 `__mm` with N models — SUPERSEDED, then dissolved
 
 `__mm` is a single hotstring, not a per-model key, so it has no model to read off the
 keypress. v1's `UniversalSendActive` answered "detector off → model 1", unconditionally.
 That did not mean a manual model-2 user got *nothing* when they typed `__mm` — it meant
 they got **model 1's mass, sent to their fan.** A wrong mass is worse than no expansion.
 
-**Resolution: manual mode disables bare `__mm` and answers with `__mm1` / `__mm2` /
-`__mm3` instead.** The number selects the model because you said so, which is the same
-contract the manual F-keys already use (§5.1): the thing you type IS the model selector.
+**The shipped resolution was: manual mode disables bare `__mm` and answers with `__mm1` /
+`__mm2` / `__mm3` instead.** The number selects the model because you said so, the same
+contract the manual F-keys use (§5.1): the thing you type IS the model selector.
 
-The two schemes are mutually exclusive **by construction, not by policy**, and the reason
-is the hotstring options. `__mm` is declared `:*X:`, and `*` means *fire as soon as the
-trigger is typed, no ending character* — so while `__mm` is live it expands the instant
-you type the second `m`, and the `1` in `__mm1` is never reached. `NumberedSendActive`
-therefore gates on the same condition that silences `__mm`. Registering the numbered
-triggers in automatic mode anyway would leave three hotstrings that look bound, appear in
-the manager, and can never fire; gating them keeps *what is registered* equal to *what can
-happen*.
+Those two schemes were mutually exclusive **by construction, not by policy**, and the
+reason was the hotstring options. `__mm` is declared `:*X:`, and `*` means *fire as soon
+as the trigger is typed, no ending character* — so while `__mm` was live it expanded the
+instant you typed the second `m`, and the `1` in `__mm1` was never reached.
+`NumberedSendActive` therefore gated on the same condition that silenced `__mm`, keeping
+*what is registered* equal to *what can happen*.
 
-Both gates live in [utils.ahk](src/core/utils.ahk); the triggers are at the bottom of
-[runtime.ahk](src/mass/runtime.ahk).
+#### What replaced it
+
+Two things broke that answer.
+
+**It capped at three.** `__mm1`/`__mm2`/`__mm3` were written out by hand, and 2.0.2 made
+the model count a setting up to twelve. `__mm11` could not have been added even in
+principle — the `__mm1` before it would have fired first.
+
+**It went dead where it was wanted most.** The one situation in which you genuinely do
+not know which model's mass you are about to paste is several models and no detector, and
+that is exactly the state in which bare `__mm` expanded to nothing.
+
+**The digit moved to the front.** `__1mm` shares no prefix with `__mm`, so the two are
+live simultaneously, nothing has to be gated on anything, and the naming does not run out
+at nine — `__11mm` is just another trigger. `UniversalSendActive` and
+`NumberedSendActive` are **deleted**; a note at their old site in
+[active_model.ahk](src/core/active_model.ahk) says where they went. The numbered triggers
+are registered by a loop over `MASS_MODELS`, near the top of
+[runtime.ahk](src/mass/runtime.ahk) rather than beside `__mm` — top-level code stops
+running at the first hotstring definition in the script, so written next to `__mm` the
+loop would parse and never execute.
+
+**And bare `__mm` asks.** One model configured, it pastes that one. Two or more, it opens
+[model_picker.ahk](src/mass/model_picker.ahk) — the "I pick" window, generalised from a
+follow-up group to `group = "mass"` — with the first line of each model's live mass on the
+button that will paste it. That preview is also the only place in MMA that shows an
+**empty** mass slot before you paste it, which is the whole of the standing "`__mm` does
+nothing" complaint.
+
+The mass pick aims one paste and does **not** call `SetManualModel`. A follow-up pick
+does: choosing a model for a follow-up is a statement about which model you are working
+on, and the shared `[mass.active]` keys should follow it. Choosing one for `__mm` is not,
+and making it stick would be a mode change wearing a convenience's clothes.
 
 ### What else collapses
 
 - **`massNo` stops being source code.** Which of `m1`/`m2`/`m3` is live is *state*, and
   today the GUI stores it by rewriting a line of a running script. In v2 it is a cfg key.
-- **`UniversalSendActive`'s model-1 special case** goes away with §5.2's answer.
+- **`UniversalSendActive`'s model-1 special case** goes away with §5.2's answer — and in
+  the end the function went with it.
 
 The evidence that the split has already stopped earning its keep is in your own config:
 `StartupScripts=1_mass.ahk,ALIW.ahk,TEMP.ahk,general.ahk,sequences.ahk` — **2_mass.ahk and
@@ -788,3 +959,121 @@ loop variable `ln`.
 **A logger must never crash the thing it is logging for.** Every path in `log.ahk` is
 inside a `try`, including the ones that look incapable of throwing. Nothing is buffered
 either — the tail of the file before a crash is the whole reason you are reading it.
+
+---
+
+## 8. The activity tracker: counting without recording
+
+`activity/tracker.ahk` installs a global keyboard hook. It sees every keystroke of a
+working shift, which means it sees **every message sent to every fan** — so the only
+version of this feature worth shipping is one that structurally cannot retain them.
+
+### What makes that structural rather than a promise
+
+The format has nowhere to put a character. `activity/record.ahk` writes
+`minute,counter,value` and nothing else; the counter names are a closed list
+(`keys`, `chars`, `bksp`, `mouse`, `active`, `max.gap`). There is no free-text
+field to leak into, no window title, no hotstring trigger. The hook itself is handed
+a virtual key code, adds one to a number, and drops it — `ActIsChar` deliberately
+classifies by VK *range* rather than tracking modifier state, because modifier state
+is a keylogger's data structure and refusing to build one is cheaper than being
+careful with it.
+
+Two supporting details:
+
+- **`MinSendLevel := 1`** makes the hook ignore MMA's own sends. Without it a mass
+  paste would land in `keys`, and the number the whole feature reports — how fast
+  *you* type — would rise the more work MMA did for you.
+- **`KeyOpt("{All}", "I")`** stops the InputHook accumulating text in its own buffer,
+  with a once-a-second guard in `ActTick` that rebuilds the hook if it ever does
+  anyway. That guard is the reason the "I" option is an optimisation rather than a
+  load-bearing assumption.
+
+### Off by default, and that is not a taste call
+
+Every other `FEAT_Def` default is about whether a feature is *useful*. This one is
+about consent: "counts your keystrokes" is a thing somebody switches on deliberately,
+not something they discover already running. Its hotkey goes with it — a chart of
+nothing is not a feature — which is why `gui.activity` is owned by the tracker rather
+than the main window.
+
+### Why one file per process per day (activity)
+
+Only the tracker writes today. A single shared file would work right up until the
+second writer arrives, at which point two processes append to one file and the loser
+of the race silently loses a minute. Same reasoning that gave Fansly its own status
+file (§ `MMA_FANSLY`), and it costs one `Loop Files` in the reader. A counter named
+`max.<x>` merges by maximum rather than by sum — a stall is not a quantity you can add
+up across two processes, and a reader that did would report a pause that never
+happened. `tools/test/activity_test.ahk` is mostly about that one rule.
+
+---
+
+## 9. The branch builder: a tree that compiles into a mass
+
+`docs/proposals/branching.md` asked for a web editor that draws conversation flows —
+"fu1→resp1→fu2→resp2 … kind of like git?" — and said parsing it back was part 2 of the
+problem. **There is no part 2**, and the reason is one sentence:
+
+> **One root-to-leaf path through the tree = one named branch.**
+
+### Why that works
+
+A branch in `masses.json` is *not* a tree. `::mexican` is a parallel WORDING of
+f1/f2/f3 that TAB cycles at send time — six columns beside the trunk, no forking, no
+notion of what the fan said. A conversation, though, alternates:
+
+```
+!mm  →  fan replies  →  f1  →  fan replies  →  f2  →  f3
+```
+
+Enumerate every path through that and each one is a complete conversation — a full
+f1/f2/f3/ppv column. The first path is the trunk; the rest become named branches. So
+nothing in the engine changed, nothing in the parser changed, and the format the builder
+emits is the format `Export !mma` already writes. The whole feature is a compiler
+(`src/branch/tree.ahk`) plus a drawing surface.
+
+### A fan-reply node sends nothing, and is not decoration
+
+It costs no follow-up level — it is the fan talking, not you — and it does two jobs:
+
+- it **names the branch**. `::plays-along` beats `::br2` when you are looking at a
+  picker window mid-shift.
+- it is the only place the tree records **why the fork exists**. A branch whose reason
+  is not written down is a branch nobody dares delete.
+
+A merge point is reached by several *different* replies, so the card shows one chip per
+incoming route (`fan says` / `or says`). Showing only the first was a real bug: the tree
+still held the second, nothing on screen said so, and the only way to change it was to
+delete the merge.
+
+### Limits are reported, never truncated
+
+A path may hold at most `MASS_FU_DEPTH` (3) `say` nodes and there are at most
+`MASS_BRANCH_MAX` (6) branches beside the trunk. Both are **errors with a count in
+them**, not silent truncation — §4.8's rule applies exactly as it does to a detector.
+The cost of "no answer" is a message you move yourself; the cost of a confident wrong
+answer is a chain that sends three of its four steps and looks like it worked. The
+builder makes the limit *visible* instead: one column per follow-up, so the room you
+have left is on screen before you run out of it.
+
+### One compiler, and the preview cannot lie
+
+The page owns the tree while the window is open; AHK owns the file, the compiler, the
+clipboard and `masses.json`. The page never works out what a tree compiles to — it asks,
+on a 220 ms debounce, and renders the answer. So the preview pane is produced by the
+same function that Save writes, and they cannot drift. A JavaScript copy of the rules
+would have been faster and would have been wrong within a week — the same "two files
+agreeing by hand about a record shape" this document already rejected for
+`MassBlockProps` (§ store.ahk).
+
+### Merging duplicates in storage, not in editing
+
+Two paths that converge on one node write that node's text into both branches, because a
+branch stores its whole column. The tree keeps the fact that it was one node, so you
+still edit it once. That asymmetry *is* the benefit, and deleting one fork deliberately
+does not gut the shared tail the other fork still reaches.
+
+`tools/test/branch_tree_test.ahk` covers the compiler and then round-trips its output
+through the **shipping** parser, because the builder's only real claim is "this pastes
+into MMA and works".

@@ -76,20 +76,39 @@ _MASS_SlotCount() {
 }
 
 global MASS_SLOTS      := 3      ; masses per model (was m1 / m2 / m3)
-global MASS_ALT_MAX    := 3      ; alt wordings per follow-up
-global MASS_BRANCH_MAX := 3      ; --Name branches per mass
+; Named branches per mass. Six, not three, because a branch is now the ONLY kind
+; of alternative there is — see below. The three alt fields per follow-up that
+; used to sit beside them are gone, so this number absorbed their job.
+global MASS_BRANCH_MAX := 6
+; Parts one branch may have in one follow-up group: fu<N>, fu<N>.5, fu<N>.7. The
+; same three the trunk has, for the same reason — they are three messages sent one
+; after another, not three choices.
+global MASS_FU_PARTS   := 3
 
 ; ── The record shape ──────────────────────────────────────────────────────────
+;
+;  ─── ALTS AND BRANCHES WERE NEVER TWO THINGS ─────────────────────────────────
+;  A mass used to carry both: `fu1_alt0..2` (three other wordings of THIS
+;  follow-up) and `br1..3` (a whole named alternate sequence). Two syntaxes to
+;  write, two shapes to store, two halves of one window to edit — for one
+;  question, "which wording goes out for f<N>?".
+;
+;  The send path had already merged them: AltVariants() in core/utils.ahk stages
+;  the trunk, then the alts, then the branches, as one list that TAB walks. What
+;  was left was the storage and the syntax, and both are gone now:
+;
+;      EVERYTHING IS A BRANCH, and "alt" is simply the default branch name.
+;
+;  So `::alt some wording` is a branch called "alt"; `::mexican mehico` is a
+;  branch called "mexican"; and a branch that only answers f1 is the ordinary
+;  case, not a special one. See mass/parser.ahk for the marker syntax.
+;
+;  The `fu<grp>_alt<n>` fields are simply no longer in this list. They are LEFT
+;  ON DISK in any existing masses.json rather than deleted — nothing reads them,
+;  and nothing destroys them either, so a downgrade finds its data intact.
 
-; Alt fields for one follow-up group: fu<grp>_alt0 … _alt<MASS_ALT_MAX-1>
-MASS_AltFields(grp) {
-    out := []
-    Loop MASS_ALT_MAX
-        out.Push("fu" grp "_alt" (A_Index - 1))
-    return out
-}
-
-; The five fields of one named branch.
+; The five fields of one named branch. `_fu<n>` holds that branch's parts for
+; follow-up n, newline-joined (MASS_SplitParts reads them back).
 MASS_BranchFields(n) {
     return ["br" n "_name", "br" n "_fu1", "br" n "_fu2", "br" n "_fu3",
             "br" n "_ppv"]
@@ -104,9 +123,6 @@ MASS_Fields() {
     Loop MASS_BRANCH_MAX
         for f in MASS_BranchFields(A_Index)
             out.Push(f)
-    for grp in [1, 2, 3]
-        for f in MASS_AltFields(grp)
-            out.Push(f)
     out.Push("altGui")
     return out
 }
@@ -115,7 +131,7 @@ MASS_Fields() {
 ; newlines; only the old .ahk serialiser needed them flattened to `n, and that
 ; is exactly the escaping this format removes.
 MASS_FieldIsMultiline(field) {
-    if (field = "ppv_base" || InStr(field, "_alt"))
+    if (field = "ppv_base")
         return true
     return RegExMatch(field, "^br\d+_(fu\d|ppv)$") > 0
 }
@@ -320,6 +336,64 @@ MASS_SetMassNo(doc, modelNo, slot) {
 ; The record a model's hotkeys should send right now.
 MASS_Active(doc, modelNo) {
     return MASS_Get(doc, modelNo, MASS_MassNo(doc, modelNo))
+}
+
+; ── What the keys last sent ───────────────────────────────────────────────────
+;  Three values — which model, which mass slot, which follow-up group — written by
+;  the engine on every follow-up press and read by the GUI. Deliberately NOT in
+;  masses.json: that file is your messages, and this is a note about which one you
+;  last aimed at. It sits in the cfg beside CurrentModel and LockedModel, which are
+;  the same kind of state.
+;
+;  It exists for one question. You have just typed a better wording by hand into a
+;  real chat and grabbed it off the screen (Add Hotkey ▸ Replace follow-up) — which
+;  follow-up should it become? Almost always the one you just pressed, so that is
+;  what the capture window's three dropdowns open on, and anything else is two
+;  clicks. See ui/alt_fu_window.ahk.
+;
+;  `group` is a FIELD PREFIX — "fu1", "fu2", "fu3" or "ppv" — not a number, so
+;  nothing between the engine and that window has to map one vocabulary onto
+;  another. It is the same string MASS_Fields() uses.
+
+; Note the press. Recorded on the KEYPRESS and not on a successful send, because a
+; follow-up that sent nothing (you never wrote it) is precisely the one you are
+; about to go and write.
+;
+; This runs on the send path, so it must never be the reason a message does not go
+; out: a cfg that cannot be written costs a default in one dropdown, and nothing
+; else.
+MASS_RememberSent(modelNo, slot, group) {
+    try {
+        IniWrite(modelNo, MMA_CFG, "LastSent", "Model")
+        IniWrite(slot,    MMA_CFG, "LastSent", "Slot")
+        IniWrite(group,   MMA_CFG, "LastSent", "Group")
+        IniWrite(A_Now,   MMA_CFG, "LastSent", "When")
+    } catch as e {
+        LOGV("mass.sent", "could not note the last send in the cfg — the capture"
+                        . " window will open on its own defaults. " LOG_Err(e))
+    }
+}
+
+; {model, slot, group, when}, or 0 when nothing has been sent yet.
+;
+; Every field is checked against the shape the library actually has. A hand-edited
+; cfg, or a model count that has come back down since, must not hand a window an
+; index that throws when it goes to read the mass behind it.
+MASS_LastSent() {
+    global MASS_MODELS, MASS_SLOTS
+    try {
+        model := Integer(Trim(IniRead(MMA_CFG, "LastSent", "Model", 0)))
+        slot  := Integer(Trim(IniRead(MMA_CFG, "LastSent", "Slot",  0)))
+        group := Trim(IniRead(MMA_CFG, "LastSent", "Group", ""))
+        when  := Trim(IniRead(MMA_CFG, "LastSent", "When",  ""))
+    } catch as e {
+        return 0
+    }
+    if (model < 1 || model > MASS_MODELS || slot < 1 || slot > MASS_SLOTS)
+        return 0
+    if !RegExMatch(group, "^(fu[123]|ppv)$")
+        return 0
+    return {model: model, slot: slot, group: group, when: when}
 }
 
 ; A mass as a plain OBJECT rather than a Map, i.e. m.fu1 instead of m["fu1"].

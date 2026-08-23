@@ -177,9 +177,21 @@ ClearImportTip() {
 ;     "Text" word is required on the same row, immediately to its right.
 ;   • A message in the channel can itself contain the words "copy text". Ties
 ;     are broken by distance to the click, and the menu opens AT the click.
-FindCopyTextRow(nearX, nearY) {
+;   • The whole window is a lot of pixels to read for a menu that is always AT the
+;     cursor, and this runs between your click and the paste. `box` narrows the
+;     capture to a rectangle around the click (see SEQ_MENU_BOX), which is the
+;     single biggest saving available here — OCR cost tracks area. Omit it and it
+;     reads the window, which is the fallback when the boxed read comes up empty.
+;
+; Coordinates come back in the WINDOW's client space either way, box or no box:
+; OCR.NormalizeCoordinates divides by `scale` and adds the region's x/y back on. So
+; nothing here has to know whether it was given a box, and the caller's arithmetic
+; is the same for both.
+FindCopyTextRow(nearX, nearY, box := 0) {
     res := 0
-    try res := OCR.FromWindow("ahk_exe Discord.exe", {scale: 2, mode: 4})
+    opts := box ? {x: box.x, y: box.y, w: box.w, h: box.h, scale: 2, mode: 4}
+                : {scale: 2, mode: 4}
+    try res := OCR.FromWindow("ahk_exe Discord.exe", opts)
     if !res
         return 0
     best := 0, bestDist := 0
@@ -202,15 +214,80 @@ FindCopyTextRow(nearX, nearY) {
     return best
 }
 
+; ── how long the menu gets, and how often we look ────────────────────────────
+;  This was one flat `Sleep 250` and a single attempt. 250ms is a guess at the
+;  slowest frame Discord might need, paid in full on every import even when the
+;  menu was up in 60 — and if it was NOT up yet, the one attempt was spent on a
+;  blank patch of chat and the whole import failed.
+;
+;  Polling fixes both ends: it starts looking almost immediately and keeps looking
+;  until the deadline, so the common case is fast and the slow case still works.
+global SEQ_MENU_FIRST_MS := 60     ; before the first look
+global SEQ_MENU_STEP_MS  := 55     ; between looks
+global SEQ_MENU_MAX_MS   := 600    ; give up after this, measured from the click
+
+; The box the menu is looked for in, around the click. Discord opens its context
+; menu AT the cursor and drops it up instead of down when there is no room below,
+; so this is asymmetric-free: same reach each way, wider to the right because the
+; menu opens rightwards.
+global SEQ_MENU_BOX := {left: 40, right: 340, up: 380, down: 380}
+
+; ── one look for the "Copy Text" row ─────────────────────────────────────────
+;  Screen coords in, screen coords out (or 0). Called repeatedly, so everything in
+;  it has to be cheap: two reads of a box around the cursor, no whole-window pass.
+;
+;  Sets CoordMode itself and leaves it set — the caller saves and restores around
+;  the whole loop rather than paying for it per attempt.
+_SeqFindMenu(mx, my) {
+    global COPY_TEXT_IMG, SEQ_MENU_BOX
+    b := SEQ_MENU_BOX
+
+    ; Fast path: the original bitmap match, ~10ms, exact when it hits. It stops
+    ; hitting the moment Discord restyles or rescales its menus — which is what
+    ; happened here: it missed at *20, *50 AND *100 — so it is kept for installs
+    ; whose menu still looks like assets\copy_text.png and nothing depends on it.
+    ;
+    ; The search box was 520x800 and is now 380x760 around the click: ImageSearch
+    ; cost is per pixel, and 60px of chat to the left of the cursor cannot contain a
+    ; menu that opens to the right of it.
+    CoordMode "Pixel", "Screen"
+    try {
+        if ImageSearch(&fx, &fy, mx - b.left, my - b.up, mx + b.right, my + b.down,
+                       "*20 " COPY_TEXT_IMG)
+            return {sx: fx + 10, sy: fy + 10}
+    }
+
+    ; Robust path: read the menu. Boxed to the same rectangle, which is what makes
+    ; it affordable to do more than once — the whole window at scale 2 was ~157ms.
+    CoordMode "Pixel", "Client"
+    ccx := 0, ccy := 0, ccw := 0, cch := 0
+    try WinGetClientPos(&ccx, &ccy, &ccw, &cch, "ahk_exe Discord.exe")
+    cx := mx - ccx, cy := my - ccy
+
+    ; Clamped to the client area, and that is not defensive padding: a right-click
+    ; near the top of the message list puts `cy - up` well below zero, and a capture
+    ; region starting off the bitmap is not a smaller read — it is a throw, inside a
+    ; try, which would look exactly like "the menu was not found".
+    bx := Max(0, cx - b.left)
+    by := Max(0, cy - b.up)
+    bw := Min(b.left + b.right, (ccw ? ccw : bx + 1) - bx)
+    bh := Min(b.up + b.down,    (cch ? cch : by + 1) - by)
+    if (bw < 40 || bh < 40)          ; nothing worth reading (or no client size)
+        return 0
+    row := FindCopyTextRow(cx, cy, {x: bx, y: by, w: bw, h: bh})
+    return row ? {sx: ccx + row.x, sy: ccy + row.y} : 0
+}
+
 copyDiscordMessageSeq() {
     global MMA_GUI_WIN, MMA_MSG_AUTOPARSE, COPY_TEXT_IMG
+    global SEQ_MENU_FIRST_MS, SEQ_MENU_STEP_MS, SEQ_MENU_MAX_MS
     ; "The Discord import broke again" starts here. If this line is absent the key
     ; never reached the handler (script not running, key unbound, wrong window) —
     ; which has been the cause every time so far.
     LOGD("seq.discord", "Ctrl+click import fired — right-clicking to open the menu")
+    t0 := A_TickCount
     A_Clipboard := ""
     Click "Right"
-    Sleep 250                    ; the menu is DOM-drawn; it needs a frame to paint
 
     prevHidden := A_DetectHiddenWindows
     prevPixel  := A_CoordModePixel
@@ -219,28 +296,34 @@ copyDiscordMessageSeq() {
 
     CoordMode "Mouse", "Screen"
     MouseGetPos &mx, &my
-    hit := 0
+    hit := 0, tries := 0
 
-    ; Fast path: the original bitmap match. ~10ms, exact when it hits, and it
-    ; stops hitting the moment Discord restyles or rescales its menus — which is
-    ; what happened here: it missed at *20, *50 AND *100, so this is kept only
-    ; for installs whose menu still looks like assets\copy_text.png.
-    CoordMode "Pixel", "Screen"
-    try {
-        ; the menu opens above or below the cursor depending on room, so search a
-        ; box centred on the click
-        if ImageSearch(&fx, &fy, mx - 60, my - 400, mx + 460, my + 400, "*20 " COPY_TEXT_IMG)
-            hit := {sx: fx + 10, sy: fy + 10}
+    ; The menu is DOM-drawn and needs a frame to paint, so the first look is not
+    ; instant — it is just far earlier than the 250ms this used to sleep.
+    Sleep SEQ_MENU_FIRST_MS
+    Loop {
+        tries++
+        hit := _SeqFindMenu(mx, my)
+        if (hit || A_TickCount - t0 > SEQ_MENU_MAX_MS)
+            break
+        Sleep SEQ_MENU_STEP_MS
     }
 
-    ; Robust path: read the menu (~157ms for the whole window).
+    ; Last resort: read the WHOLE window once. Every attempt above looked only in a
+    ; box around the cursor, which is where the menu is — unless the window is
+    ; scaled, or Discord has put the menu somewhere this box does not reach, in
+    ; which case one expensive read beats a failed import.
     if !hit {
         CoordMode "Pixel", "Client"
         ccx := 0, ccy := 0
         try WinGetClientPos(&ccx, &ccy, , , "ahk_exe Discord.exe")
         row := FindCopyTextRow(mx - ccx, my - ccy)
-        if row
+        if row {
             hit := {sx: ccx + row.x, sy: ccy + row.y}
+            LOGW("seq.discord", "the 'Copy Text' row was not in the box around the"
+                              . " click — found by reading the whole window instead."
+                              . " If this line is common, SEQ_MENU_BOX is too small.")
+        }
     }
 
     CoordMode "Pixel", prevPixel
@@ -263,7 +346,9 @@ copyDiscordMessageSeq() {
         return
     }
 
-    LOGI("seq.discord", "clicking 'Copy Text' at " hit.sx "," hit.sy)
+    LOGI("seq.discord", "clicking 'Copy Text' at " hit.sx "," hit.sy
+                      . "   (found after " tries " look(s), " (A_TickCount - t0)
+                      . "ms from the right-click)")
     Click hit.sx, hit.sy
     CoordMode "Mouse", prevMouse
 

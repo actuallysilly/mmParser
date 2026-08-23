@@ -36,6 +36,12 @@ class DebugPanel {
     ; The interactive probes: they register a hotkey and stay resident.
     ; {label, file, note}
     static PROBES := [
+        ; First, because it is the only one that answers "what does MMA think it
+        ; can see" without you having to know which of the other three to reach
+        ; for — platform, tab, name, model and next follow-up, live, in one panel.
+        {label: "Detection overlay", file: "tools\detection_overlay_debug.ahk",
+         note:  "Live strip: platform, tab/row, OCR'd name vs expected, next_fu."
+              . " ^!F11 for the detailed view."},
         {label: "Next follow-up",  file: "tools\nextfu_probe.ahk",
          note:  "OCRs the chat in front and shows which follow-up it would send."},
         {label: "Tab detector",    file: "tools\detector_probe.ahk",
@@ -45,17 +51,66 @@ class DebugPanel {
 
     ; The self-tests: they print "N passed, M failed" to stdout and exit. No
     ; screen, no hotkeys, safe to run mid-shift — with one exception, noted.
+    ;
+    ; They live in tools\test\ now, apart from the probes above. The two sets are
+    ; opposites — a probe binds a key and stays resident so you can look at your
+    ; screen through it, a test asserts and exits — and the only thing that ever
+    ; said which was which was the filename, which lied: model_detect_test.ahk is
+    ; a probe, and it is listed as one directly above this comment.
     static TESTS := [
         ; First, because if the logger is broken every other diagnosis in this
         ; tab is being read off a file that cannot be trusted.
-        {label: "logging",              file: "tools\log_test.ahk"},
-        {label: "next follow-up logic", file: "tools\nextfu_test.ahk"},
-        {label: "mass key binding",     file: "tools\mass_bind_test.ahk"},
-        {label: "mass store",           file: "tools\store_test.ahk"},
-        {label: "json",                 file: "tools\json_test.ahk"},
-        {label: "active model",         file: "tools\active_model_test.ahk"},
+        {label: "logging",              file: "tools\test\log_test.ahk"},
+        {label: "next follow-up logic", file: "tools\test\nextfu_test.ahk"},
+        {label: "mass key binding",     file: "tools\test\mass_bind_test.ahk"},
+        {label: "mass store",           file: "tools\test\store_test.ahk"},
+        ; The `::branch` paste format, against the shipping parser. Added to this
+        ; list when the tests moved: it was written, it is pure parsing with no
+        ; screen and no config, and it covers the format every mass is written in
+        ; — there was no reason for it to be the one you had to run by hand.
+        {label: "branch parsing",       file: "tools\test\branch_parse_test.ahk"},
+        {label: "json",                 file: "tools\test\json_test.ahk"},
+        ; The activity recorder's format. Runs entirely in a temp folder — it
+        ; never touches userdata\activity\ — and it is in this list because the
+        ; failure it guards is silent by nature: a counter merged the wrong way
+        ; makes the chart wrong, not broken, and nothing anywhere says so.
+        {label: "activity record",      file: "tools\test\activity_test.ahk"},
+        ; The branch builder's compiler, and its output round-tripped through the
+        ; SHIPPING parser. Listed because the builder's only claim is "this
+        ; pastes into MMA and works", and that claim is one parser change away
+        ; from quietly stopping being true.
+        {label: "branch tree",          file: "tools\test\branch_tree_test.ahk"},
+        ; Writes the [hotstring] section of hotkeys.ini and puts it back — see the
+        ; header there. Listed anyway: the property it guards (hotstring ids come
+        ; LAST in HK_ORDER) is what stops the Actions menu firing the wrong action
+        ; in a script that started before you bound one.
+        {label: "hotstring keys",       file: "tools\test\hotstring_key_test.ahk"},
+        {label: "active model",         file: "tools\test\active_model_test.ahk"},
+        ; The click wall's decisions — which rectangle, in which coordinate space,
+        ; and whether the list moved while a click was held. Listed because every
+        ; way this can be wrong is silent: a client region read as a screen one
+        ; walls a plausible rectangle a few hundred pixels from the list, and a
+        ; moved-list check that says SAME too easily opens a different fan's chat
+        ; with a click you made a second earlier. Runs against a temp cfg, binds
+        ; no keys, and never clicks anything.
+        {label: "click wall",           file: "tools\test\click_wall_test.ahk"},
+        ; The reply-timer arithmetic. Pure — no screen, no config, and the clock
+        ; is an argument rather than A_Now, so midnight is testable at any hour.
+        ; Listed because both ways of being wrong are quiet: too quiet and a fan
+        ; waiting twelve minutes gets no box at all, too loud and the NEWEST row
+        ; in the list wears the loudest colour, which trains you to ignore them.
+        {label: "reply timers",         file: "tools\test\reply_tiers_test.ahk"},
         ; Builds a real Settings window and closes it, so a window flashes.
-        {label: "settings window",      file: "tools\settings_build_test.ahk"}]
+        {label: "settings window",      file: "tools\test\settings_build_test.ahk"},
+        ; Same — builds the Add alt-FU window. Also covers what that window
+        ; WRITES, which is the half a control census cannot see.
+        {label: "add alt-FU",           file: "tools\test\altfu_build_test.ahk"},
+        ; Builds the hotkey editor and scrolls it, so a window flashes here too.
+        ; Listed because what it guards is invisible to a control census and
+        ; unmissable in use: that list is rebuilt on every edit, and it has to come
+        ; back with your place still in it. Writes nothing — the edits it makes die
+        ; with the window, and Save is never called.
+        {label: "hotkey editor",        file: "tools\test\hotkeys_panel_test.ahk"}]
 
     __New(hostGui, x, y, w, h) {
         this.gui     := hostGui
@@ -147,7 +202,11 @@ class DebugPanel {
             hostGui.SetFont("s8")
             hostGui.Add("Text", "x" (x + 160) " y" (y0 + 6) " w" (w - 160) " cGray", p.note)
             hostGui.SetFont("s9")
-            y0 += 30
+            ; 28, not 30. This tab is placed absolutely inside a fixed 720px window
+            ; and the Environment buttons at the bottom already sat 4px clear of it
+            ; — a fourth probe row at the old pitch pushed them off the page, which
+            ; is a layout bug that only shows up on the LAST row added.
+            y0 += 28
         }
         y0 += 6
 
@@ -194,6 +253,8 @@ class DebugPanel {
         btnCfg.OnEvent("Click", this.Reveal.Bind(this, MMA_CFG))
         btnHk := hostGui.Add("Button", "x" (x + 394) " y" y0 " w130 h28", "hotkeys.ini")
         btnHk.OnEvent("Click", this.Reveal.Bind(this, MMA_HK_INI))
+        btnLnk := hostGui.Add("Button", "x" (x + 532) " y" y0 " w150 h28", "Desktop shortcut")
+        btnLnk.OnEvent("Click", (*) => this.MakeShortcut())
 
         this.PaintEnv()
     }
@@ -299,6 +360,38 @@ class DebugPanel {
             Run('"' A_AhkPath '" "' p '"')
         catch as e
             MsgBox("Could not start it.`n`n" e.Message, "Debug", 0x10)
+    }
+
+    ; A desktop shortcut to MMA.
+    ;
+    ; It points at AutoHotkey64.exe with MMA.ahk as the argument, NOT at MMA.ahk
+    ; itself. A bare .ahk shortcut goes through the file association, which on this
+    ; machine is the v2 launcher and on another might be v1, or missing — and then
+    ; the shortcut fails in a way that looks like MMA is broken rather than
+    ; unlaunchable. Same reasoning as RunFile above and MMA.ahk's own header.
+    ;
+    ; Working directory is the repo root, because every path MMA resolves is
+    ; relative to where MMA.ahk sits.
+    MakeShortcut(*) {
+        src := MMA_ROOT "\MMA.ahk"
+        if !FileExist(src) {
+            MsgBox("Cannot find MMA.ahk at:`n`n" src, "Desktop shortcut", 0x10)
+            return
+        }
+        lnk := A_Desktop "\MMA.lnk"
+        ico := MMA_ASSETS "\icon.ico"
+        try {
+            FileCreateShortcut(A_AhkPath, lnk, MMA_ROOT, '"' src '"',
+                               "MMA — the mass tooling",
+                               FileExist(ico) ? ico : A_AhkPath)
+        } catch as e {
+            LOGE("gui.debug", "could not write the desktop shortcut", LOG_Err(e))
+            MsgBox("Could not write:`n`n" lnk "`n`n" e.Message,
+                   "Desktop shortcut", 0x10)
+            return
+        }
+        LOGI("gui.debug", "wrote a desktop shortcut at " lnk)
+        MsgBox("Shortcut created:`n`n" lnk, "Desktop shortcut", 0x40)
     }
 
     ; Open a file, or select it in Explorer if it is a folder.

@@ -61,7 +61,8 @@ inter-tab gaps per frame instead. The map is worth correcting on this point.
 
 ## Running it
 
-MMA drives it: the **Pinger** button on the main window toggles it, and
+MMA drives it: the **Tools** button on the main window opens a window that toggles
+it (with a live running state), and
 **Settings → Run the pinger** has the checkbox plus a live running indicator.
 Both read the same named event the process holds, so they stay honest if it dies.
 

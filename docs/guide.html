@@ -153,14 +153,20 @@ figure.inset img{max-width:660px; margin:0 auto}
     <li><a href="#singleedit">single &amp; edit</a></li>
     <li><a href="#whichmodel">Which model</a></li>
     <li><a href="#variants">Tab-staging</a></li>
+    <li><a href="#addaltfu">Add alt-FU</a></li>
+    <li><a href="#capturefu">Grab → follow-up</a></li>
     <li><a href="#nextfu">Next follow-up</a></li>
+    <li><a href="#clickwall">Clicking too early</a></li>
+    <li><a href="#tabmarks">Tab bars</a></li>
+    <li><a href="#replybox">Reply timers</a></li>
 
     <li class="sec">Settings</li>
-    <li><a href="#settings">The six tabs</a></li>
+    <li><a href="#settings">The eight tabs</a></li>
     <li><a href="#modes">Easy / Advanced</a></li>
 
     <li class="sec">The rest</li>
     <li><a href="#hotstrings">Hotstrings</a></li>
+    <li><a href="#hotstringkey">…with a hotkey</a></li>
     <li><a href="#actions">Actions menu</a></li>
     <li><a href="#discord">Discord import</a></li>
     <li><a href="#services">Services</a></li>
@@ -195,8 +201,35 @@ MMA starts it and a watchdog restarts it every 5 s if it dies.</p>
   Bottom: everything else. <i>(Message text pixelated — it is live copy, not a rendering bug.)</i></figcaption>
 </figure>
 
-<p><b>Left</b> is one mass in 14 fields, three tabs deep. <b>Right</b> is the workflow.
-<b>Bottom</b> is every other window plus one ◻ toggle per message script (◻ stopped, ◼ running).</p>
+<p><b>Left</b> is one mass in 14 fields, one tab per model — the selected model's name is
+violet and bold in the tab strip, so the tab you are typing into is the one that is coloured.
+<b>Right</b> is the workflow. <b>Bottom</b> is every other window: Settings, Hotstrings, Tools,
+Variants.</p>
+
+<p><b>Tools</b> is the background tools — unread pinger, stats overlay, both model detectors,
+the automation listener, the activity tracker and the typelog recorder — each with its live
+state and an On/Off. It was <b>Pinger: ON/OFF</b>, which was one of those getting a button
+because it was the one people asked about; the rest were a tab and a Save away in Settings.
+The button's own label counts what is running, so <b>Tools (2)</b> means two are up.</p>
+
+<p>The strip used to also carry <b>Open with Code</b>, <b>How to Use</b>, <b>Add Hotkey</b>,
+<b>New Script</b> and one ◻ toggle per message script. They have moved to where you are
+already standing when you want them:</p>
+<ul>
+  <li><b>Open with Code</b> and <b>How to Use</b> — <b>Settings → Scripts</b>, next to Wipe
+      TEMP and Check update.</li>
+  <li><b>Add Hotkey</b> — the top of the <b>Hotstrings</b> window, beside the title, and named
+      <b>Add hotstring…</b> there, because that is what it makes. What it
+      writes is a hotstring in one of the message files, and that window is where those are
+      listed, searched, overloaded and deleted. (It needs MMA's main window running: the
+      dialog belongs to it.)</li>
+  <li><b>New Script</b> — the bottom of the <b>Add Hotkey</b> window. The new file drops
+      straight into that window's File dropdown and is selected, so there is nothing to
+      reload.</li>
+  <li>The ◻ script toggles — <b>Hotstrings → Startup scripts</b>. It reads each script's live
+      state on a timer, rather than a label that only changed when you clicked it, and gives
+      each one a <b>Restart</b> instead of an off-then-on.</li>
+</ul>
 
 <figure>
   <img src="img/right-panel.png" alt="Parse, Clear, Export, Archive, load/save and massNo">
@@ -209,25 +242,72 @@ MMA starts it and a watchdog restarts it every 5 s if it dies.</p>
 <tr><td><b>Parse</b></td><td>Fills <b>the tab you are looking at</b>, clearing that tab's fields first.</td></tr>
 <tr><td><b>Clear</b></td><td>Wipes the paste box <b>and every field in all three tabs</b>. Disk untouched — reload to recover.</td></tr>
 <tr><td><b>Export !mma</b></td><td>Reverse of Parse: rebuilds paste text from the current tab. For handing a mass to someone.</td></tr>
-<tr><td><b>Archive</b></td><td>Every Parse also appends the raw text to <code>mass_archive.txt</code>, and warns on likely duplicates.</td></tr>
-<tr><td><b>Load from archive</b></td><td>Search past masses, preview, load one back into the fields.</td></tr>
-<tr><td><b>load <i>&lt;model&gt;</i></b></td><td>Disk → <b>all three tabs</b>. Discards what is on screen.</td></tr>
-<tr><td><b>save <i>&lt;model&gt;</i></b></td><td><b>All three tabs</b> → disk, then nudges the engine. <a href="#loadsave">Read this first.</a></td></tr>
+<tr><td><b>Archive…</b></td><td>Opens the archive: search past masses, preview, load one back into the fields. Every Parse appends the raw text to <code>mass_archive.txt</code> unless you have turned that off under <b>Settings ▸ GUI ▸ Mass archive</b>; a mass already archived <b>today</b> is skipped silently, so re-parsing a fix does not store it twice.</td></tr>
+<tr><td><b>Load <i>&lt;model&gt;</i></b></td><td>Disk → <b>the model tab in front of you</b>, at that model's live mass slot. Discards what is on screen. The button carries the name of whichever tab you are on.</td></tr>
+<tr><td><b>Save <i>&lt;model&gt;</i></b></td><td><b>The tab in front of you</b> → disk, into the <b>mass #</b> picked on that tab, then nudges the engine. <a href="#loadsave">Read this first.</a></td></tr>
 <tr><td><b>Set massNo</b></td><td>Which of the three masses that model sends. Applies instantly. <a href="#massno">Read this too.</a></td></tr>
 </tbody>
 </table>
 
+<p>Both buttons relabel the moment you switch tab, so the button you are about to press always
+names the model whose fields are on screen — the same model the tab strip is showing in
+violet.</p>
+
+<p>It used to be one <b>load</b> and one <b>save</b> button <i>per model</i>. That grid is still
+available under <b>Settings → GUI → Use legacy Load/Save UI</b>, for the one thing the pair
+cannot do: load or save a model you are <i>not</i> looking at. Ticking it reloads MMA, and it
+changes nothing about what a save writes.</p>
+
 <figure>
   <img src="img/bottom-strip.png" alt="The bottom button strip">
-  <figcaption>The bottom strip. <b>Variants…</b> is alts + branches; <b>Pinger</b>'s label is its own status light.</figcaption>
+  <figcaption>The bottom strip. <b>Variants…</b> is the branch grid; <b>Tools</b>'s label counts the
+  background tools that are running.</figcaption>
 </figure>
 
-<p><b>Add Hotkey</b> appends a hotstring to a message file without opening an editor — trigger,
+<p><b>Add hotstring…</b> (at the top of the <b>Hotstrings</b> window; the dialog itself is still
+titled Add Hotkey, and the grab hotkey opens the same one) appends a hotstring to a
+message file without opening an editor — trigger,
 target file, send mode (<code>snd()</code> sends, <code>SendText()</code> types only,
 <code>Sendt()</code> sends with a custom wait), <code>::</code> vs <code>:*:</code>, one message
 per line. The script restarts itself so the trigger is live immediately. The OCR variant
 (<kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>O</kbd>) lets you drag a box round text anywhere on
 screen and opens the same form prefilled.</p>
+
+<h3 id="capturefu">…or make it a follow-up — <b>Replace follow-up…</b></h3>
+
+<p>A hotstring is a trigger you type. But the text you grab off the screen is usually a message
+you have just sent <i>by hand</i>, and the reason you grabbed it is that it worked better than
+the follow-up MMA has. That belongs in the mass, not behind a trigger.</p>
+
+<p><b>Replace follow-up…</b>, on the same button row, hands the <b>Lines</b> box to the capture
+window instead:</p>
+
+<pre>drag a box (^+o)  →  Replace follow-up…  →  model · mass · follow-up  →  Replace</pre>
+
+<p>The three dropdowns <b>open on the follow-up you last sent</b>, which is nearly always the one
+you are rewriting — so the usual answer is to press <b>Replace f2</b> and be done. It shows what
+that follow-up says right now, and asks before overwriting it.</p>
+
+<ul>
+  <li><b>Replace</b> overwrites the trunk — what the plain key sends. One message per line, up to
+      three (<code>f2</code>, <code>f2.5</code>, <code>f2.7</code>); a fourth line has nowhere to
+      go and it says so rather than dropping it. Sub-slots the new text does not fill are
+      <b>cleared</b>, so a replace can never leave an old third message trailing a new first one.</li>
+  <li><b>Add as alt</b> puts the same text in as an <i>alternative</i> instead — a branch, offered
+      on the follow-up key with <kbd>Tab</kbd>. Same window, same three dropdowns; see
+      <a href="#addaltfu">Add alt-FU</a> for what the branch name box does.</li>
+</ul>
+
+<div class="note">
+<p><b>Reached this way, both buttons save straight to <code>masses.json</code></b> — the engine has
+the new wording on the next keypress. That is the opposite of the same window opened from
+<b>Variants ▸ Add alt-FU…</b>, which writes into the grid and waits for <b>Save to file</b>: there
+you are in the editor and can see what happened, here you are in Infloww and the main window is
+behind it. The line under the buttons always says which of the two you are in.</p>
+</div>
+
+<p>The Lines box is left as it was, so cancelling over there costs you nothing — a grab is
+expensive to make twice.</p>
 
 <!-- ═══════════════════════════════════════════════════════════════════════ -->
 <h2 id="keys">Every key</h2>
@@ -333,6 +413,33 @@ want more?                           <span class="cmt">← ppvfu2</span></code><
 <code>fN.7</code>. A fourth line is ignored. <code>!mm</code> <code>!mma</code> <code>mm</code>
 <code>mma</code> are interchangeable, colon optional.</p>
 
+<h4>A mass that spans lines — <code>!mma</code> alone on top</h4>
+<p>Put the marker on a line <b>by itself</b> and everything under it is the mass — blank lines
+and all, as <b>one</b> message. Nothing in the block becomes a follow-up.</p>
+<pre><code>!mma:
+
+If you were my artist, how would you picture me? 🎨
+
+Would my curves take over the entire canvas...
+Or would you only sketch the parts you couldn't stop thinking about? :3
+
+Would your artwork be bold enough to leave people speechless? ♡</code></pre>
+<p>The block stops at a <code>---</code> fence (eaten with it), at any labelled line
+(<code>f2</code>, <code>ppv</code>, <code>::branch</code>…), or at the end of the paste.
+<b>If follow-ups come after a multi-line mass, close it with a fence</b> — positional
+follow-ups have no label of their own to stop the block with:</p>
+<pre><code>!mma
+
+paragraph one
+
+paragraph two
+---
+
+late night opener                    <span class="cmt">← f1</span>
+still up?                            <span class="cmt">← f1.5</span></code></pre>
+<p><b>Export !mma</b> writes this form for you whenever the mass spans lines, so it
+round-trips.</p>
+
 <h4>Prefixed — blank lines stop mattering</h4>
 <pre><code>!mma opening message
 f1 first follow-up
@@ -350,22 +457,65 @@ why. <span class="pill bug">known bug</span></p>
 <code>development.md</code>. Until it is fixed, use <code>.5</code> and <code>.7</code>.</p>
 </div>
 
-<h4>Comments, fences, alts, branches</h4>
+<h4>Comments, fences, branches</h4>
 <pre><code>-- this line is a comment           <span class="cmt">"--" alone or "-- " + space</span>
---BranchName                        <span class="cmt">no space = a BRANCH, not a comment</span>
 ---                                 <span class="cmt">3+ dashes = multiline-ppv fence</span>
 
-alt: another wording of this f-up   <span class="cmt">each alt: line = its own alternative</span>
-alt0: part one of alt 1             <span class="cmt">numbered: same number = one multi-part alt</span>
-alt0: part two of alt 1</code></pre>
+follow up 1                         <span class="cmt">unmarked = the trunk, f1 then f1.5 then f1.7</span>
+::alt another wording of f1         <span class="cmt">":: + name" = that BRANCH's answer to f1</span>
+::mexican mehico                    <span class="cmt">any name you like; it identifies the branch</span>
+::german germaniaaaaa               <span class="cmt">the same name twice in one group =</span>
+::german gernabiaaa22222            <span class="cmt">  one branch, two messages (f1 and f1.5)</span></code></pre>
 
 <p>A <b>fence</b> keeps a multi-paragraph PPV caption in one field instead of spilling into
 <code>ppvfu1</code>: everything from the <code>ppv</code> marker up to the <code>---</code>
 becomes the caption, blank lines and all.</p>
 
-<p>A <b>branch</b> is an alternate sequence, not just an alternate line — pick it at f1 and
-f2/f3 open on it. Everything before the first <code>--Name</code> is the shared trunk; each
-branch is laid out positionally exactly like the trunk. Max 3 branches, 3 alts per group.</p>
+<p>A <b>branch</b> is a named alternative: its own f1/f2/f3/ppv, any of which may be empty.
+Pick it at f1 and f2/f3/ppv open on it. It keeps its identity by <i>name</i>, so the
+<code>::mexican</code> under follow-up 2 is the same branch as the one under follow-up 1 — you
+write it where it belongs instead of in a block of its own. Max 6 branches per mass, 3 messages
+per branch per follow-up.</p>
+
+<p><b>The wording can go on its own line under the marker</b> — write it the way it reads. These
+two are the same thing, and several lines under one marker are several messages of that branch's
+answer (f3, then f3.5):</p>
+
+<pre><code>::tits Would you mind if I smothered you with them?</code></pre>
+<pre><code>::tits
+Would you mind if I smothered you with them?</code></pre>
+
+<p>A marker <i>with</i> text on its line doesn't own the line after it — that one is the trunk's
+next sub-slot. A marker with <b>nothing</b> under it says nothing at all; it never sends a blank
+line.</p>
+
+<p><b>A group that opens with a marker is the next follow-up</b>, and consecutive branch-led
+groups are choices at that <i>same</i> step rather than successive follow-ups. So this is an f2
+that asks a question and two f3s that answer it, with no trunk f3 at all:</p>
+
+<pre><code>!mma Are you needy for nakedness?
+
+late night opener                       <span class="cmt">f1</span>
+
+which curve entices you the most?       <span class="cmt">f2</span>
+and be honest about it                  <span class="cmt">f2.5</span>
+
+::tits                                  <span class="cmt">f3, if she says tits</span>
+smother you with them
+
+::ass                                   <span class="cmt">f3, if she says ass</span>
+my personal throne</code></pre>
+
+<p>An empty trunk f3 is correct there: what goes out depends on her answer. Sparse is normal.</p>
+
+<div class="warn">
+<p><b><code>alt:</code> and <code>--Name</code> are gone.</b> They were two spellings of this one
+thing: an <code>alt</code> was a branch nobody had named, a <code>--Name</code> block was a
+branch written somewhere else. <code>::alt some wording</code> is what an old <code>alt:</code>
+line is now — <code>alt</code> is just a branch name. Masses already saved keep working; masses
+already <i>written</i> in the old syntax need those markers changed before they parse as
+alternatives again.</p>
+</div>
 
 <p>A leading <code>word:</code> is stripped from message text (so pasted transcripts don't carry
 their labels). URL schemes are exempt: <code>http</code> <code>https</code> <code>ftp</code>
@@ -422,9 +572,11 @@ write worked, but nothing on the machine can send it.</p>
 the same mechanism aimed at f3.</p>
 
 <!-- ═══════════════════════════════════════════════════════════════════════ -->
-<h2 id="whichmodel">Which model is on screen</h2>
+<h2 id="whichmodel">Use a single hotkey for all masses</h2>
 
-<p>Only matters for the <b>shared</b> key set. Three ways, in <b>Settings ▸ Models</b>:</p>
+<p>One key per action instead of one per action per model — that's the <b>shared</b> key set,
+and the whole of <b>Settings ▸ Models</b> below the model rows is about it. The numbered
+per-model keys ignore every control here and keep working whatever you set.</p>
 
 <figure>
   <img src="img/settings-models.png" alt="Settings, Models tab">
@@ -432,26 +584,58 @@ the same mechanism aimed at f3.</p>
   <b>Platform</b> column.</figcaption>
 </figure>
 
+<p><b>Enabled</b> is the outer switch. Off, the shared keys go quiet and say so in the log —
+a real answer, not a broken one, for a machine where nothing on screen identifies the model.
+Then pick a <b>Strategy</b>:</p>
+
 <table>
-<thead><tr><th>Mode</th><th>How</th><th>Costs you</th></tr></thead>
+<thead><tr><th>Strategy</th><th>How</th><th>Costs you</th></tr></thead>
 <tbody>
-<tr><td><b>name (OCR)</b></td><td>OCRs the model name off the Infloww tab.</td>
-    <td>Survives reordering tabs. Depends on names matching across Infloww/Discord/MMA, which
-        they often don't — map them in <code>[ActiveMap]</code> / <code>[ModelAliases]</code>.</td></tr>
-<tr><td><b>tab position</b></td><td>Uses <i>where</i> the lit tab sits. Teach it: click a tab,
-    press that model's <kbd>^!N</kbd>. High beep = set, low = refused.</td>
-    <td>No names, no OCR. Trusts tab order — reorder and you re-teach.</td></tr>
-<tr><td><b>I pick</b></td><td><kbd>^!1</kbd>/<kbd>^!2</kbd>/<kbd>^!3</kbd>, remembered until you
-    say otherwise. Reads no pixels.</td>
-    <td>Can't notice you switching tabs. The confirmation tooltip <i>is</i> the safety net.</td></tr>
+<tr><td><b>Manual — pick with the GUI</b></td><td>The shared follow-up and PPV keys open a
+    window; you pick, and the send happens on your answer. Reads no pixels.</td>
+    <td>A window in front of every shared send. Nothing is ever assumed — this is the mode to
+        be in when detection isn't trustworthy.</td></tr>
+<tr><td><b>Automatic</b></td><td>Reads the screen. Set separately per site, because the two
+    sites fail in different ways — see below.</td>
+    <td>Everything below.</td></tr>
 </tbody>
 </table>
 
+<p>Automatic is configured per site, and a mixed setup is the normal case:</p>
+
+<table>
+<thead><tr><th>Site</th><th>by name (OCR)</th><th>by position</th></tr></thead>
+<tbody>
+<tr><td><b>OnlyFans (Infloww)</b></td>
+    <td>OCRs the model name off the tab. Survives reordering. Depends on names matching across
+        Infloww/Discord/MMA, which they often don't — map them in <code>[ActiveMap]</code> /
+        <code>[ModelAliases]</code>. <i>Default here.</i></td>
+    <td>Uses <i>where</i> the lit tab sits, through the <b>Tab order</b> row. No names, no OCR.
+        Trusts the order — reorder and you re-teach.</td></tr>
+<tr><td><b>Fansly</b></td>
+    <td>The rail truncates its labels ("Luxdo Fa…"), so there's often no full name to read at
+        any OCR quality, and two models sharing a prefix are indistinguishable.</td>
+    <td>Uses which card on the rail is selected, through the <b>Rail order</b> row.
+        <i>Default here</i> — for the reason in the column to the left.</td></tr>
+</tbody>
+</table>
+
+<p>Each order row only offers the models that are <b>on that site</b> — the <b>Platform</b> column
+decides it, live, so switching a model to Fansly takes it out of the tab order as you watch. One
+model on Infloww means one tab-order dropdown, not four; a site with none says so instead of showing
+a row. Positions a site doesn't have are saved as "no answer", so a lit tab that isn't yours sends
+nothing rather than something stale.</p>
+
+<p>Teach either order by <b>pointing</b>: click a model's tab in Infloww — or its card on the
+Fansly rail — and press that model's <kbd>^!N</kbd>. The key knows which window is in front and
+teaches that one. High beep = set, low = refused, tooltip says why.</p>
+
 <div class="bad">
-<p><b>Why "I pick" exists.</b> Screen detection doesn't fail by going quiet — it fails by
+<p><b>Why Manual exists.</b> Screen detection doesn't fail by going quiet — it fails by
 reporting the <i>wrong</i> tab confidently, and then a shared key sends one model's message to
 another model's fan. <b>With no answer at all the shared keys deliberately do nothing</b> rather
-than guess. If detection isn't solid on your screen, use <b>I pick</b> or the numbered keys.</p>
+than guess. If detection isn't solid on your screen, switch to <b>Manual</b>, or switch the
+section off and use the numbered keys.</p>
 </div>
 
 <p>Read <b>Detector sees:</b> top to bottom when it's wrong — <i>no lit tab</i> is a
@@ -461,8 +645,221 @@ colour/region problem; a wrong tab <b>number</b> is geometry (<code>TabOrigin</c
 <p><b>Platform</b> per model: set <code>manual</code> for a model MMA can't see (Fansly), and
 "detector saw nothing" resolves to that model instead of nothing.</p>
 
+<h3 id="lockmode">Lock — one model, no more asking</h3>
+
+<p>Manual's window is the right answer to "which model am I on?" and the wrong answer to the way
+a shift is actually worked: every message for one model, then the next model. Twenty minutes of
+pressing the same side button means twenty windows asking a question whose answer hasn't changed
+— and a window you dismiss by reflex isn't protecting you from anything.</p>
+
+<p><b>Locking answers once.</b> While a lock is on, every shared key — the side mouse buttons
+included — sends that model. No window, and nothing on screen is read. The working sequence:</p>
+
+<table>
+<thead><tr><th></th><th>Do</th><th>What happens</th></tr></thead>
+<tbody>
+<tr><td>1</td><td>Press a side button, <b>pick the model</b> in the window as usual</td>
+    <td>That follow-up goes out, and the shared keys are now aimed at that model.</td></tr>
+<tr><td>2</td><td><b><kbd>^!l</kbd></b></td><td>Locked. The badge appears, naming the model.</td></tr>
+<tr><td>3</td><td><b>Clear that model's messages</b></td><td>The side buttons send straight out —
+    no window, ever.</td></tr>
+<tr><td>4</td><td><b><kbd>^!l</kbd></b></td><td>Unlocked. The picker is back, unchanged.</td></tr>
+<tr><td>5</td><td><b>Change model</b> — next side button, or <kbd>^!N</kbd></td>
+    <td>Step 1 again, for the next one.</td></tr>
+</tbody>
+</table>
+
+<p>The same lock is a <b>toggle in the "Send follow-up" window itself</b> — the checkbox on its
+bottom row. It names the key beside it, and it flips the lock <i>the moment you click it</i>,
+reading <b>Locked to <i>name</i></b> while on. Clicking a different model button with it ticked
+<i>moves</i> the lock to that model. The main window has a <b>Lock to <i>name</i></b> button too,
+which locks to the model tab in front — that is why it names it.</p>
+
+<p>A small <b>LOCKED</b> badge sits in the corner of the screen for as long as the lock does,
+naming the model. It never takes focus, and <b>clicking it unlocks</b>. So does <kbd>^!l</kbd>
+again, the checkbox, or the main window's button, which reads <b>Unlock (<i>name</i>)</b> while a
+lock is live.</p>
+
+<p><b>You do not have to unlock to move on:</b> another model's <kbd>^!N</kbd> pressed under a lock
+<i>moves</i> the lock, and the badge follows. Step 4 is in the list because unlocking is what puts
+the "which model?" safety net back for the model you have not chosen yet.</p>
+
+<p>If MMA has no answer for which model is on screen, <kbd>^!l</kbd> <b>refuses and beeps low</b>
+rather than locking to a guess — pick a model first.</p>
+
+<div class="bad">
+<p><b>The badge is the safety mechanism, so don't park it off-screen.</b> A lock is a mode in
+which a key you press sends to a model nothing on screen identifies — exactly the shape of
+mistake that puts one model's message in another model's chat. The badge is what makes that
+visible from the chat you're sending into. Move it if it's in the way
+(<code>[Lock] BadgeX</code> / <code>BadgeY</code> in <code>mass_gui.cfg</code>, screen pixels)
+but keep it somewhere you'll see it.</p>
+</div>
+
+<p>It's a lock, not a fourth strategy: it applies whatever this tab says. Under <b>Automatic</b>
+it overrides the detector, which is occasionally what you want on a tab the scan keeps
+misreading — and the badge is the reason that's safe to offer. The numbered per-model keys are
+untouched by it, as by everything else here.</p>
+
 <!-- ═══════════════════════════════════════════════════════════════════════ -->
-<h2 id="variants">Tab-staging — alts and branches</h2>
+<h2 id="tabmarks">Tab bars — dividers on your own tab strip</h2>
+
+<p>Eight near-identical tabs are hard to read at a glance, and detection doesn't help with that:
+the problem isn't that MMA can't tell them apart, it's that <i>you</i> can't, quickly, forty times
+an hour. So split the strip up with dividers.</p>
+
+<p><b>One hotkey.</b> <kbd>^!,</kbd> puts a bar where the pointer is. Everything else is the bar
+itself:</p>
+
+<table>
+<thead><tr><th>Do this</th><th>Get</th></tr></thead>
+<tbody>
+<tr><td><kbd>^!,</kbd></td><td>Place a bar at the pointer (and un-hide the layer if it was
+    hidden).</td></tr>
+<tr><td><b>Left-drag</b> a bar</td><td>Move it. Windows' own drag, so it's exactly as smooth as
+    moving any other window.</td></tr>
+<tr><td><b>Right-click</b> a bar</td><td>Its menu: <b>Remove</b> · <b>Colour</b> (eight presets, the
+    system colour picker under <i>Custom…</i>, or apply one to all bars) · <b>Size</b> (taller /
+    shorter / wider / narrower, applies to every bar) · <b>Add another bar here</b> ·
+    <b>Hide all bars</b>.</td></tr>
+</tbody>
+</table>
+
+<div class="note">
+<p><b>A bar is a real little window</b>, five pixels wide, so it drags and right-clicks like anything
+else on your desktop. It never takes focus — click one mid-sentence and your cursor stays in the
+chat box.</p>
+<p>The cost is that those five pixels are no longer click-through: a click that lands exactly on a
+bar hits the bar, not the tab behind it. A divider goes in the <i>gap</i> between tabs, so in
+practice you're never aiming there — but if it does bite, <code>[Marks] ClickThrough=1</code> puts
+the old behaviour back. Bars then can't be dragged or right-clicked, and <kbd>^!,</kbd> is all
+you have.</p>
+</div>
+
+<div class="note">
+<p><b>A bar means whatever you meant by it.</b> It is decoration: MMA never moves one, never reads
+one, and never works out which model is which from one. Which model is live is the
+<a href="#lockmode">lock badge's</a> job, and it looks nothing like a bar.</p>
+</div>
+
+<!-- ═══════════════════════════════════════════════════════════════════════ -->
+<h2 id="replybox">Reply timers — how long has that fan been waiting?</h2>
+
+<p>The conversation list gives you a clock time and nothing else. Turning <code>7:45 am</code> into
+"four minutes" is a subtraction you do in your head, against a clock you have to go and look at,
+once per row, forty times an hour — and the row you get wrong is always the one you were about to
+scroll past.</p>
+
+<p>So MMA does the subtraction and paints the answer. Any conversation that is <b>unread</b> and has
+been sitting past a threshold gets a thick border in that threshold's colour:</p>
+
+<table>
+<thead><tr><th>Waiting</th><th>Box</th></tr></thead>
+<tbody>
+<tr><td>under 3 min</td><td>nothing</td></tr>
+<tr><td>3–4 min</td><td>yellow</td></tr>
+<tr><td>4–6 min</td><td>red</td></tr>
+<tr><td>6–10 min</td><td>pink</td></tr>
+<tr><td>10 min+</td><td>bright white</td></tr>
+</tbody>
+</table>
+
+<p>Those are the <b>defaults</b>. Every time and every colour is yours, under
+<b>Settings ▸ General ▸ Reply timers</b> — a colour picker per tier, and clearing a row's minutes
+deletes that tier. The quiet band at the bottom isn't a separate setting: it's just everything
+below your first tier, so lowering that one shrinks it.</p>
+
+<div class="note">
+<p><b>Calibrate it before it does anything — two drags, and you draw both.</b></p>
+<ol>
+<li><b>Calibrate the list…</b> — drag a box around the whole list of conversations. This is where
+  MMA looks.</li>
+<li><b>Calibrate a row…</b> — drag a box around <b>one</b> conversation, picking one that
+  <b>is unread</b> (it needs to see the orange dot). This is how big a box gets drawn, and it's
+  what makes the frame cover the whole row instead of part of it.</li>
+</ol>
+<p>Both rectangles are on <i>your</i> screen at <i>your</i> window size, so there's no sensible
+default to ship — until you draw the first one, the line next to the button says so in red and
+nothing is painted.</p>
+<p>The region is stored relative to the Infloww window, so moving or maximising Infloww takes it
+along. The window has to be <b>in front</b> for boxes to show: they're frames drawn at fixed offsets
+inside one window, and left up over something else they'd just be coloured rectangles floating over
+your desktop.</p>
+</div>
+
+<div class="note">
+<p><b>Why a row needs its own drag.</b> The unread dot <i>isn't</i> in the middle of its row — it
+sits on the same line as the timestamp, below the fan's name. So a box centred on the dot comes out
+noticeably high. The row calibration finds the dot inside the box you drew and measures the
+difference, which is the one thing MMA can't work out from the list alone.</p>
+<p>You can also type the two numbers directly (<b>Row height</b> and <b>Above dot</b>) if you'd
+rather. Leaving <b>Above dot</b> blank means "assume halfway", which is the old behaviour and draws
+slightly high.</p>
+</div>
+
+<p><b>You never dismiss a box.</b> MMA finds the rows by the little coral unread dot at the
+right-hand end, so replying is what clears it — open the conversation, the dot goes, and the box
+goes with it. Conversations you've already answered never get one, which is the whole reason it
+isn't every row: the list is sorted by recency and runs off the bottom of the screen, so boxing
+everything would fill the screen with frames that need nothing.</p>
+
+<p>The frames are <b>click-through</b> — clicking one opens the conversation underneath exactly as
+if it weren't there — and they never take focus from the message you're typing.</p>
+
+<div class="note">
+<p><b>If the boxes look wrong</b>, press <b>Calibrate a row…</b> again — it sets both numbers at
+once and is quicker than guessing. By hand:</p>
+<ul>
+<li><b>Row height</b> — a frame covering two conversations, or only part of one.</li>
+<li><b>Above dot</b> — frames sitting consistently high or low.</li>
+<li><b>Border</b> — how thick the frame is drawn.</li>
+</ul>
+<p>If they're sideways or off the list entirely, re-do <b>Calibrate the list…</b>. Saving applies
+within a few seconds; nothing restarts.</p>
+</div>
+
+<div class="note">
+<p><b>The boxes don't show up in screenshots</b>, and that's deliberate: MMA scans those same pixels
+for the unread dots, and a frame it could see would be a decoration quietly changing what the scan
+reads.</p>
+<p>When you need a picture of them, untick <b>Keep the boxes out of screenshots</b>. While it's off,
+avoid tier colours close to the orange of the unread dot — with the colours MMA ships, there's
+plenty of room.</p>
+</div>
+
+<div class="note">
+<p><b>A row stamped <code>Yesterday</code> or with a date</b> is counted as if it arrived at
+midnight, so its wait comes out as however long today has been. That's a floor, not a guess — it can
+only ever <i>understate</i> how long someone has waited, never overstate it.</p>
+</div>
+
+<p>Bars are stored against the <b>window</b>, not the screen — move or resize it and they stay on
+their tabs — and nothing has to be calibrated first, so this works on a strip MMA can't read at
+all.</p>
+
+<p>In <code>mass_gui.cfg</code> under <code>[Marks]</code>, one line per bar —
+<code>Bar1 = 412,44</code>, or <code>Bar2 = 338,44,4AC9FF</code> where the third field is that one
+bar's colour. Delete the <code>Bar</code> lines to clear the lot. The menu writes all of this for
+you; the section is just where it lands. Also there: <code>SepColor</code> (what a bar with no
+colour of its own uses), <code>SepWidth</code> / <code>SepHeight</code>,
+<code>ClickThrough</code>, and <code>WinMatch</code> for which window bars belong to (the detector's
+window by default). Switched off in <b>Features ▸ Tools</b>.</p>
+
+<div class="warn">
+<p><b>If the tab detector starts miscounting, take the bars off the strip first.</b> MMA reads the
+tab strip by grabbing those exact pixels, so anything drawn over them is a candidate for being
+counted. Each bar asks Windows to leave it out of screen capture, which handles it — but that is
+a request to the compositor, not a guarantee, so it's the first thing to rule out.</p>
+</div>
+
+<p><b>Stars are gone</b> (v2.1), along with the flicker and the misplacement they brought with them.
+A star needed a glyph, a font and a magenta transparency key to punch its background out; a bar
+needs none of that, because the whole little window <i>is</i> the bar. Any old
+<code>Mark1 = sep,412,44</code> lines are converted to <code>Bar</code> lines the first time MMA
+starts; <code>star</code> lines are dropped.</p>
+
+<!-- ═══════════════════════════════════════════════════════════════════════ -->
+<h2 id="variants">Tab-staging — the branches of a follow-up</h2>
 
 <p>One key, one list. Press the follow-up key as normal:</p>
 <ul>
@@ -481,6 +878,43 @@ Picking a branch variant is remembered for that conversation, so f2/f3 open on i
 <kbd>Tab</kbd>/<kbd>Enter</kbd>/<kbd>Esc</kbd> are captured while it is — scoped to that window
 only. Press <kbd>Esc</kbd>, or wait 45 s for it to release on its own.</p>
 </div>
+
+<h3 id="addaltfu">Adding one — <b>Variants ▸ Add alt-FU…</b></h3>
+
+<p>The Variants grid is the whole mass at once, which is what you want for <i>reading</i> it and
+not for adding one line to it — nothing on it says that a row is a branch, that the row needs a
+name before the picker can offer it, or that a second wording goes on a second <b>line</b> of one
+cell rather than in the next column. <b>Add alt-FU…</b> asks in order instead: which model,
+which mass, which follow-up, and what it says. It shows you what that follow-up says right now,
+and which branch names are already taken.</p>
+
+<table>
+<thead><tr><th>You paste</th><th>What happens</th></tr></thead>
+<tbody>
+<tr><td>Plain text, one message per line</td>
+    <td>One branch. Named from the <b>Branch name</b> box — or <code>alt</code>, then
+        <code>alt1</code>, <code>alt2</code>… if the mass already has one. Type a name that
+        already exists and it <i>adds to</i> that branch, which is the point of a branch keeping
+        its identity across follow-ups.</td></tr>
+<tr><td>Lines with <code>::name</code> markers</td>
+    <td>Parsed exactly as a real paste is — markers kept, <b>nothing auto-added</b>, several
+        branches in one go. So working alt code copied out of Discord goes straight in. A bare
+        line under a marker continues that branch; a line <i>above</i> the first marker is the
+        trunk being copied along for context and is dropped.</td></tr>
+</tbody>
+</table>
+
+<div class="note">
+<p><b>Opened from the grid, Add writes into the grid, not to disk.</b> You see what it did before
+committing to it, and <b>Save to file</b> is still the only thing that writes your library — so a
+mistake is undone by closing the window. The status line says so after every Add.</p>
+<p>The same window reached from <a href="#capturefu"><b>Replace follow-up…</b></a> saves straight
+away instead, because there you are not in the editor. The line under the buttons says which.</p>
+</div>
+
+<p>Three messages per branch per follow-up is the ceiling (<code>f1</code>, <code>f1.5</code>,
+<code>f1.7</code>), and six branches per mass. Both are refused out loud rather than silently
+dropped.</p>
 
 <p>Edit variants in <b>Variants…</b>, or write them in the paste. Separators are configurable in
 <code>mass_gui.cfg [Settings]</code> — with <code>\n</code>, <code>\t</code>, <code>\s</code>
@@ -527,7 +961,40 @@ never finds a follow-up and always sends f1. Tune it there, or run the <b>Next f
 probe in Settings ▸ Debug to see exactly what it reads.</p>
 
 <!-- ═══════════════════════════════════════════════════════════════════════ -->
-<h2 id="settings">Settings — six tabs</h2>
+<h2 id="clickwall">Clicking the next chat too early</h2>
+
+<p>A follow-up is not one message. <code>f1</code>, <code>f1.5</code> and <code>f1.7</code> go
+out as three, with a pause between each, so one keypress owns the chat box for a good second.
+Click the next conversation inside that second and the parts still in flight land in the chat
+you just moved to — one fan gets half a follow-up and a stranger gets the other half.</p>
+
+<p>So while a send is running there's a wall over the conversation list. <b>The click isn't
+lost — it's held.</b> MMA remembers where you clicked, and the moment the send finishes it
+plays the click back at the same spot. You click once, nothing seems to happen for a beat, and
+then the chat opens. A tooltip says so while you're waiting.</p>
+
+<div class="note">
+<p><b>Nothing to calibrate.</b> The wall covers the conversation list you already drew for
+<a href="#replybox">reply timers</a>; if you never drew one, it covers everything to the left
+of the <a href="#nextfu">Next follow-up</a> pane, which is the same column. Set
+<code>[ClickWall] Region</code> in <code>mass_gui.cfg</code> only to overrule that — in the
+window's coordinates, like the reply-timer one, not the screen's.</p>
+</div>
+
+<p><b>It checks the list hasn't moved before clicking.</b> Infloww sorts conversations by most
+recent message, and the send holding your click is what makes one most recent — so a point that
+meant "row 4" when you pressed it can be a different fan a second later. MMA keeps a strip of
+pixels from under the pointer and re-reads it before playing back. If the rows moved it beeps,
+says so, and leaves the click to you rather than opening the wrong chat.</p>
+
+<p>Only the list, and only while sending. Clicks anywhere else are never touched — outside
+those two seconds and that rectangle there's no hotkey registered at all, so drags and
+double-clicks behave exactly as they always did. Switched off in
+<b>Features ▸ Sending</b>, and read fresh on every send, so unticking it takes hold on the next
+follow-up rather than the next restart.</p>
+
+<!-- ═══════════════════════════════════════════════════════════════════════ -->
+<h2 id="settings">Settings — eight tabs</h2>
 
 <p>Every setting has exactly one control in one place. Where a tab shows state another tab owns,
 it's greyed and points at the owner.</p>
@@ -535,18 +1002,28 @@ it's greyed and points at the owner.</p>
 <table>
 <thead><tr><th>Tab</th><th>Holds</th></tr></thead>
 <tbody>
-<tr><td><b>Models</b></td><td>Model count, names, per-model platform, wait time, the three
-  detection modes, tab order, the live detector readout.</td></tr>
+<tr><td><b>General</b></td><td>Wait time — the pause between the parts of one send. Saving it
+  rewrites <code>core\utils.ahk</code>, so the scripts restart.</td></tr>
+<tr><td><b>Models</b></td><td>Model count, names, per-model platform, and the whole of
+  <a href="#whichmodel">use a single hotkey for all masses</a>: the Enabled switch, Manual vs
+  Automatic, the per-site strategy, both orders, and the live detector readout.</td></tr>
 <tr><td><b>Sending</b></td><td>Open-new-tab after FU2/FU3/PPV · wallet check before FU3 ·
   double-MM (session only, not saved) · Default FU3 text · Next-follow-up region and OCR
   settings.</td></tr>
 <tr><td><b>Features</b></td><td>Easy/Advanced and every feature switch. <a href="#modes">Below.</a></td></tr>
 <tr><td><b>Scripts</b></td><td>Which file Add Hotkey targets · visible scripts · run-on-startup ·
   watchdog · read-only service status · Wipe TEMP.ahk · Check update.</td></tr>
-<tr><td><b>Hotkeys</b></td><td>Every action, its key, its owning script. Click a row, press the
-  key. <b>Conflict report</b> at the bottom — it's trustworthy, so silence means you're fine.</td></tr>
-<tr><td><b>Debug</b></td><td>Logging switches, probes, self-tests, diagnostic report.
-  <a href="#debug">Below.</a></td></tr>
+<tr><td><b>Hotkeys</b></td><td>Every action, its key, and where it is live, grouped under the
+  feature that owns it. Double-click a row (or right-click it) and press the key. Search by
+  feature, action or key; <b>Show</b> narrows to what you have changed, what clashes, or what is
+  unassigned. A row is marked &#9679; when you have edited it and not saved yet, &#9675; when it
+  is saved but is not the default, and its key reads &mdash; when it is switched off. The
+  <b>Clashes with</b> column is trustworthy, so silence means you're fine.</td></tr>
+<tr><td><b>GUI</b></td><td>Theme · follow-up picker size · legacy Load/Save UI. Changing the
+  theme or the Load/Save layout <b>restarts MMA</b> — both decide how the main window is BUILT,
+  not just how it looks.</td></tr>
+<tr><td><b>Debug</b></td><td>Logging switches, probes, self-tests, diagnostic report, and a
+  <b>Desktop shortcut</b> button. <a href="#debug">Below.</a></td></tr>
 </tbody>
 </table>
 
@@ -565,13 +1042,14 @@ happened. They start unconditionally; their real switches are in Features.</p>
 never start. A hidden feature that still runs can still surprise you. Your individual choices
 are remembered; flip back and every box is where you left it.</p>
 </div>
-<p>Features by section — <b>Sending:</b> alts &amp; branches · editable f-ups / wallet check ·
-default FU3 · next follow-up · open in new tab · double-MM · FuSingle grid · mouse f-ups.
+<p>Features by section — <b>Sending:</b> branches · editable f-ups / wallet check ·
+default FU3 · next follow-up · open in new tab · double-MM · FuSingle grid · mouse f-ups ·
+click wall.
 <b>Library:</b> archive · hotstrings manager · fast-parse autosave.
 <b>Tools:</b> actions menu · quick actions · recorder · auto-capitalize · sequences &amp; Discord
 import · OCR hotstring.
-<b>Background:</b> model detector · stats overlay · automation · pinger · auto-start &amp;
-watchdog · startup update check.</p>
+<b>Background:</b> model detector · Fansly detector · stats overlay · reply timers · automation ·
+pinger · activity tracker · typelog · auto-start &amp; watchdog · startup update check.</p>
 
 <!-- ═══════════════════════════════════════════════════════════════════════ -->
 <h2 id="hotstrings">Hotstrings</h2>
@@ -581,6 +1059,56 @@ running) and one per account in <code>content\accounts\</code>.</p>
 <pre><code>:*:_gns1::{
     snd("your message here")
 }</code></pre>
+
+<h3 id="hotstringkey">A key for one you send constantly</h3>
+
+<p>Some messages go out often enough that typing the trigger is the slow part. Any hotstring can
+optionally have a <b>hotkey</b> as well, in two places:</p>
+<ul>
+  <li><b>For one you already have</b> — select it in the Hotstrings window and press
+      <b>Hotkey…</b>. The <b>Key</b> column shows what is bound.</li>
+  <li><b>While writing a new one</b> — <b>Add hotstring…</b> has a <b>Record…</b> button.
+      Press it, press your chord, and the key is bound when you press Append. Nothing is written
+      until then, and <b>Clear</b> drops it.</li>
+</ul>
+<p><kbd>Esc</kbd> cancels a recording, <kbd>Backspace</kbd> means "no key". Any trigger can have
+one, dots and all — <code>..intro</code> is as bindable as <code>_gns1</code>.</p>
+
+<p>The trigger keeps working exactly as before — the key is a second way to fire the same thing,
+not a replacement. An <a href="#hotstrings">overloaded</a> hotstring bound to a key still offers
+its variants, because the key runs the same code the trigger does.</p>
+
+<table>
+<tbody>
+<tr><td>Stored in</td><td><code>hotkeys.ini</code>, under <code>[hotstring]</code>, as
+    <code>trigger = key</code> — the same file and format as every other key in MMA, so it is
+    hand-editable and it appears in <b>Settings ▸ Hotkeys</b> like anything else.</td></tr>
+<tr><td>Conflicts</td><td>Checked when you bind. If the key is already used, you are told what by
+    and asked whether to go ahead — the conflict report in Settings ▸ Hotkeys covers these
+    too.</td></tr>
+<tr><td>Takes effect</td><td>A <b>new</b> binding restarts the message script that owns the
+    hotstring, and says so — the script reads its keys when it loads. <b>Changing</b> a key
+    applies live with nothing interrupted.</td></tr>
+</tbody>
+</table>
+
+<div class="warn">
+<p><b>The key is global, like the hotstring it stands in for.</b> A hotstring fires wherever you
+type, so its key fires wherever you press it — including Discord, your browser and everything
+else. Pick chords you would not otherwise hit. This is also why bare, easy keys are a bad choice
+here even though nothing stops you.</p>
+</div>
+
+<div class="note">
+<p><b>Duplicates are refused.</b> Record a key that something else already uses and you are told
+what owns it and asked to pick another — no "bind it anyway". A hotstring key is global, so
+sharing one means both fire and whichever script loaded last wins, which is not a state worth
+offering.</p>
+</div>
+
+<p>This replaces something that was already happening the wrong way: bare <code>!9::</code> blocks
+written straight into a message file, each sending one message. Those work, but they are invisible
+to the Hotkeys tab and to the conflict report, and they are lost the moment that file is tidied.</p>
 
 <p>With ~117 of them the problem is recall, so the <b>Hotstrings</b> manager searches <b>the
 message text as well as the trigger</b> — find one by half-remembering a phrase. From there:
@@ -623,15 +1151,22 @@ detection uses.</p>
 <tr><td><b>Stats overlay</b></td><td>Always-on-top Sales + PPV-sent/Fans-chatted ratio, red→green.
   Reads the Infloww <b>Home</b> window in the background without stealing focus. Right-click to
   calibrate or park. Toggle key configurable.</td><td>—</td></tr>
+<tr><td><b>Reply timers</b></td><td>Coloured border round any <b>unread</b> conversation that has
+  been waiting too long. <b>Off by default</b>, and needs a one-off calibration —
+  see <a href="#replybox">Reply timers</a>.</td><td>—</td></tr>
 <tr><td><b>Automation listener</b></td><td>Serves <kbd>^!u</kbd> unsend, <kbd>^!s</kbd> count
   sales, <kbd>^!k</kbd> hop kebabs.</td><td>Python</td></tr>
 <tr><td><b>Unread pinger</b></td><td>Beeps when a fan tab goes unread.</td><td>Python</td></tr>
+<tr><td><b>Typelog</b></td><td>Records the text you type <b>in Infloww</b> to
+  <code>userdata\typelog\</code>, to mine for hotstrings. <b>Off by default</b> — it is the one
+  tool that keeps <em>what</em> you type. Pause it (<kbd>^!F9</kbd>) before typing anything
+  private.</td><td>Python</td></tr>
 <tr><td><b>Recorder</b></td><td><kbd>^!F12</kbd>. Records clicks into a named sequence and writes
   it into <code>sequences.ahk</code> ready to bind.</td><td>—</td></tr>
 </tbody>
 </table>
-<p>All switched in <b>Features</b>. No Python → the two Python services just don't start, and MMA
-says so once instead of erroring every launch.</p>
+<p>All switched in <b>Features</b>. No Python → the Python services (automation, pinger, typelog)
+just don't start, and MMA says so once instead of erroring every launch.</p>
 
 <!-- ═══════════════════════════════════════════════════════════════════════ -->
 <h2 id="debug">Logs</h2>
@@ -696,10 +1231,16 @@ and the checkboxes grey out and say so.</p>
         5. Settings ▸ Hotkeys — key assigned, no clash?</td></tr>
 <tr><td><b>Shared keys (F13+) dead</b></td>
     <td class="w">MMA has no answer for which model is on screen and refuses to guess. Fix
-        detection, switch to <b>I pick</b>, or use numbered keys.</td></tr>
+        detection, switch the strategy to <b>Manual</b>, or use numbered keys. Also check
+        <b>Enabled</b> at the top of Settings ▸ Models — off, they do nothing by design.</td></tr>
 <tr><td><b>Wrong model's message went out</b></td>
-    <td class="w">Detection read the wrong tab. Switch to <b>I pick</b> now, then check
-        <b>Detector sees:</b>.</td></tr>
+    <td class="w">1. Is a <a href="#lockmode">lock</a> on? Look for the <b>LOCKED</b> badge —
+        every shared key is sending that model on purpose. Click it to unlock.<br>
+        2. Otherwise detection read the wrong tab. Switch the strategy to <b>Manual</b> now,
+        then check <b>Detector sees:</b>.</td></tr>
+<tr><td><b>The "which model?" window stopped appearing</b></td>
+    <td class="w">A <a href="#lockmode">lock</a> is on — that is what it does. The badge names
+        the model; click it, or press <kbd>^!l</kbd>.</td></tr>
 <tr><td><b>A follow-up part is missing</b></td>
     <td class="w">You wrote <code>f1.1</code> instead of <code>f1.5</code>. <a href="#format">Known bug.</a></td></tr>
 <tr><td><b>Parsed into the wrong tab</b></td>

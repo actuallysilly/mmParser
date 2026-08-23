@@ -32,6 +32,38 @@
 ; is _RunOnActiveModel below that opens it, and a file that calls into another
 ; should be the file that pulls it in.
 #Include "model_picker.ahk"
+; The lock badge, for the same reason: it is _RunOnActiveModel and ToggleMassLock
+; below that put a lock on, and a lock you cannot see is the one thing lock mode
+; must never be — see the header of ui/lock_badge.ahk.
+#Include "../ui/lock_badge.ahk"
+
+; ── __1mm … __12mm ────────────────────────────────────────────────────────────
+;  "Paste model n's mass", one trigger per model slot. Registered rather than
+;  written out, because the count is a setting now (MASS_MODELS in store.ahk) and
+;  the hand-written list of three is what went stale the last time it changed.
+;
+;  Up HERE, far from the __mm hotstring it belongs beside, for a reason worth the
+;  distance: top-level code stops running at the first hotstring definition in the
+;  script, and __mm is one. Down there this loop would parse cleanly, read
+;  correctly, and never execute — the numbered triggers would simply not exist,
+;  with nothing in the log to say so.
+_MassRegisterNumbered()
+
+_MassRegisterNumbered() {
+    global MASS_MODELS
+    Loop MASS_MODELS {
+        ; Through _MassNumberedFire (defined beside __mm), not a fat-arrow written
+        ; in the loop body: a lambda here captures the one shared A_Index and all
+        ; twelve triggers end up meaning model 12. Same trap mass_bind_test.ahk
+        ; pins down for the select keys; a function parameter is a fresh binding.
+        try
+            Hotstring(":*X:__" A_Index "mm", _MassNumberedFire(A_Index))
+        catch as e
+            LOGE("mass.boot", "could not register the __" A_Index "mm trigger — "
+                            . LOG_Err(e))
+    }
+    LOGV("mass.boot", "__1mm … __" MASS_MODELS "mm registered")
+}
 
 ; ── the mass library ──────────────────────────────────────────────────────────
 ;  Declared HERE, by the file that reads it, rather than by engine.ahk.
@@ -218,6 +250,12 @@ _DoFuGroup(group, editable, openTab) {
                           "editable", editable ? "y" : "n",
                           "openTab",  openTab ? "y" : "n",
                           "doubleMM", sendBoth ? "y" : "n"))
+    ; Which follow-up you last aimed at, for the capture window's dropdowns to open
+    ; on — see MASS_RememberSent in mass/store.ahk. Noted here, on the press,
+    ; rather than after the send: a follow-up with nothing in it is exactly the one
+    ; you are about to grab off the screen and write.
+    MASS_RememberSent(MASS_CUR_MODEL, MASS_MassNo(MASS_DOC, MASS_CUR_MODEL),
+                      "fu" group)
     ; One key. If this follow-up has alts or branches, they stage and TAB walks
     ; them; if it has neither, nothing appears and the send below runs. The old
     ; second key (ctrl+f<N>) and the PromptAltCtrl setting that chose between them
@@ -324,8 +362,11 @@ DoMass() {
 ; Same one-key rule as the follow-ups: with branch PPVs present this stages them
 ; alongside the trunk's and TAB walks the list. That is what retired brPpv.
 DoPpv() {
-    global openTabPpv, openInNewTabButton, MASS_CUR_MODEL
+    global openTabPpv, openInNewTabButton, MASS_CUR_MODEL, MASS_DOC
     LOGD("mass.ppv", "DoPpv entered")
+    ; Same note the follow-ups leave, for the same window. A PPV blurb rewritten by
+    ; hand in the chat is as likely a capture as a follow-up is.
+    MASS_RememberSent(MASS_CUR_MODEL, MASS_MassNo(MASS_DOC, MASS_CUR_MODEL), "ppv")
     m := CurMass()
     if AltInterceptPpv(m, true, ActiveBranchNo())
         return
@@ -471,9 +512,25 @@ _MassApplyMouseControl(section) {
         if (SubStr(slot, 1, 1) != "m" || SubStr(slot, 1, 4) = "mass")
             continue                          ; mFu1-3, mPpv, mPpvFus — not "mass"
         id := section "." slot
-        if HK_META.Has(id)
-            HK_SetState(id, "Off")
+        if !HK_META.Has(id)
+            continue
+        ; The slot name says "overload", not "mouse". Nothing stops a keyboard key
+        ; going in one — mPpv/mPpvFus hold F4/F5 — and a setting labelled
+        ; "Mouse-button follow-ups" must not reach across and darken those. Test the
+        ; KEY, which is the thing the setting is actually about; a slot named m-
+        ; anything with LButton nowhere in it is not what is being switched off.
+        if !_IsMouseKey(HK_Key(id))
+            continue
+        HK_SetState(id, "Off")
     }
+}
+
+; Does this binding press a mouse button? Modifiers are stripped first, so ^MButton
+; and !XButton1 count. Wheel included: WheelUp on a follow-up is exactly the kind of
+; accident "mouse control off" is meant to prevent.
+_IsMouseKey(key) {
+    key := RegExReplace(Trim(key), "^[\^!+#<>*~$]+")
+    return RegExMatch(key, "i)^(?:L|R|M|X)Button[12]?$|^XButton[12]$|^Wheel(?:Up|Down|Left|Right)$") > 0
 }
 
 ; Bind the SHARED keys — [mass.active] in hotkeys.ini.
@@ -511,6 +568,39 @@ _ActiveFire(fn, slot := "") {
 ; in front, name unclaimed, tabs ambiguous). This adds the consequence, so the two
 ; lines sit together in the log and the chain is readable end to end.
 _RunOnActiveModel(fn, slot := "") {
+    ; ── switched off in Settings ▸ Models ─────────────────────────────────────
+    ; Checked here rather than at bind time on purpose. Unbinding would need a
+    ; restart of the engine to take effect either way round, and the whole point
+    ; of the switch is for the shift where the detector has started lying: you
+    ; turn it off, the shared keys stop guessing, and the numbered keys — which
+    ; never come through here — carry on working from the same keypress.
+    if !SharedKeysOn() {
+        LOG_Bail("mass.active", "a shared [mass.active] key was pressed but"
+                              . " 'Use a single hotkey for all masses' is switched"
+                              . " off in Settings ▸ Models. Nothing sent; the"
+                              . " numbered per-model keys still work.")
+        return
+    }
+
+    ; ── locked: one model, no question and no pixels ──────────────────────────
+    ; A lock is you having answered the picker's question once for the whole run of
+    ; messages you are about to send — see the lock-mode block in
+    ; core/active_model.ahk. It comes FIRST, before the mode check and before any
+    ; detection, because that is what "locked" means: nothing else gets a vote.
+    ;
+    ; The badge is on screen naming the model for as long as this branch is the one
+    ; being taken. That is not a nicety bolted on the side — it is the condition on
+    ; which this branch is allowed to exist at all, since it sends to a model
+    ; nothing on screen identifies.
+    lock := LockedModelNo()
+    if lock {
+        LOGV("mass.active", "shared key → model " lock " (LOCKED; the picker and the"
+                          . " detector are both bypassed)")
+        _SetCurModel(lock)
+        fn()
+        return
+    }
+
     ; ── "I pick" mode: ask, don't assume ──────────────────────────────────────
     ; Manual mode never reads the screen — ActiveModelStatus always answers "ok"
     ; with whatever model you last selected, however long ago that was. For a
@@ -518,9 +608,11 @@ _RunOnActiveModel(fn, slot := "") {
     ; model nothing on screen names. So in this mode the follow-up keys open the
     ; picker and the send happens on your answer.
     ;
-    ; Only the follow-ups (PickGroupForSlot). PPV, __mm and next-follow-up keep
-    ; the remembered model — a window in front of every shared key would be a
-    ; window in front of everything.
+    ; Which slots ask is PickGroupForSlot's call: the follow-ups always, the PPV
+    ; pair behind its own FEAT switch. The mass key and next-follow-up keep the
+    ; remembered model — a window in front of EVERY shared key would be a window in
+    ; front of everything, and __mm already has its own asking route (the hotstring,
+    ; via MassSendOrPick) for when you are genuinely unsure.
     if (ModelMatchMode() = "manual") {
         group := PickGroupForSlot(slot)
         if group {
@@ -565,6 +657,10 @@ MassBindSelect() {
             ; last model the loop saw. .Bind copies the value at bind time.
             HK_Bind(id, SelectModel.Bind(A_Index))
     }
+    ; One key for both halves of the lock. A separate "unlock" key would be a key
+    ; that does nothing most of the time, and the thing you want when a lock is on
+    ; is never "lock again" — see ToggleMassLock.
+    HK_Bind("mass.select.lock", ToggleMassLock)
 }
 
 SelectModel(n) {
@@ -574,7 +670,32 @@ SelectModel(n) {
         return
     }
 
+    ; ── a lock MOVES rather than blocking ─────────────────────────────────────
+    ; "Active model = 3" pressed under a lock is the sentence lock mode was asked
+    ; for in the first place: done with this model, on to the next. Refusing it
+    ; would mean unlock, select, lock again — three keys for one thought — and
+    ; ignoring it silently would be worse still, since the toast would name a model
+    ; the shared keys were not going to send.
+    if MassIsLocked() {
+        SetLockedModel(n)
+        LOCKBADGE_Sync()
+    }
+
     mode := ModelMatchMode()
+
+    ; ── on Fansly, the same key teaches the RAIL ─────────────────────────────
+    ; "Active model = 2" pressed while the Fansly rail is in front means "the card
+    ; I am looking at is model 2", exactly as it means "the tab I am looking at"
+    ; on Infloww. Same key, same sentence, different platform — and it must NOT
+    ; fall through to TeachPosition below, which would file a Fansly model under
+    ; whatever Infloww tab happened to be lit behind the window and quietly
+    ; reroute that tab's sends. That is the same destructive mistake the manual
+    ; note beneath this one is about.
+    ;
+    ; Checked before the platform check on purpose: which window is in front is a
+    ; fact, and the per-model platform setting is a claim.
+    if TeachFanslyRow(n)
+        return
 
     ; A model on a platform the detector cannot see has no tab index to record,
     ; and trying would be actively destructive: TeachPosition maps whatever
@@ -587,7 +708,8 @@ SelectModel(n) {
     ; front — see ManualFallbackModel.
     if IsManualPlatform(n) {
         SoundBeep(880, 90)
-        _MassToast("Active model: " ModelLabel(n) "   (manual — not on Infloww)")
+        _MassToast("Active model: " ModelLabel(n) "   (manual — not on Infloww)"
+                 . _LockSuffix())
         return
     }
 
@@ -599,7 +721,76 @@ SelectModel(n) {
     ; that left the detector in charge would be lying about what it does.
     if (mode != "manual")
         IniWrite("manual", MMA_CFG, "Settings", "ModelMatch")
-    _MassToast("Active model: " ModelLabel(n))
+    _MassToast("Active model: " ModelLabel(n) _LockSuffix())
+}
+
+; ── lock mode, from the engine's side ─────────────────────────────────────────
+;  The state and the reasoning are in core/active_model.ahk; what lives here is
+;  the keypress, the confirmation and the badge, because those three are what make
+;  it safe to use — see ui/lock_badge.ahk.
+
+; Tacked onto the select toasts so a press under a lock says which of the two
+; things it did. "Active model: 3 — Kay" alone reads as a change the shared keys
+; may or may not have followed; the badge says the rest, but the toast is what your
+; eye is already on.
+_LockSuffix() {
+    n := LockedModelNo()
+    return n ? "   ▸ LOCKED" : ""
+}
+
+; ^!l, or whatever [mass.select] lock says. One key, both directions.
+;
+; Locks to WHICHEVER MODEL IS ALREADY RESOLVED, rather than asking. In "I pick"
+; mode that is the model you last selected — the one whose messages you are in the
+; middle of — and with a detector running it is the tab in front. Either way the
+; press means "keep sending to this one", which needs no second question.
+;
+; A resolve that comes back with nothing is REFUSED, not filled in from the
+; remembered model. "MMA does not know which model is on screen" and "lock every
+; shared key to model 1" are very different sentences, and only one of them is
+; what the key promises.
+ToggleMassLock(*) {
+    if MassIsLocked() {
+        was := ClearMassLock()
+        LOCKBADGE_Sync()
+        SoundBeep(600, 80)
+        _MassToast("Unlocked" (was ? " (was " ModelLabel(was) ")" : "") "`n"
+                 . (ModelMatchMode() = "manual"
+                        ? "the shared keys ask which model again"
+                        : "the shared keys follow the screen again"))
+        return
+    }
+
+    st := ActiveModelStatus()
+    if !st.no {
+        ; The same refusal every shared key gives in this state, said out loud
+        ; instead of in the log — you pressed a key expecting a lock, so silence
+        ; would read as "locked" and every send after it would be a surprise.
+        SoundBeep(300, 250)
+        _MassToast("Cannot lock — MMA does not know which model is on screen"
+                 . " (" st.state ").`nPress 'active model = N' first, or lock from"
+                 . " the picker window.")
+        LOG_Bail("model.lock", "lock key pressed with no resolvable model (state: "
+                             . st.state ") — nothing locked, because locking to a"
+                             . " guess is the one thing this feature must not do")
+        return
+    }
+    LockToModel(st.no)
+}
+
+; Put a lock on, confirm it, and light the badge. The one place that does all
+; three, so the picker's Lock checkbox and the lock key cannot end up giving
+; different feedback for the same state.
+LockToModel(n) {
+    if !SetLockedModel(n) {
+        _MassToast("No model " n)
+        return false
+    }
+    LOCKBADGE_Sync()
+    SoundBeep(880, 90)
+    _MassToast("LOCKED to " ModelLabel(n)
+             . "`nevery shared key sends this model until you unlock")
+    return true
 }
 
 ; ── saying which model the tab in front is ────────────────────────────────────
@@ -662,6 +853,60 @@ _TeachFail(msg) {
     _MassToast(msg)
 }
 
+; ── saying which model the CARD in front is ───────────────────────────────────
+;  The Fansly twin of TeachPosition, and the only writer of [FanslyPos].
+;
+;  Returns TRUE when it handled the press — meaning Fansly was in front, whatever
+;  the outcome. SelectModel uses that to stop, because a press aimed at the rail
+;  must never fall through to the Infloww teacher underneath it.
+;
+;  FALSE means "not my platform, carry on", and it is the answer on every machine
+;  with the feature off, at the cost of one ini read.
+;
+;  Reads the pixels HERE, at the moment of the press, for the reason spelled out
+;  above TeachPosition: the background service polls every 500ms, so a value read
+;  from its status file is a value from before you clicked the card.
+TeachFanslyRow(n) {
+    if !FEAT("fanslyDetector")
+        return false
+    cfg := FanslyCfg()
+    if !FanslyWindowUp(cfg)
+        return false
+
+    lit := FanslyLitRow(cfg)
+    if (lit.index < 1) {
+        ; The counts ARE the diagnosis, so show them — the same three readings
+        ; the probe explains. Without them "it did not work" is unactionable.
+        _TeachFail("No card on the Fansly rail reads as selected."
+                 . "`nper-row pixels: " _FanCountsLine(lit.counts)
+                 . "`nNothing changed. All zeros means the colour or the rail"
+                 . " origin is wrong; two large numbers means RowPitch is wrong."
+                 . " Run tools\fansly_probe.ahk.")
+        return true
+    }
+    if !SetFanslyPosFor(lit.index, n) {
+        _TeachFail("Could not set rail row " lit.index " to model " n ".")
+        return true
+    }
+    ; Also switch the resolver to positional if it is not already. A key labelled
+    ; "active model = 2" that taught the row and then left name mode in charge —
+    ; where truncated labels routinely match nothing — would be lying about what
+    ; it does, which is the same reasoning as the ModelMatch write below.
+    if (FanslyMatchMode() != "position")
+        IniWrite("position", MMA_CFG, "Fansly", "Match")
+    SoundBeep(880, 90)
+    _MassToast("Fansly row " lit.index " = " ModelLabel(n))
+    return true
+}
+
+; Per-row pixel counts, for the message above that has to show its working.
+_FanCountsLine(counts) {
+    out := ""
+    for i, c in counts
+        out .= (out = "" ? "" : "  ") "row" i ":" c
+    return out
+}
+
 ; The whole order after every press. Two tabs mapped to the same model is a real
 ; mistake and one you would otherwise only find by sending to the wrong fan.
 _OrderSummary() {
@@ -697,27 +942,38 @@ _MassToast(text) {
     SetTimer(() => ToolTip(), -1400)
 }
 
-; ── the "send the whole mass" triggers ────────────────────────────────────────
-;  __mm   — paste the ACTIVE model's mass. Only meaningful when the detector is
-;           running to say which model that is, so UniversalSendActive() returns
-;           false outright in manual mode and this trigger simply does not expand.
-;  __mm1  — paste MODEL n's mass, named explicitly. This is the MANUAL-mode form:
-;  __mm2    the number selects the model because you said so, exactly like the
-;  __mm3    manual F-keys, where the key you press is the selector.
+; ── the "paste the whole mass" triggers ───────────────────────────────────────
+;  __mm    — ask, then paste. One model configured and there is nothing to ask, so
+;            it pastes that one; past that it opens the picker, whose buttons show
+;            the first line of each model's live mass. See mass/model_picker.ahk.
 ;
-;  Never both at once — see NumberedSendActive in utils.ahk for why the `*` in
-;  :*X:__mm:: makes that a structural guarantee rather than a policy. Also
-;  ARCHITECTURE.md §5.2.
-#HotIf UniversalSendActive()
-:*X:__mm::_RunOnActiveModel(DoMass)
-#HotIf
+;            Ungated, and that is new. It used to sit behind UniversalSendActive(),
+;            which meant it went dead in exactly the situation it is most wanted in:
+;            no detector, several models, no way to be sure which one you were on.
+;            A window can answer that question. A silent no-op could not.
+;
+;  __1mm   — paste MODEL n's mass, named explicitly, no window. The number leads,
+;  __2mm     and that is load-bearing rather than cosmetic.
+;  __12mm
+;            These read __mm1 / __mm2 / __mm3 until now. __mm is declared :*X: and
+;            `*` means "fire the moment the trigger is typed, no ending character"
+;            — so while __mm was live it expanded on the second m and the `1` in
+;            __mm1 was never reached. The two could only ever be mutually exclusive,
+;            which is what NumberedSendActive existed to arrange: __mm1 was live
+;            precisely when __mm was dead.
+;
+;            Putting the number in FRONT dissolves that. __1mm shares no prefix
+;            with __mm, so both are live at once and neither has to be gated on the
+;            other. It also does not run out at nine: __mm11 could never have fired
+;            (the __mm1 before it would have), while __11mm is just another trigger,
+;            which is what lets these follow MASS_MODELS up to twelve.
+:*X:__mm::MassSendOrPick()
 
-#HotIf NumberedSendActive(1)
-:*X:__mm1::(_SetCurModel(1), DoMass())
-#HotIf
-#HotIf NumberedSendActive(2)
-:*X:__mm2::(_SetCurModel(2), DoMass())
-#HotIf
-#HotIf NumberedSendActive(3)
-:*X:__mm3::(_SetCurModel(3), DoMass())
-#HotIf
+;  __1mm and friends are NOT declared here. They cannot be: they are registered by
+;  a loop, the loop is top-level code, and the auto-execute section ends at the
+;  first hotstring definition — which is the __mm line directly above. Written here
+;  they would parse, look right in a diff, and never run. The loop lives at the top
+;  of this file, next to the includes; see _MassRegisterNumbered.
+_MassNumberedFire(n) {
+    return (*) => (_SetCurModel(n), DoMass())
+}

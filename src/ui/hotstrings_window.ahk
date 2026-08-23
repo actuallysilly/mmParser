@@ -2,6 +2,23 @@
 #SingleInstance Force
 #Include "../hotstrings/index.ahk"
 #Include "../hotstrings/overloads.ahk"
+; The "Startup scripts" button below. It belongs to this window because the files
+; it starts and stops are the very files this window indexes.
+#Include "startup_scripts.ahk"
+; MMA_MSG_ADD_HOTKEY, for the "Add hotstring" button. Included by name rather than
+; relied on through index.ahk's chain — a file that names a constant includes the
+; file that defines it, and AHK loads any given file once.
+#Include "../core/messages.ahk"
+; THEME_BoldButtons. This window keeps its own violet palette (it is not one of
+; the themed windows), but "are buttons bold" has one answer everywhere.
+#Include "../core/theme.ahk"
+; HKP_GrabKey and HKP_KeyLabel, for the "Hotkey" button — the same capture the
+; Hotkeys tab uses, so a key is recorded here exactly as it is recorded there
+; (chords, mouse buttons, Esc to cancel, Backspace to clear). Reaching for the
+; panel's file rather than reimplementing it also brings core/hotkeys.ahk, which
+; is where the binding is read and written. A second key-capture would be a
+; second answer to "what did the user just press".
+#Include "hotkeys_panel.ahk"
 ; ═══════════════════════════════════════════════════════════════════════════════
 ;  hotstrings_window.ahk — a searchable window over the whole message library.
 ; ───────────────────────────────────────────────────────────────────────────────
@@ -53,7 +70,33 @@ if (gSortMode < 1 || gSortMode > gSortModes.Length)
     gSortMode := 1
 
 ; ── window ──
-MainGui := Gui("+Resize +MinSize780x460", "Hotstrings  " Chr(0x2014) "  message library")
+;  ─── THE FOOTER IS WHAT SETS THE WIDTH ──────────────────────────────────────
+;  It is two clusters that grow towards each other: six buttons pinned to the
+;  LEFT edge, and Sort + Text size pinned to the RIGHT. Neither shrinks, so the
+;  window has a hard minimum — and it was set as a round number rather than
+;  measured, which is why the buttons ran into the dropdowns.
+;
+;  Measured, at the sizes the controls are actually created with:
+;
+;      left  cluster   16 .. 674    Open source · Copy trigger · Rescan ·
+;                                   Overload · Hotkey · Delete
+;      right cluster   w-310 .. w   Sort [dropdown] · Text size [dropdown]
+;
+;  674 + 310 = 984 with the two touching, so the old 1000-wide default left
+;  sixteen pixels between them and the old MinSize900 let them overlap — the
+;  buttons were there, drawn underneath the dropdowns. HSW_W is that sum plus a
+;  gap you can see, and HSW_MIN is the point below which they would touch again.
+;
+;  The count changed twice over: "Hotkey" arrived, and "Startup scripts" left for
+;  the top row. That is not shuffling — the footer is the buttons that act on the
+;  SELECTED ROW, and Startup scripts acts on the files. It sat here only because
+;  this is where buttons went, which is also why it was the one that finally
+;  pushed the cluster into the dropdowns.
+global HSW_W   := 1120     ; default width — the sum above, with room to breathe
+global HSW_H   := 600
+global HSW_MIN := 1020     ; 984 + a 36px gap. Below this the two clusters meet.
+MainGui := Gui("+Resize +MinSize" HSW_MIN "x460",
+               "Hotstrings  " Chr(0x2014) "  message library")
 MainGui.BackColor := BG
 MainGui.OnEvent("Size",   OnSize)
 MainGui.OnEvent("Close",  GuiClosed)
@@ -61,9 +104,28 @@ MainGui.OnEvent("Escape", GuiClosed)
 
 ; title + live count
 MainGui.SetFont("s15 Bold c" ACCENT, "Segoe UI")
-MainGui.Add("Text", "x16 y12 w400", GLYPH_STAR "  Hotstrings")
+MainGui.Add("Text", "x16 y12 w190", GLYPH_STAR "  Hotstrings")
 MainGui.SetFont("s11 Norm c" MUTED, "Segoe UI")
 countTxt := MainGui.Add("Text", "x600 y21 w360 Right", "")
+
+; ── Add hotstring ─────────────────────────────────────────────────────────────
+;  Was "Add Hotkey", on the main window's bottom strip. It is called what it makes:
+;  a HOTSTRING in one of the message files — the very files this window indexes,
+;  searches, overloads and deletes. (The dialog it opens is shared with the
+;  grab-selection hotkey and still calls itself Add Hotkey; renaming the button is
+;  what matters here, because this is where you go looking to add one.)
+;
+;  Up here with the title rather than in the footer: every button in the footer
+;  acts on the SELECTED ROW, and this one does not. (The right-hand end of that
+;  row is also spoken for by the sort and size controls.)
+MainGui.SetFont("s10 c" TXT, "Segoe UI")
+btnAddHk := MainGui.Add("Button", "x216 y13 w150 h30", "Add hotstring" Chr(0x2026))
+btnAddHk.OnEvent("Click", OpenAddHotkeyWindow)
+; Up here for the same reason as Add hotstring, and it used to be in the footer
+; with the row actions: it acts on the FILES, not on the hotstring you have
+; selected. See startup_scripts.ahk for why it lives in this window at all.
+btnStartup := MainGui.Add("Button", "x376 y13 w130 h30", "Startup scripts")
+btnStartup.OnEvent("Click", (*) => OpenStartupScripts(MainGui.Hwnd))
 
 ; search
 MainGui.SetFont("s12 c" TXT, "Segoe UI")
@@ -74,16 +136,18 @@ CueBanner(searchEd, "Search trigger or message text" Chr(0x2026) "   (spaces = a
 ; list (full width; the showcase sits beneath it)
 MainGui.SetFont("s11 c" TXT, "Segoe UI")
 LV := MainGui.Add("ListView", "x16 y90 w948 h250 Background" LISTBG,
-                  ["Trigger", "Message preview", "#", "Var", "File", "Added", "idx"])
+                  ["Trigger", "Message preview", "#", "Var", "Key", "File", "Added",
+                   "idx"])
 LV.OnEvent("ItemFocus",   OnRowFocus)
 LV.OnEvent("DoubleClick", OnRowOpen)
 LV.ModifyCol(1, 170)
 LV.ModifyCol(2, 350)
 LV.ModifyCol(3, "50 Integer Center")
 LV.ModifyCol(4, "50 Center")       ; variant count when overloaded, else blank
-LV.ModifyCol(5, 120)
-LV.ModifyCol(6, 90)                ; date the hotstring was added, blank if unstamped
-LV.ModifyCol(7, 0)                 ; hidden: master index into gRecords, rides with its row
+LV.ModifyCol(5, 90)                ; the key bound to it, blank for the great majority
+LV.ModifyCol(6, 120)
+LV.ModifyCol(7, 90)                ; date the hotstring was added, blank if unstamped
+LV.ModifyCol(8, 0)                 ; hidden: master index into gRecords, rides with its row
 
 ; showcase / detail pane — full width, word-wrapped so long messages read cleanly
 MainGui.SetFont("s12 c" TXT, "Segoe UI")
@@ -95,11 +159,18 @@ btnOpen   := MainGui.Add("Button", "x16 y534 w112 h30", "Open source")
 btnCopy   := MainGui.Add("Button", "x134 y534 w112 h30", "Copy trigger")
 btnRescan := MainGui.Add("Button", "x252 y534 w92 h30", "Rescan")
 btnOver   := MainGui.Add("Button", "x352 y534 w118 h30", "Overload" Chr(0x2026))
-btnDelete := MainGui.Add("Button", "x478 y534 w92 h30", "Delete")
+; ── a key for a message you send constantly ───────────────────────────────────
+;  Optional, per hotstring, and it never replaces the trigger — both fire the
+;  same thing. See HotstringKeys_Register in core/utils.ahk for what happens when
+;  it is pressed, and the [hotstring] block at the bottom of core/hotkeys.ahk for
+;  where it is stored.
+btnKey    := MainGui.Add("Button", "x476 y534 w100 h30", "Hotkey" Chr(0x2026))
+btnDelete := MainGui.Add("Button", "x582 y534 w92 h30", "Delete")
 btnOpen.OnEvent("Click",   OpenSelected)
 btnCopy.OnEvent("Click",   CopySelected)
 btnRescan.OnEvent("Click", RescanFiles)
 btnOver.OnEvent("Click",   EditOverload)
+btnKey.OnEvent("Click",    SetHotstringKey)
 btnDelete.OnEvent("Click", DeleteSelected)
 ; ask-vs-random is NOT global: each overloaded trigger carries its own mode,
 ; set in the variant editor and stored with its variants.
@@ -127,7 +198,34 @@ sizeDD.OnEvent("Change", OnFontSize)
 ApplyDarkTheme()
 ApplyContentFont(gFontSize)
 PopulateList("")
-MainGui.Show("w1000 h600")
+; ── lay the window out BEFORE it is shown ─────────────────────────────────────
+;  Every control above is created at coordinates for a 980-wide window, and the
+;  window opens at HSW_W (1120). OnSize then moved the whole right-hand cluster
+;  ~300px to the right on the first WM_SIZE — i.e. while the window was already on
+;  screen and painted.
+;
+;  That is "Sort" and its dropdown appearing TWICE: once ghosted at the creation
+;  position, sitting on top of the Delete button, and once where they belong.
+;  Moving a child window does not repaint the parent's background behind where it
+;  used to be, and this window paints a custom dark BackColor, so the pixels the
+;  controls vacated kept what they had.
+;
+;  Running the layout while the window is still HIDDEN means the first paint is
+;  already the right one, and the WM_SIZE that follows Show finds everything where
+;  it wants it. (Control.Move works on a hidden Gui; it is WinGetPos on the window
+;  ITSELF that cannot see one.)
+OnSize(MainGui, 0, HSW_W, HSW_H)
+MainGui.Show("w" HSW_W " h" HSW_H)
+; Lay the window out through the SAME code a resize uses, rather than trusting the
+; x/w numbers each control was created with.
+;
+; Those numbers were written for a 1000px window and are now wrong by 120 — but
+; more to the point they were a second copy of the layout that only agreed with
+; OnSize by coincidence, and a Gui does not fire Size on Show. So the window you
+; got before touching it was laid out by one set of rules and the window you got
+; after dragging it by a different set. One rule now: the creation coordinates
+; just have to be sane enough to exist.
+OnSize(MainGui, 0, HSW_W, HSW_H)
 
 ; ═══════════════════════════════════════════════════════════════════════════════
 ;  behaviour
@@ -140,6 +238,41 @@ OnSearch(*) {
 
 GuiClosed(*) {
     ExitApp()
+}
+
+; Ask the main window to open its Add Hotkey dialog.
+;
+; It cannot be built here. The dialog is made out of main_window.ahk's globals —
+; the account-file list, the default target file, the snd()/SendText()/Sendt()
+; writers — and this window is a separate PROCESS, so there is nothing to call.
+; The button therefore asks the window that owns the dialog to open it, the same
+; way sequences.ahk asks it to parse a mass.
+;
+; DetectHiddenWindows because the window being addressed is the script's own
+; message window, which is hidden. Saved and restored rather than set once at the
+; top of the file: it is a per-thread setting and the rest of this window has no
+; business seeing hidden windows.
+;
+; AllowSetForegroundWindow, or the dialog opens BEHIND this one — the foreground
+; right belongs to whoever the user last clicked in, which is us, and it has to be
+; handed over deliberately.
+OpenAddHotkeyWindow(*) {
+    global MMA_SRC_GUI, MMA_MSG_ADD_HOTKEY
+    win  := MMA_SRC_GUI " ahk_class AutoHotkey"
+    prev := A_DetectHiddenWindows
+    DetectHiddenWindows true
+    try {
+        if !WinExist(win) {
+            MsgBox("The Add hotstring window is opened by MMA's main window, and"
+                 . " that is not running.`n`nStart MMA, then press this again.",
+                   "Add hotstring", 0x30)
+            return
+        }
+        try DllCall("AllowSetForegroundWindow", "UInt", WinGetPID(win))
+        PostMessage(MMA_MSG_ADD_HOTKEY, 0, 0, , win)
+    }
+    finally
+        DetectHiddenWindows prev
 }
 
 ; Rebuild the list to show only records matching the query. Space-separated terms
@@ -159,7 +292,7 @@ PopulateList(query) {
         r := gRecords[i]
         if MatchRec(r, terms) {
             LV.Add(, r.trigger, FlattenOneLine(r.preview), r.steps.Length, VarCell(r.trigger),
-                     HsFileLabel(r.file), AddedCell(r.added), i)
+                     KeyCell(r.trigger), HsFileLabel(r.file), AddedCell(r.added), i)
             shown++
         }
     }
@@ -247,7 +380,7 @@ OnRowFocus(ctrl, row) {
     global gRecords, detailEd
     if (!row || row > ctrl.GetCount())
         return
-    idx := Integer(ctrl.GetText(row, 7))
+    idx := Integer(ctrl.GetText(row, 8))
     if (idx < 1 || idx > gRecords.Length)
         return
     detailEd.Value := BuildDetail(gRecords[idx])
@@ -297,11 +430,20 @@ VarCell(trigger) {
     return gOverloads.Has(trigger) ? gOverloads[trigger].variants.Length : ""
 }
 
+; The key bound to this hotstring, prettified, or "" for the great majority that
+; have none. Read from hotkeys.ini every time the list is built rather than
+; cached: the Hotkeys tab in Settings can rebind one of these too, and a cached
+; column would go on showing the old key until a rescan.
+KeyCell(trigger) {
+    k := HK_Key(HK_HotstringId(trigger))
+    return (k = "") ? "" : HKP_KeyLabel(k)
+}
+
 OnRowOpen(ctrl, row) {
     global gRecords, HSI_DIR
     if (!row || row > ctrl.GetCount())
         return
-    idx := Integer(ctrl.GetText(row, 7))
+    idx := Integer(ctrl.GetText(row, 8))
     if (idx < 1 || idx > gRecords.Length)
         return
     r := gRecords[idx]
@@ -356,7 +498,7 @@ DeleteSelected(*) {
         Notify("Select a hotstring first")
         return
     }
-    idx := Integer(LV.GetText(row, 7))
+    idx := Integer(LV.GetText(row, 8))
     if (idx < 1 || idx > gRecords.Length)
         return
     r := gRecords[idx]
@@ -403,10 +545,143 @@ EditOverload(*) {
     row := LV.GetNext(0, "F")
     if !row
         return
-    idx := Integer(LV.GetText(row, 7))
+    idx := Integer(LV.GetText(row, 8))
     if (idx < 1 || idx > gRecords.Length)
         return
     OpenVariantEditor(gRecords[idx])
+}
+
+; ── give this hotstring a key ─────────────────────────────────────────────────
+;  Optional, one per hotstring, and it never replaces the trigger: both fire the
+;  same thing, so a key is something you add to the ten messages you send all day
+;  and never think about for the other hundred.
+;
+;  The binding is a line in hotkeys.ini — `[hotstring] trigger = key` — which is
+;  the same file, the same format and the same conflict report as every other key
+;  in MMA. See the [hotstring] block at the bottom of core/hotkeys.ahk for why it
+;  is in the registry rather than bound off to one side, and
+;  HotstringKeys_Register in core/utils.ahk for what happens when you press it.
+SetHotstringKey(*) {
+    global LV, gRecords, MainGui
+    row := LV.GetNext(0, "F")
+    if !row {
+        MsgBox("Select a hotstring first.", "Hotkey", 0x40)
+        return
+    }
+    idx := Integer(LV.GetText(row, 8))
+    if (idx < 1 || idx > gRecords.Length)
+        return
+    rec := gRecords[idx]
+    trg := rec.trigger
+
+    ; Dots are fine. An `=` is not, and it is the ini line format saying so rather
+    ; than MMA: `a=b = ^!1` reads back as the trigger "a" with the value "b = ^!1".
+    ; No trigger in the library has one.
+    if InStr(trg, "=") {
+        MsgBox("'" trg "' has an '=' in it, and that is what separates a setting"
+             . " from its value in hotkeys.ini — so this trigger cannot have a"
+             . " key.`n`nRename the trigger if you want one.", "Hotkey", 0x30)
+        return
+    }
+
+    id  := HK_HotstringId(trg)
+    was := HK_Key(id)
+
+    ov := Gui("+AlwaysOnTop -Caption +ToolWindow +Owner" MainGui.Hwnd)
+    ov.BackColor := "1E1E1E"
+    ov.SetFont("s11 cWhite", "Segoe UI")
+    lblPrompt := ov.Add("Text", "x0 y16 w420 Center", "Press a key for  " trg)
+    ov.SetFont("s9 c9A9A9A")
+    ov.Add("Text", "x0 y44 w420 Center", "Esc = cancel     Backspace = remove the key")
+    ov.Show("w420 h80")
+
+    ; Every MMA script holds fire while we listen, or pressing F1 to assign it
+    ; would also send model 1's follow-up. The un-suspend MUST run even if the
+    ; grab throws, or every hotkey in MMA stays dead with no clue why — the same
+    ; reasoning, and the same `finally`, as the Hotkeys tab.
+    HK_Broadcast(HK_MSG_SUSPEND, 1)
+    try
+        k := HKP_GrabKey(lblPrompt)
+    finally {
+        HK_Broadcast(HK_MSG_SUSPEND, 0)
+        ov.Destroy()
+    }
+
+    if (k = "<cancel>")
+        return
+    if (k = "<clear>") {
+        if (was = "") {
+            MsgBox("'" trg "' had no key.", "Hotkey", 0x40)
+            return
+        }
+        try IniDelete(HK_INI, "hotstring", trg)
+        LOGI("hotstring.key", "removed the key from " trg " (was "
+                            . HKP_KeyLabel(was) ") — it is typed only from now on")
+        _HsKeyApplied(rec, "'" trg "' no longer has a key.", true)
+        return
+    }
+
+    ; ── no duplicates ─────────────────────────────────────────────────────────
+    ; Refused, not warned about. Elsewhere in MMA two ids may share a key when
+    ; their window contexts do not overlap — but a hotstring key is GLOBAL (see
+    ; HotstringKeys_Register), so it overlaps with everything, and "both fire and
+    ; the winner is whichever script registered last" is not a state to offer
+    ; someone as a checkbox. Press another key.
+    clash := HK_KeyOwner(k, id)
+    if (clash != "") {
+        MsgBox(HKP_KeyLabel(k) " is already used by:`n`n    " clash
+             . "`n`nPick a different one — a hotstring key works in every window,"
+             . " so sharing it would mean both fire and whichever script loaded"
+             . " last wins.", "Key already used", 0x30)
+        LOG_Bail("hotstring.key", "refused to bind " HKP_KeyLabel(k) " to " trg
+                                . " — already used by " clash)
+        return
+    }
+
+    IniWrite(k, HK_INI, "hotstring", trg)
+    LOGI("hotstring.key", trg " is now on " HKP_KeyLabel(k)
+                        . (was = "" ? "" : " (was " HKP_KeyLabel(was) ")"))
+    _HsKeyApplied(rec, "'" trg "' is now on  " HKP_KeyLabel(k), was = "")
+}
+
+; Make the change real, then say what happened.
+;
+; ─── WHY A RESTART, AND ONLY SOMETIMES ────────────────────────────────────────
+; A message script binds its hotstring keys once, at load, from the ini. So:
+;
+;   the key CHANGED   the id is already bound in that script, and the reload
+;                     broadcast is enough — HK_Bind re-reads the ini and moves
+;                     the key with no restart and nothing interrupted.
+;   a NEW binding     there is no bound id to move. The script has to load again
+;                     to notice, and until it does the key does nothing at all —
+;                     which is indistinguishable from the feature being broken.
+;
+; So a new binding restarts the owning script, and says so. Restarting one
+; message script is what "Startup scripts ▸ Restart" does and takes a moment;
+; doing it silently would be worse, and not doing it would ship a key that only
+; works tomorrow.
+_HsKeyApplied(rec, msg, needsRestart) {
+    global gRecords, searchEd
+    HK_Broadcast(HK_MSG_RELOAD, 0)
+    ; Rebuild the list so the Key column is right immediately — it is read from
+    ; the ini per row, so nothing else has to be told.
+    PopulateList(searchEd.Value)
+
+    if !needsRestart {
+        MsgBox(msg "`n`nApplied live.", "Hotkey", 0x40)
+        return
+    }
+    path := MMA_CONTENT "\" rec.file
+    SplitPath(path, &fname)
+    if !FileExist(path) {
+        MsgBox(msg "`n`nSaved, but " fname " is not where the index said it was,"
+             . " so it could not be restarted. The key works next time that script"
+             . " starts.", "Hotkey", 0x30)
+        return
+    }
+    SS_Restart(path)
+    MsgBox(msg "`n`n" fname " was restarted so the key takes effect now.",
+           "Hotkey", 0x40)
 }
 
 ; A variant is edited as plain text: ONE STEP PER LINE, with \n standing in for a
@@ -592,7 +867,7 @@ Notify(msg) {
 ; ── resize: search spans the width; list on top, showcase (full width) beneath ──
 OnSize(g, minMax, w, h) {
     global searchEd, LV, detailEd, countTxt, btnOpen, btnCopy, btnRescan, lblSize, sizeDD
-    global btnOver, btnDelete, lblSort, sortDD
+    global btnOver, btnKey, btnDelete, lblSort, sortDD
     if (minMax = -1)
         return
     m := 16, gap := 10, footerH := 30, footerGap := 14
@@ -613,20 +888,36 @@ OnSize(g, minMax, w, h) {
     LV.ModifyCol(1, 190)
     LV.ModifyCol(3, 54)
     LV.ModifyCol(4, 54)
-    LV.ModifyCol(5, 130)
-    LV.ModifyCol(6, 92)
-    LV.ModifyCol(2, Max(160, listW - 190 - 54 - 54 - 130 - 92 - 24))
+    LV.ModifyCol(5, 96)
+    LV.ModifyCol(6, 130)
+    LV.ModifyCol(7, 92)
+    LV.ModifyCol(2, Max(160, listW - 190 - 54 - 54 - 96 - 130 - 92 - 24))
 
     by := top + contentH + footerGap
     btnOpen.Move(m, by)
     btnCopy.Move(m + 118, by)
     btnRescan.Move(m + 236, by)
     btnOver.Move(m + 336, by)
-    btnDelete.Move(m + 462, by)
+    btnKey.Move(m + 460, by)
+    btnDelete.Move(m + 566, by)
     sizeDD.Move(w - m - 62, by, 62)
     lblSize.Move(w - m - 62 - 66, by + 6, 62)
     sortDD.Move(w - m - 62 - 66 - 128, by, 120)
     lblSort.Move(w - m - 62 - 66 - 128 - 38, by + 6, 34)
+
+    ; Repaint the strip the footer lives in. The right-hand cluster slides with the
+    ; window edge, and the background it slides OFF is the parent's — which Windows
+    ; does not repaint on its own when a child moves. Without this, dragging the
+    ; window wider smears "Sort" and its dropdown across the footer, the same way
+    ; the first WM_SIZE used to. Just this band, not the whole window: the list and
+    ; the showcase are opaque controls that paint themselves, and invalidating them
+    ; on every WM_SIZE of a drag is a flicker you can see.
+    _rc := Buffer(16, 0)
+    NumPut("Int", 0,          _rc, 0)
+    NumPut("Int", by - 6,     _rc, 4)
+    NumPut("Int", w,          _rc, 8)
+    NumPut("Int", by + 40,    _rc, 12)
+    DllCall("InvalidateRect", "Ptr", g.Hwnd, "Ptr", _rc, "Int", true)
 }
 
 ; ── text size: live-apply to list + showcase and remember the choice ──
@@ -672,4 +963,7 @@ ApplyDarkTheme() {
     hHdr := SendMessage(0x101F, 0, 0, LV)        ; LVM_GETHEADER
     if hHdr
         try DllCall("uxtheme\SetWindowTheme", "ptr", hHdr, "str", "DarkMode_Explorer", "ptr", 0)
+    ; Bold button labels, the same as every other MMA window — the shared helper
+    ; in core/theme.ahk, so there is one answer to "are buttons bold".
+    try THEME_BoldButtons(MainGui)
 }

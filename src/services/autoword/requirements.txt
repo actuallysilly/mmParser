@@ -1,0 +1,13 @@
+# MMA autoword dependency.
+# Install with:  pip install -r requirements.txt
+#   (install.bat WithPython installs this alongside the pinger/typelog deps.)
+
+# Global keyboard capture, selective key suppression for the accept key, and the
+# synthetic keystrokes that complete an accepted word. The window scope, the
+# named stop-event and the Windows spell checker all use ctypes (standard
+# library), and the strip renderer uses tkinter (standard library), so this is
+# the only third-party need.
+# 1.8 is the floor: it reports whether a keystroke was injected, which is how
+# the service tells its own completions from your typing. On 1.7 it warns at
+# startup and falls back to a 50ms timer that goes blind to real keys.
+pynput>=1.8

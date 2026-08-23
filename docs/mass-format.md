@@ -65,6 +65,48 @@ Within a group: line 1 → `fN`, line 2 → `fN.5`, line 3 → `fN.7`. A fourth 
 `!mm` / `!mma` / `mm` / `mma` are interchangeable, with or without a colon. **The line is
 optional** — with none, the first non-blank line becomes the mass.
 
+### A mass that spans lines — `!mma` on its own line
+
+Put the marker **alone** on the top line and everything under it is the mass, blank lines and
+all, as one message:
+
+```
+!mma:
+
+If you were my artist, how would you picture me? 🎨
+
+Would my curves take over the entire canvas...
+Or would you only sketch the parts you couldn't stop thinking about? :3
+
+Would your artwork be bold enough to leave people speechless? ♡
+```
+
+That is **one** message. The blank lines are paragraph breaks in it, not group separators, so
+nothing here becomes `f1` or `f2`.
+
+The block ends at the first of:
+
+| | |
+|---|---|
+| a `---` fence | eaten along with the block — **write one if follow-ups come after**, since positional follow-ups carry no label to stop it themselves |
+| a labelled line | a field name, an `f`/`fu` prefix, `ppv`, or a `::branch` — that line names its own field |
+| the end of the paste | |
+
+```
+!mma
+
+paragraph one
+
+paragraph two
+---
+
+late night opener              <- f1
+still up?                      <- f1.5
+```
+
+`Export !mma` writes this form (with the fence) whenever the mass spans lines, so a multi-line
+mass round-trips.
+
 ### Prefixed
 
 Label the lines and blank lines stop mattering; each line goes exactly where its number says.
@@ -106,7 +148,9 @@ parsing.
 !mma hey babe
 ```
 
-`--Name` (no space) is a **branch**, not a comment. `---` is a **fence**. Both below.
+`---` (three or more) is a **fence**, not a comment — see below. `--Name` used to be a branch
+marker and is not one any more (`::name` is), so a line like `--sale ends tonight` is left
+alone as message text rather than being eaten.
 
 ---
 
@@ -129,61 +173,82 @@ All of that becomes the single `ppv` field. Nothing spills into `ppvfu1`.
 
 ---
 
-## Alternatives — `alt:`
+## Alternatives and branches — `::name`
 
-An **alt** is another wording of the same follow-up. Put them inside the follow-up's group.
-
-```
-hey did you see it?
-alt: did you get my message babe?
-alt: still thinking about you
-```
-
-Unnumbered `alt:` — each line is its **own** alternative. This is the common case.
-
-Numbered `altN:` — lines sharing a number join into **one multi-part** alternative. That
-distinction is the whole reason numbering exists; without it two `alt:` lines are ambiguous
-between two single-part alts and one two-part alt.
+**One marker for both.** An alternative *is* a branch: another wording of a follow-up, which
+also decides what the next follow-up says. `alt:` / `alt0:` lines and `--Name` blocks were two
+spellings of that one idea and are **gone**: if you find either of them written down somewhere,
+that page is describing a format MMA no longer reads.
 
 ```
-alt0: first part of alt one
-alt0: second part of alt one
-alt1: a different, single-part alt
+::tits Would you mind if I smothered you with them?
 ```
 
-`alt0:` is the **first** slot (they are zero-based here). The two forms mix freely; an
-unnumbered `alt:` takes the next free slot. Up to 3 alts per follow-up group.
+`tits` is the branch name. **`alt` is not special** — it is simply the name you use when the
+wording has no better one.
 
----
+### Both of these are the same thing
 
-## Branches — `--Name`
-
-A **branch** is a whole alternate follow-up sequence: a different wording that also implies the
-*next* follow-ups. Pick a branch at f1 and f2/f3 open on that same branch.
-
-Everything before the first `--Name` is the shared trunk. Each marker opens a branch, laid out
-positionally exactly like the trunk.
+The wording can go on the marker line, or on its own line(s) under it. Write it the way it
+reads:
 
 ```
-!mma hey babe, are you awake?
-
-did you see what I sent?
-
-hellooo?
-
---BigSpender
-you deserve something special
-I made this just for you
-ppv unlock for the full thing
-
---Cheapskate
-last chance babe
+::tits Would you mind if I smothered you with them?
+```
+```
+::tits
+Would you mind if I smothered you with them?
 ```
 
-Up to 3 branches per mass. A branch with nothing in a given group is skipped rather than
-sending silence.
+Several lines under one marker are several **parts** of that branch's answer — f3, then f3.5,
+then f3.7 — exactly as repeating the marker would be:
 
-### How alts and branches behave when sending
+```
+::tits
+smother you with them
+and make you beg for mercy
+```
+
+> A marker **with** text on its line does not own the line after it; that one is the trunk's next
+> sub-slot. A marker with **nothing** under it says nothing at all — it does not send a blank
+> line.
+
+### Which follow-up a branch answers
+
+The one it sits in. A marker inside a follow-up's group is an alternative to that group; a
+marker under `f2.5` answers the whole of follow-up 2, because the sub-slots are parts of one
+answer rather than follow-ups of their own.
+
+A group that **opens** with a marker is the *next* follow-up — one the trunk has no wording for
+— and consecutive branch-led groups are choices at that **same** step, not successive follow-ups:
+
+```
+!mma Are you needy for nakedness?
+
+late night opener                       <- f1
+
+which curve entices you the most?       <- f2
+and be honest about it                  <- f2.5
+
+::tits                                  <- f3, if she says tits
+smother you with them
+
+::ass                                   <- f3, if she says ass
+my personal throne
+```
+
+Here the trunk has **no f3 at all**, which is correct: what goes out depends on her answer. A
+sparse trunk is normal and nothing treats it as an error.
+
+A branch keeps its identity **by name** across the whole mass, so the `::tits` under follow-up 2
+is the same branch as the one under follow-up 1 — that is what makes picking it at f1 commit you
+to it at f2 and f3. Names are matched case-insensitively (`::Tits` and `::tits` are one branch,
+because two would be a typo that costs a slot).
+
+Up to 6 branches per mass and 3 parts per group; past either, the extra is dropped **and
+logged** rather than silently overwriting something.
+
+### How they behave when sending
 
 They are **one list on the follow-up key**. Press the key:
 

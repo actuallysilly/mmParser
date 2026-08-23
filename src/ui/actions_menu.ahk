@@ -245,6 +245,20 @@ ActionsSkip(id) {
         return true
     if (!_actSends.Value && SubStr(id, 1, 5) = "mass.")
         return true
+    ; Hotstring keys are never listed, and the reason is the dispatch protocol
+    ; rather than taste. This menu runs an action by broadcasting its INDEX in
+    ; HK_ORDER, so every process has to agree on what index N is — which the
+    ; static declarations guarantee and these do not: they come from the ini, and
+    ; a script started before you bound one has a shorter HK_ORDER. They are
+    ; appended after every static id (see the [hotstring] block at the bottom of
+    ; core/hotkeys.ahk), so skipping them here means every index this menu can
+    ; send is in the stable range.
+    ;
+    ; Nothing is lost that this window offers: its selling point is reaching
+    ; actions with NO key bound, and a hotstring with no key bound is a hotstring
+    ; you type. Search the Hotstrings window for the message instead.
+    if HK_IsHotstringId(id)
+        return true
     return false
 }
 

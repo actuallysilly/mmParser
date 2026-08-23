@@ -10,7 +10,7 @@
 ;  switching tabs would quietly wipe the other two.
 ; ═══════════════════════════════════════════════════════════════════════════════
 
-#Include "../src/mass/store.ahk"
+#Include "../../src/mass/store.ahk"
 
 pass := 0, fail := 0
 Out(s) => FileAppend(s "`n", "*")
