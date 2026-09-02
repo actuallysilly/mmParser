@@ -1,0 +1,647 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>MMA — Chat simulator</title>
+<style>
+/* ═══════════════════════════════════════════════════════════════════════════
+   The dark violet the repo already calls "the Infloww family" — the palette
+   ui/hotstrings_window.ahk defines and mass/archive.ahk and ui/actions_menu.ahk
+   both match, so this window reads as the same app standing in front of the
+   same site.
+   ═══════════════════════════════════════════════════════════════════════ */
+:root {
+  --bg:        #15141c;   /* the window */
+  --rail:      #1b1a24;   /* the chat header / composer bars */
+  --surface:   #201e2b;   /* raised panels */
+  --field:     #2a2836;   /* somewhere you type */
+  --line:      #302d3f;
+  --text:      #e6e4ee;
+  --muted:     #8e8aa6;
+  --accent:    #b89cff;
+  --mine:      #6d28d9;   /* your bubble — THEME_Accent()'s violet */
+  --mine-text: #ffffff;
+  --theirs:    #262433;
+  --paste:     #3a3450;
+}
+* { box-sizing: border-box; }
+html, body { margin: 0; padding: 0; height: 100%; }
+body {
+  background: var(--bg); color: var(--text);
+  font: 14px/1.5 "Segoe UI", system-ui, -apple-system, sans-serif;
+  display: flex; flex-direction: column; height: 100vh; overflow: hidden;
+}
+button, select, textarea, input { font: inherit; color: inherit; }
+
+/* ── the chat header ────────────────────────────────────────────────────── */
+.head {
+  display: flex; align-items: center; gap: 12px; flex: 0 0 auto;
+  padding: 10px 18px; background: var(--rail);
+  border-bottom: 1px solid var(--line);
+}
+.avatar {
+  width: 38px; height: 38px; border-radius: 50%; flex: 0 0 auto;
+  background: linear-gradient(140deg, var(--accent), var(--mine));
+  display: grid; place-items: center; font-weight: 700; color: #fff;
+  font-size: 15px;
+}
+.who { display: flex; flex-direction: column; line-height: 1.25; min-width: 0; }
+.who .name { font-weight: 600; font-size: 15px; }
+.who .sub  { font-size: 11.5px; color: var(--muted); }
+.spacer { flex: 1; }
+select, .btn {
+  background: var(--field); border: 1px solid var(--line); border-radius: 8px;
+  padding: 6px 10px; font-size: 13px; cursor: pointer;
+}
+.btn:hover, select:hover { border-color: var(--accent); }
+.btn.primary { background: var(--mine); border-color: var(--mine); color: #fff; }
+.btn.primary:disabled { opacity: .45; cursor: default; }
+.lbl { font-size: 11.5px; color: var(--muted); }
+.slots { display: inline-flex; border: 1px solid var(--line); border-radius: 8px; overflow: hidden; }
+.slots button {
+  background: var(--field); border: 0; border-left: 1px solid var(--line);
+  padding: 6px 11px; font-size: 13px; cursor: pointer;
+}
+.slots button:first-child { border-left: 0; }
+.slots button[aria-pressed="true"] { background: var(--mine); color: #fff; }
+.counts { font-size: 11.5px; color: var(--muted); font-variant-numeric: tabular-nums; }
+.counts b { color: var(--text); font-weight: 600; }
+
+/* ── the conversation ───────────────────────────────────────────────────── */
+.chat { flex: 1 1 auto; overflow-y: auto; padding: 18px 22px 8px; }
+.wrap { max-width: 780px; margin: 0 auto; }
+
+/* the small centred marker that says which key sends what follows */
+.beat {
+  display: flex; align-items: center; gap: 10px; margin: 20px 0 12px;
+  color: var(--muted); font-size: 11px; letter-spacing: .06em;
+}
+.beat::before, .beat::after { content: ""; flex: 1; height: 1px; background: var(--line); }
+.beat span {
+  border: 1px solid var(--line); background: var(--surface);
+  border-radius: 999px; padding: 2px 10px; white-space: nowrap;
+}
+.beat b { color: var(--accent); font-weight: 700; letter-spacing: 0; }
+.note {
+  text-align: center; font-size: 11.5px; color: var(--muted);
+  font-style: italic; margin: -6px 0 12px;
+}
+
+.msg { display: flex; margin: 0 0 8px; align-items: flex-end; gap: 8px; }
+.msg.me   { justify-content: flex-end; }
+.msg.them { justify-content: flex-start; }
+.bubble {
+  position: relative; max-width: 74%; min-width: 72px;
+  border-radius: 18px; padding: 9px 14px;
+  background: var(--theirs); border: 1px solid transparent;
+}
+.me   .bubble { background: var(--mine); color: var(--mine-text); border-bottom-right-radius: 6px; }
+.them .bubble { background: var(--theirs); border-bottom-left-radius: 6px; }
+/* a pasted beat sits in the chat box — it has not been sent, and it must not
+   look like it has */
+.me.paste .bubble {
+  background: transparent; border: 1px dashed var(--paste); color: var(--text);
+}
+/* An editable bubble has to size to its TEXT, in both directions, or every
+   message is a tall narrow column: a textarea has no intrinsic width, so the
+   bubble around it collapses to min-width and the text wraps inside it.
+
+   The fix is the standard auto-grow trick, and it is worth preferring over
+   measuring in JS: an invisible copy of the same text, in the same font, sits in
+   the same grid cell as the textarea. The COPY sizes the box; the textarea
+   stretches to fill it. No scrollHeight, no resize observer, and it is right on
+   the first frame rather than after one. `data-value` is kept in step on input. */
+.autogrow { display: grid; }
+.autogrow > textarea,
+.autogrow::after {
+  grid-area: 1 / 1;
+  font: inherit; font-size: 14px; line-height: 1.45;
+  padding: 0; margin: 0; border: 0;
+  white-space: pre-wrap; overflow-wrap: anywhere; word-break: break-word;
+}
+.autogrow::after {
+  content: attr(data-value) " ";   /* the trailing space keeps a final newline */
+  visibility: hidden;
+}
+.autogrow > textarea {
+  background: transparent; border: 0; outline: 0; resize: none; overflow: hidden;
+  color: inherit; min-width: 60px;
+}
+.bubble textarea::placeholder { color: rgba(255,255,255,.5); }
+.them .bubble textarea::placeholder { color: var(--muted); }
+.bubble:focus-within { border-color: var(--accent); }
+.tag {
+  display: block; font-size: 10px; letter-spacing: .07em; text-transform: uppercase;
+  color: var(--muted); margin: 0 0 4px;
+}
+.tools {
+  display: flex; flex-direction: column; align-items: center; gap: 4px;
+  opacity: 0; transition: opacity .12s;
+}
+.msg:hover .tools, .msg:focus-within .tools { opacity: 1; }
+.tools button {
+  background: none; border: 0; color: var(--muted); cursor: pointer;
+  font-size: 15px; line-height: 1; padding: 2px 4px; border-radius: 5px;
+}
+.tools button:hover { color: var(--text); background: var(--surface); }
+.stamp {
+  font-size: 10.5px; color: var(--muted); align-self: flex-end;
+  padding-bottom: 3px; font-variant-numeric: tabular-nums; white-space: nowrap;
+}
+.gap {
+  text-align: center; font-size: 10.5px; color: var(--muted);
+  margin: -3px 0 7px; font-variant-numeric: tabular-nums;
+}
+.blank {
+  text-align: center; color: var(--muted); font-size: 13px;
+  padding: 40px 20px; font-style: italic;
+}
+
+/* ── the composer ───────────────────────────────────────────────────────── */
+.composer {
+  flex: 0 0 auto; background: var(--rail); border-top: 1px solid var(--line);
+  padding: 10px 22px 14px;
+}
+.composer .inner { max-width: 780px; margin: 0 auto; }
+.crow { display: flex; align-items: center; gap: 10px; margin: 0 0 8px; }
+.side { display: inline-flex; border: 1px solid var(--line); border-radius: 999px; overflow: hidden; }
+.side button {
+  background: var(--field); border: 0; padding: 5px 14px; font-size: 12.5px; cursor: pointer;
+}
+.side button[aria-pressed="true"] { background: var(--mine); color: #fff; }
+.target { font-size: 12px; color: var(--muted); }
+.target b { color: var(--accent); font-weight: 600; }
+.cbox { display: flex; align-items: flex-end; gap: 10px; }
+.cbox textarea {
+  flex: 1; background: var(--field); border: 1px solid var(--line);
+  border-radius: 20px; padding: 10px 16px; resize: none; overflow-y: auto;
+  min-height: 42px; max-height: 180px; line-height: 1.45; outline: 0;
+}
+.cbox textarea:focus { border-color: var(--accent); }
+.cbox textarea::placeholder { color: var(--muted); }
+.send {
+  width: 42px; height: 42px; border-radius: 50%; flex: 0 0 auto;
+  background: var(--mine); border: 0; color: #fff; cursor: pointer; font-size: 17px;
+}
+.send:disabled { opacity: .4; cursor: default; }
+.hintline { font-size: 11.5px; color: var(--muted); margin: 7px 2px 0; }
+
+#toast {
+  position: fixed; left: 50%; bottom: 96px; transform: translateX(-50%);
+  background: var(--surface); border: 1px solid var(--line); color: var(--text);
+  padding: 8px 16px; border-radius: 999px; font-size: 13px;
+  opacity: 0; pointer-events: none; transition: opacity .18s;
+}
+#toast.on { opacity: 1; }
+</style>
+</head>
+<body>
+
+<div class="head">
+  <div class="avatar" id="avatar">?</div>
+  <div class="who">
+    <span class="name" id="who">—</span>
+    <span class="sub" id="sub"></span>
+  </div>
+  <span class="spacer"></span>
+  <span class="lbl">Model</span>
+  <select id="model"></select>
+  <span class="lbl">Mass</span>
+  <span class="slots" id="massSlots"></span>
+  <span class="lbl">Reading</span>
+  <select id="branch"></select>
+  <span class="counts" id="counts"></span>
+  <button class="btn" id="btnCopy" title="the whole conversation, as text">Copy</button>
+  <button class="btn" id="btnReload" title="re-read masses.json">Reload</button>
+</div>
+
+<div class="chat" id="chat"><div class="wrap" id="wrap"></div></div>
+
+<div class="composer">
+  <div class="inner">
+    <div class="crow">
+      <span class="side">
+        <button id="sideMe"   aria-pressed="true">Me</button>
+        <button id="sideThem" aria-pressed="false">Him</button>
+      </span>
+      <span class="target" id="target"></span>
+      <span class="spacer"></span>
+      <select id="slotPick" title="which slot this message goes into"></select>
+    </div>
+    <div class="cbox">
+      <textarea id="input" rows="1" placeholder="write the next message…"></textarea>
+      <button class="send" id="btnSend" title="Enter to send, Shift+Enter for a line break">&#10148;</button>
+    </div>
+    <div class="hintline" id="hint"></div>
+  </div>
+</div>
+
+<div id="toast"></div>
+
+<script>
+"use strict";
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   The page draws; it does not decide.
+
+   Every bubble below came from MASS_Transcript in mass\shape.ahk — the same
+   function the engine's follow-up keys go through — and every message you send
+   here goes into the slot MASS_WriteSlots named. Nothing in this file works out
+   how many messages an f1 is, whether FuSingle joined them, which wording a
+   branch contributes, or where the next message belongs. Ask, and render the
+   answer. A copy of those rules in JavaScript would be faster and would be wrong
+   within a week.
+   ═══════════════════════════════════════════════════════════════════════ */
+
+let ST = null;
+let side = "me";          /* who the composer is writing as */
+let target = null;        /* slot id the next "me" message goes into, or null */
+
+function post(m) { if (window.chrome && chrome.webview) chrome.webview.postMessage(m); }
+function byId(id) { return document.getElementById(id); }
+
+/* A script error in here goes to the page console and NOWHERE this process can
+   see — which is how a window that draws nothing looks exactly like a window
+   that was never sent anything. Errors go to mma.log with the rest of MMA. */
+window.addEventListener("error", e => {
+  post({ cmd: "pageerror",
+         msg: String(e.message || e.error || "unknown"),
+         at: String(e.filename || "") + ":" + (e.lineno || 0) + ":" + (e.colno || 0) });
+});
+window.addEventListener("unhandledrejection", e => {
+  post({ cmd: "pageerror", msg: "unhandled promise: " + String(e.reason), at: "" });
+});
+
+let saveTimer = null;
+function queueSave() {
+  clearTimeout(saveTimer);
+  saveTimer = setTimeout(() => post({ cmd: "save" }), 600);
+}
+
+/* Only the composer needs this: the bubbles size themselves in CSS (see
+   .autogrow), and the composer deliberately CAPS its height rather than growing
+   without limit — it is a box you type in, not the conversation. */
+function autosize(t, max) {
+  t.style.height = "auto";
+  t.style.height = Math.max(Math.min(t.scrollHeight, max), 42) + "px";
+}
+
+/* ── the conversation ───────────────────────────────────────────────────── */
+function render() {
+  const wrap = byId("wrap");
+  const chat = byId("chat");
+  const keepTop = chat.scrollTop;
+  wrap.innerHTML = "";
+
+  const waitS = ((ST.waitMs | 0) / 1000).toFixed(1) + "s";
+  let drew = 0;
+
+  for (const beat of ST.beats) {
+    const reply = (ST.replies && ST.replies[beat.key]) || "";
+    if (!beat.messages.length && !reply) continue;   /* an empty beat is not a turn */
+    drew++;
+
+    const bar = document.createElement("div");
+    bar.className = "beat";
+    bar.innerHTML = "<span><b>" + escText(beat.label) + "</b>"
+                  + (beat.kind === "paste" ? " · pasted, not sent" : "") + "</span>";
+    wrap.appendChild(bar);
+
+    if (beat.note) {
+      const n = document.createElement("div");
+      n.className = "note";
+      n.textContent = beat.note;
+      wrap.appendChild(n);
+    }
+
+    beat.messages.forEach((msg, i) => {
+      wrap.appendChild(mineBubble(beat, msg));
+      if (beat.kind === "send" && i < beat.messages.length - 1) {
+        const gap = document.createElement("div");
+        gap.className = "gap";
+        gap.textContent = waitS;
+        wrap.appendChild(gap);
+      }
+    });
+
+    if (reply) wrap.appendChild(theirBubble(beat.key, reply));
+  }
+
+  if (!drew) {
+    const b = document.createElement("div");
+    b.className = "blank";
+    b.textContent = "Nothing in this mass yet. Write the opener below and send it.";
+    wrap.appendChild(b);
+  }
+
+  chat.scrollTop = keepTop;
+}
+
+function escText(s) { return String(s); }
+
+/* One of your messages. Editing it writes straight back into the field it came
+   from — which is the whole "fill in values" half of the window. */
+function mineBubble(beat, msg) {
+  const row = document.createElement("div");
+  row.className = "msg me" + (beat.kind === "paste" ? " paste" : "");
+
+  const tools = document.createElement("div");
+  tools.className = "tools";
+  const del = document.createElement("button");
+  del.title = "clear this message";
+  del.textContent = "×";
+  del.addEventListener("click", () => {
+    for (const f of msg.fields) post({ cmd: "field", field: f, value: "" });
+    queueSave();
+  });
+  tools.appendChild(del);
+  row.appendChild(tools);
+
+  const stamp = document.createElement("span");
+  stamp.className = "stamp";
+  stamp.textContent = msg.text.length;
+  row.appendChild(stamp);
+
+  const bub = document.createElement("div");
+  bub.className = "bubble";
+  if (beat.kind === "paste") {
+    const t = document.createElement("span");
+    t.className = "tag";
+    t.textContent = "in the chat box";
+    bub.appendChild(t);
+  }
+  const box = document.createElement("div");
+  box.className = "autogrow";
+  box.dataset.value = msg.text;
+  const ta = document.createElement("textarea");
+  ta.value = msg.text;
+  ta.rows = 1;
+  /* With FuSingle on, one bubble is three fields joined. Editing it then has no
+     single home, so it is read-only and says why rather than silently writing
+     your edit into part one. */
+  const single = msg.fields.length > 1;
+  ta.readOnly = single;
+  if (single) ta.title = "these parts are joined by FuSingle — edit them from the trunk";
+  ta.addEventListener("input", () => {
+    box.dataset.value = ta.value;
+    stamp.textContent = ta.value.length;
+    post({ cmd: "field", field: msg.fields[0], value: ta.value });
+    queueSave();
+  });
+  box.appendChild(ta);
+  bub.appendChild(box);
+  row.appendChild(bub);
+  return row;
+}
+
+/* The fan's line. Sends nothing, and is not part of the mass. */
+function theirBubble(beatKey, text) {
+  const row = document.createElement("div");
+  row.className = "msg them";
+
+  const bub = document.createElement("div");
+  bub.className = "bubble";
+  const box = document.createElement("div");
+  box.className = "autogrow";
+  box.dataset.value = text;
+  const ta = document.createElement("textarea");
+  ta.value = text;
+  ta.rows = 1;
+  ta.placeholder = "what he says…";
+  ta.addEventListener("input", () => {
+    box.dataset.value = ta.value;
+    ST.replies[beatKey] = ta.value;
+    post({ cmd: "reply", beat: beatKey, value: ta.value });
+    queueSave();
+  });
+  box.appendChild(ta);
+  bub.appendChild(box);
+  row.appendChild(bub);
+
+  const tools = document.createElement("div");
+  tools.className = "tools";
+  const del = document.createElement("button");
+  del.title = "remove his reply";
+  del.textContent = "×";
+  del.addEventListener("click", () => {
+    delete ST.replies[beatKey];
+    post({ cmd: "reply", beat: beatKey, value: "" });
+    queueSave();
+    render();
+  });
+  tools.appendChild(del);
+  row.appendChild(tools);
+  return row;
+}
+
+/* ── the composer ───────────────────────────────────────────────────────── */
+function renderComposer() {
+  const pick = byId("slotPick");
+  pick.innerHTML = "";
+  for (const s of ST.slots) {
+    const o = document.createElement("option");
+    o.value = s.id;
+    o.textContent = s.label + (s.filled ? "  ✓" : "");
+    pick.appendChild(o);
+  }
+  /* Default to the first empty slot — "the next response" — but leave the
+     dropdown there, because writing f3 before f2 is a normal thing to want. */
+  if (!target || !ST.slots.some(s => s.id === target))
+    target = ST.nextSlot || (ST.slots.length ? ST.slots[ST.slots.length - 1].id : null);
+  if (target) pick.value = target;
+
+  syncSide();
+}
+
+function syncSide() {
+  byId("sideMe").setAttribute("aria-pressed", side === "me" ? "true" : "false");
+  byId("sideThem").setAttribute("aria-pressed", side === "them" ? "true" : "false");
+
+  const t = byId("target");
+  const hint = byId("hint");
+  if (side === "me") {
+    const s = ST.slots.find(x => x.id === target);
+    byId("slotPick").style.display = "";
+    if (!s) {
+      t.innerHTML = "every slot in this mass is full";
+      hint.textContent = "Pick a slot on the right to overwrite it, or edit a bubble above.";
+    } else {
+      t.innerHTML = "goes into <b>" + s.label + "</b>"
+                  + (s.filled ? " — which already has text" : "")
+                  + (s.mode === "line" ? " (added as another line)" : "");
+      hint.textContent = s.kind === "paste"
+        ? "This one is PASTED into the chat box, not sent — you press Enter yourself."
+        : "Enter sends · Shift+Enter for a line break inside one message.";
+    }
+  } else {
+    byId("slotPick").style.display = "none";
+    const b = lastBeatWithContent();
+    t.innerHTML = b
+      ? "his reply after <b>" + b.label + "</b>"
+      : "nothing to reply to yet";
+    hint.textContent = "His lines are notes for you — they are never sent, and they "
+                     + "are not part of the mass.";
+  }
+  byId("btnSend").disabled = (side === "me" ? !target : !lastBeatWithContent());
+}
+
+/* Which beat his reply lands after: the last one that actually has a message. */
+function lastBeatWithContent() {
+  let last = null;
+  for (const b of ST.beats) if (b.messages.length) last = b;
+  return last;
+}
+
+function send() {
+  const box = byId("input");
+  const text = box.value.replace(/\s+$/, "");
+  if (!text) return;
+
+  if (side === "me") {
+    if (!target) return;
+    post({ cmd: "append", slot: target, value: text });
+  } else {
+    const b = lastBeatWithContent();
+    if (!b) return;
+    ST.replies[b.key] = text;
+    post({ cmd: "reply", beat: b.key, value: text });
+    render();
+  }
+  box.value = "";
+  autosize(box, 180);
+  queueSave();
+  /* A composer that does not follow what it just wrote is a composer you have to
+     scroll for on every message. */
+  setTimeout(() => { const c = byId("chat"); c.scrollTop = c.scrollHeight; }, 30);
+}
+
+/* ── the header ─────────────────────────────────────────────────────────── */
+function renderHead() {
+  const m = ST.models.find(x => x.no === ST.model);
+  const name = m ? m.name : ("Model " + ST.model);
+  byId("who").textContent = name;
+  byId("avatar").textContent = (name.trim()[0] || "?").toUpperCase();
+  byId("sub").textContent = "mass " + ST.slot
+    + (ST.branch ? "  ·  reading " + (ST.branches.find(b => b.no === ST.branch) || {}).name
+                 : "");
+
+  const mSel = byId("model");
+  mSel.innerHTML = "";
+  for (const x of ST.models) {
+    const o = document.createElement("option");
+    o.value = x.no; o.textContent = x.no + " · " + x.name;
+    if (x.no === ST.model) o.selected = true;
+    mSel.appendChild(o);
+  }
+
+  const slots = byId("massSlots");
+  slots.innerHTML = "";
+  for (let i = 1; i <= (ST.slots_count | 0); i++) {
+    const b = document.createElement("button");
+    b.textContent = i;
+    b.setAttribute("aria-pressed", i === ST.slot ? "true" : "false");
+    b.addEventListener("click", () => post({ cmd: "pick", slot: i }));
+    slots.appendChild(b);
+  }
+
+  const bSel = byId("branch");
+  bSel.innerHTML = "";
+  for (const b of ST.branches) {
+    const o = document.createElement("option");
+    o.value = b.no; o.textContent = b.no === 0 ? "trunk" : "∷ " + b.name;
+    if (b.no === ST.branch) o.selected = true;
+    bSel.appendChild(o);
+  }
+  bSel.disabled = ST.branches.length < 2;
+
+  renderCounts();
+}
+
+function renderCounts() {
+  const c = ST.counts || { sent: 0, pasted: 0, chars: 0 };
+  byId("counts").innerHTML =
+      "<b>" + c.sent + "</b> sent · <b>" + c.pasted + "</b> pasted · <b>"
+    + c.chars + "</b> chars";
+}
+
+/* ── wiring ─────────────────────────────────────────────────────────────── */
+byId("model").addEventListener("change", e =>
+  post({ cmd: "pick", model: parseInt(e.target.value, 10) }));
+byId("branch").addEventListener("change", e =>
+  post({ cmd: "pick", branch: parseInt(e.target.value, 10) }));
+byId("btnCopy").addEventListener("click", () => post({ cmd: "copy" }));
+byId("btnReload").addEventListener("click", () => post({ cmd: "reload" }));
+byId("sideMe").addEventListener("click", () => { side = "me"; syncSide(); byId("input").focus(); });
+byId("sideThem").addEventListener("click", () => { side = "them"; syncSide(); byId("input").focus(); });
+byId("slotPick").addEventListener("change", e => { target = e.target.value; syncSide(); });
+byId("btnSend").addEventListener("click", send);
+byId("input").addEventListener("input", e => autosize(e.target, 180));
+byId("input").addEventListener("keydown", e => {
+  if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); send(); }
+});
+
+let toastTimer = null;
+function toast(msg) {
+  const t = byId("toast");
+  t.textContent = msg;
+  t.classList.add("on");
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => t.classList.remove("on"), 2200);
+}
+
+window.mma = {
+  load(state) {
+    ST = state;
+    if (!ST.replies) ST.replies = {};
+    target = null;
+    renderHead();
+    render();
+    renderComposer();
+    byId("input").focus();
+  },
+  /* While you type in a bubble: the transcript and the counts change, the
+     composer's slot list changes (a slot just became filled), but the DOM you
+     are typing in is left alone — rebuilding it would take the caret with it. */
+  derived(d) {
+    if (!ST) return;
+    ST.beats = d.beats;
+    ST.counts = d.counts;
+    ST.slots = d.slots;
+    ST.nextSlot = d.nextSlot;
+    renderCounts();
+    refreshSlotLabels();
+    syncSide();
+  },
+  /* After a send: the mass really changed shape, so the conversation is redrawn
+     and the composer moves on to the next empty slot. */
+  appended(d) {
+    if (!ST) return;
+    ST.beats = d.beats;
+    ST.counts = d.counts;
+    ST.slots = d.slots;
+    ST.nextSlot = d.nextSlot;
+    ST.fields = d.fields;
+    target = null;
+    renderCounts();
+    render();
+    renderComposer();
+    setTimeout(() => { const c = byId("chat"); c.scrollTop = c.scrollHeight; }, 30);
+  },
+  toast,
+  theme() { /* this window is one palette on purpose — see the CSS header */ }
+};
+
+/* Only the ✓ marks change while typing, so the dropdown is patched rather than
+   rebuilt: rebuilding it while it has focus closes it under the user. */
+function refreshSlotLabels() {
+  const pick = byId("slotPick");
+  for (const s of ST.slots) {
+    const o = Array.from(pick.options).find(x => x.value === s.id);
+    if (o) o.textContent = s.label + (s.filled ? "  ✓" : "");
+  }
+}
+
+post({ cmd: "ready" });
+</script>
+</body>
+</html>

@@ -210,6 +210,21 @@ FEAT_Def("tabMarks",     "TabMarks",     "Tab bars (dividers on the strip)",  "1
 ; see src/branch/tree.ahk. On by default: it writes nothing until you press Save,
 ; it starts no background process, and it is only reachable from a key you press.
 FEAT_Def("branchBuilder", "BranchBuilder", "Branch builder (draw a conversation)", "1", "Tools")
+; The chat simulator draws a mass as the conversation it becomes, and lets you
+; write it from inside that. Its own switch rather than riding the branch
+; builder's: they are both "a window that makes a mass" and they answer
+; different questions — one draws the structure, the other the experience.
+FEAT_Def("chatSim",       "ChatSim",       "Chat simulator (write a mass in context)", "1", "Tools")
+; Triggers that run an ACTION instead of typing a message, from
+; userdata\shortcuts.ini — see hotstrings\shortcuts.ahk.
+;
+; On by default, and that is safe rather than presumptuous: the file it reads is
+; seeded with two live lines and everything else commented out, so "on" means two
+; triggers exist. It needs a switch at all because these are hotstrings on a
+; system-wide hook, sharing a namespace with ~117 message triggers — if one ever
+; swallows a message you type all day, the fix has to be one click and not a file
+; you have to remember the name of.
+FEAT_Def("shortcuts",     "HotstringShortcuts", "Hotstring shortcuts (type a trigger, run an action)", "1", "Tools")
 
 ; ── sequences: deliberately NOT declared ──────────────────────────────────────
 ;  It had a FEAT_Def here ("Sequences + Discord Ctrl+click import"), and that made
@@ -290,10 +305,12 @@ global FEAT_HOTKEY_MAP := Map(
     "mFu",                "mouseControl",
     "mPpv",               "mouseControl",   ; mPpv and mPpvFus, same thumb
     "gui.actions",        "actionsMenu",
+    "gui.hotstringMenu",  "hotstrings",     ; the quick menu IS the manager
     "gui.quickActions",   "quickActions",
     "gui.toggleStats",    "statsOverlay",
     "gui.activity",       "activity",
     "gui.branchBuilder",  "branchBuilder",
+    "gui.chatSim",        "chatSim",
     "gui.toggleDoubleMM", "doubleMM",
     "gui.ocrGrab",        "ocrGrab",
     "gui.addHotkeyGrab",  "ocrGrab",

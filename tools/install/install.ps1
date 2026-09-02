@@ -12,16 +12,22 @@
                       Windows, so model detection and the stats overlay need nothing
                       extra.
 
-      Python          OPTIONAL, for exactly two things:
-                        • automation\automation.py — the ^!k / ^!u / ^!s hotkeys.
-                          Needs numpy; ^!s (count sales) also needs Pillow.
-                        • pinger\pinger.pyw — beeps when a fan tab goes unread.
-                          Needs numpy and opencv-python.
+      Python          OPTIONAL, for the four background services:
+                        • src\services\automation\automation.py — the ^!k / ^!u / ^!s
+                          hotkeys. Needs numpy; ^!s (count sales) also needs Pillow.
+                        • src\services\pinger\pinger.pyw — beeps when a fan tab goes
+                          unread. Needs numpy and opencv-python.
+                        • src\services\typelog\typelog.pyw — records what you type in
+                          Infloww, to mine for hotstrings. Needs pynput.
+                        • src\services\autoword\autoword.pyw — next-word suggestions
+                          from that corpus. Needs pynput 1.8+.
 
     Decline Python and this script writes AutomationListener=0 and Pinger=0 into
-    userdata\mass_gui.cfg. That matters: those default to ON, and MMA launches the listener
-    at startup, so on a machine with no Python you would otherwise get a WScript
-    error box every single time MMA starts.
+    userdata\mass_gui.cfg. It is the LISTENER that matters: AutomationListener defaults
+    to ON and MMA launches it at startup, so on a machine with no Python you would
+    otherwise get a WScript error box every single time MMA starts. Pinger already
+    defaults to off, and so do typelog and autoword — those three are written or left
+    alone for tidiness, not to prevent anything.
 
     Usage:
         install.bat                 interactive
@@ -31,7 +37,11 @@
 [CmdletBinding()]
 param(
     [switch]$WithPython,
-    [switch]$NoPython
+    [switch]$NoPython,
+    # Make the desktop shortcut and nothing else. This is what createShortcut.bat
+    # runs, so the shortcut exists in ONE place rather than being written once
+    # here and once again inline in a .bat that drifts out of step with it.
+    [switch]$ShortcutOnly
 )
 
 $ErrorActionPreference = 'Stop'
@@ -45,6 +55,46 @@ function Step   { param($m) Write-Host ''; Write-Host "==> $m" -ForegroundColor 
 function Ok     { param($m) Write-Host "    OK   $m" -ForegroundColor Green }
 function Warn   { param($m) Write-Host "    WARN $m" -ForegroundColor Yellow }
 function Fail   { param($m) Write-Host "    FAIL $m" -ForegroundColor Red }
+
+# The desktop shortcut, in one place. Points at MMA.ahk in the repo root — never
+# at anything under tools\ — because the shortcut is how most people start MMA
+# and a shortcut aimed at a moved file is a silent, permanent breakage. (It has
+# happened: a stale build once shipped a shortcut to mass_gui.ahk, a file the
+# tree it had just installed no longer contained.)
+function New-DesktopShortcut {
+    try {
+        $target = Join-Path $root 'MMA.ahk'
+        if (-not (Test-Path $target)) { throw "MMA.ahk not found in $root" }
+        $desktop = [Environment]::GetFolderPath('Desktop')
+        $ws = New-Object -ComObject WScript.Shell
+        $sc = $ws.CreateShortcut((Join-Path $desktop 'MMA.lnk'))
+
+        # Point at the INTERPRETER with the script as an argument, not at the
+        # .ahk itself. A shortcut to a .ahk only works while .ahk files are
+        # ASSOCIATED, and 'not associated' is the usual state immediately after
+        # the winget install this same script may have just performed - so the
+        # shortcut it left behind opened Notepad, or nothing.
+        # tools/packaging/MMA.iss has always done it this way. This was the copy
+        # that was wrong, and it is the third thing the two installers disagreed
+        # about, after the pip list and the folder name.
+        $exe = Find-AutoHotkey
+        if ($exe) {
+            $sc.TargetPath = $exe
+            $sc.Arguments  = "`"$target`""
+        } else {
+            # No v2 interpreter anywhere. The association is the only remaining
+            # hope, so aim at the script and let Windows try.
+            $sc.TargetPath = $target
+        }
+        $sc.WorkingDirectory = $root
+        $icon = Join-Path $root 'assets\icon.ico'
+        if (Test-Path $icon) { $sc.IconLocation = $icon }
+        $sc.Save()
+        Ok "created: $(Join-Path $desktop 'MMA.lnk')"
+    } catch {
+        Warn "could not create the shortcut: $($_.Exception.Message)"
+    }
+}
 
 # ── capability probes ────────────────────────────────────────────────────────
 # Detect by CAPABILITY, never by `winget list`. winget only knows what winget
@@ -156,6 +206,17 @@ function Set-IniValue {
     [void][MmaIni]::WritePrivateProfileString($Section, $Key, $Value, $Path)
 }
 
+# ── shortcut only ────────────────────────────────────────────────────────────
+# createShortcut.bat's entire job. It sits here, below the probes, because
+# New-DesktopShortcut calls Find-AutoHotkey - and above the run section, so
+# nothing has happened yet: no winget call, no cfg write, no Python. Exactly
+# what someone who installed AutoHotkey by hand asked for.
+if ($ShortcutOnly) {
+    Step 'Desktop shortcut'
+    New-DesktopShortcut
+    exit 0
+}
+
 # ── run ──────────────────────────────────────────────────────────────────────
 Say ''
 Say '  MMA installer'
@@ -219,16 +280,20 @@ if ($wantPython) {
     }
 
     if ($py) {
-        Say '    installing packages: numpy, pillow, opencv-python, pynput ...'
-        # numpy  -> automation.py imports it at module level; without it the
-        #           listener cannot start at all.
-        # pillow -> automation.py's ocr_read(), i.e. the ^!s count-sales hotkey.
-        # opencv -> pinger.pyw only.
-        # pynput -> typelog.pyw only (global keyboard capture for the recorder).
+        # ONE list, and it is not this file's. requirements.txt at the repo root
+        # pulls in each service's own requirements.txt, so a dependency is
+        # declared next to the code that imports it and both installers get it.
+        # This script and tools/packaging/MMA.iss each used to carry their own
+        # hand-written copy, and they had already drifted: the .exe installed no
+        # pynput, so typelog and autoword refused to start on machines whose
+        # owner had been told Python was set up.
+        $reqs = Join-Path $root 'requirements.txt'
+        if (-not (Test-Path $reqs)) { throw "requirements.txt not found at $reqs" }
+        Say '    installing Python packages from requirements.txt ...'
         # Deliberately NOT --upgrade: if numpy/opencv are already present and
         # working, moving them to a new major version is a good way to break
         # automation.py for someone who only ran this to get a shortcut.
-        $pipArgs = @($py.Prefix) + @('-m', 'pip', 'install', '--quiet', 'numpy', 'pillow', 'opencv-python', 'pynput')
+        $pipArgs = @($py.Prefix) + @('-m', 'pip', 'install', '--quiet', '-r', $reqs)
 
         # Two PowerShell 5.1 traps in these four lines:
         #  • `2>&1` on a NATIVE command wraps each stderr line in an ErrorRecord,
@@ -245,6 +310,10 @@ if ($wantPython) {
             & $py.Cmd @pipArgs 2>&1 | ForEach-Object { Say "      $_" }
             $pipCode = $LASTEXITCODE
 
+            # A smoke test of the four modules the services import, NOT a second
+            # copy of the list — requirements.txt is the source of truth. A new
+            # package that is not named here still installs; it simply is not
+            # smoke-tested, which is the safe direction for this to drift in.
             $probe = @($py.Prefix) + @('-c', 'import numpy, PIL, cv2, pynput')
             & $py.Cmd @probe 2>&1 | ForEach-Object { Say "      $_" }
             if ($LASTEXITCODE -eq 0) {
@@ -289,21 +358,7 @@ if (-not (Test-Path $cfg)) {
 
 # ── 4. desktop shortcut ──────────────────────────────────────────────────────
 Step 'Desktop shortcut'
-try {
-    $target = Join-Path $root 'MMA.ahk'
-    if (-not (Test-Path $target)) { throw "MMA.ahk not found in $root" }
-    $desktop = [Environment]::GetFolderPath('Desktop')
-    $ws = New-Object -ComObject WScript.Shell
-    $sc = $ws.CreateShortcut((Join-Path $desktop 'MMA.lnk'))
-    $sc.TargetPath       = $target
-    $sc.WorkingDirectory = $root
-    $icon = Join-Path $root 'assets\icon.ico'
-    if (Test-Path $icon) { $sc.IconLocation = $icon }
-    $sc.Save()
-    Ok "created: $(Join-Path $desktop 'MMA.lnk')"
-} catch {
-    Warn "could not create the shortcut: $($_.Exception.Message)"
-}
+New-DesktopShortcut
 
 # ── summary ──────────────────────────────────────────────────────────────────
 Say ''

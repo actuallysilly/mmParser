@@ -1,7 +1,7 @@
 ; ============================================================================
 ;  MMA installer  —  Inno Setup script
 ; ----------------------------------------------------------------------------
-;  Build it:  installer\build.bat        (output: installer\dist\MMA-Setup.exe)
+;  Build it:  tools\packaging\build.bat   (output: tools\packaging\dist\MMA-Setup.exe)
 ;
 ;  This is a BOOTSTRAPPER. It carries no copy of MMA; it downloads the latest
 ;  main branch from GitHub while the wizard runs. So the .exe never goes stale,
@@ -541,16 +541,28 @@ begin
         '', SW_HIDE, ewWaitUntilTerminated, Code);
     end;
     WizardForm.StatusLabel.Caption := 'Installing Python packages...';
+    // -r requirements.txt, and NOT a list typed here. This line used to read
+    // "numpy pillow opencv-python" while tools\install\install.ps1 installed
+    // "numpy pillow opencv-python pynput" - so every machine set up from this
+    // .exe was missing pynput, which is typelog AND autoword: two services that
+    // then refuse to start, on a PC whose owner had just been told Python was
+    // set up. The repo root's requirements.txt pulls in each service's own, so
+    // both installers ask the same question and cannot drift apart again.
+    //
+    // Safe to reference {app} here: EnsurePayload and ExtractPayload have both
+    // already run, so the tree - requirements.txt included - is on disk.
+    //
     // Not --upgrade: moving an existing numpy to a new major version is a good
     // way to break something the person already relies on.
-    Exec(ExpandConstant('{cmd}'), '/c python -m pip install --quiet numpy pillow opencv-python',
+    Exec(ExpandConstant('{cmd}'), '/c python -m pip install --quiet -r "' +
+      ExpandConstant('{app}\requirements.txt') + '"',
       '', SW_HIDE, ewWaitUntilTerminated, Code);
   end;
 end;
 
 procedure ExtractPayload;
 var
-  Zip, Tmp, Code: String;
+  Zip, Tmp: String;
   R: Integer;
 begin
   Zip := ExpandConstant('{tmp}\mma.zip');
@@ -636,9 +648,19 @@ procedure CurStepChanged(CurStep: TSetupStep);
 begin
   if CurStep = ssInstall then
   begin
+    // ORDER IS LOAD-BEARING. ExtractPayload must come before
+    // InstallDependencies: pip is now pointed at the repo's own
+    // requirements.txt rather than a list typed into this file, and that
+    // file only exists once the payload is on disk. The two used to run the
+    // other way round, which was fine only while this file carried its own
+    // copy of the package names - the copy that had already drifted out of
+    // step with the other installer.
+    //
+    // Nothing in ExtractPayload needs AutoHotkey or Python; it is tar and
+    // robocopy. So moving it earlier costs nothing.
     EnsurePayload;
-    InstallDependencies;
     ExtractPayload;
+    InstallDependencies;
     ApplyChoices;
     CachedAhk := '';    // so [Icons]/[Run] resolve against what is now installed
   end;

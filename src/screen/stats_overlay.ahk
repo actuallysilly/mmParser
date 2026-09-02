@@ -3,6 +3,7 @@
 #SingleInstance Force
 #Include "../core/hotkeys.ahk"
 #Include "ocr_grab.ahk"
+#Include "../core/dpi.ahk"
 
 ; ═══════════════════════════════════════════════════════════════════════════════
 ;  stats_overlay.ahk — at-a-glance KPI overlay for Infloww "Chatting statistics".
@@ -208,6 +209,11 @@ Paint() {
 ; separate "the Home window is not open" from "OCR read it and got nothing", which
 ; are the only two possibilities and have different fixes.
 OcrRect(r, scale) {
+    ; Per-monitor DPI for the length of this call — see core/dpi.ahk. Without
+    ; it every coordinate below is virtualised on any monitor whose scaling
+    ; differs from the primary's, and the wrong numbers stay self-consistent
+    ; while disagreeing with the screen.
+    _dpi := DpiScope()
     global StatsWin
     if !WinExist(StatsWin) {
         LOGV("stats", "the '" StatsWin "' window is not open — keeping the last"

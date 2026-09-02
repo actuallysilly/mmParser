@@ -36,6 +36,8 @@
 ; ═══════════════════════════════════════════════════════════════════════════════
 
 #Include "../vendor/OCR.ahk"
+#Include "../core/dpi.ahk"
+#Include "shape.ahk"
 
 ; ── tunables ──────────────────────────────────────────────────────────────────
 ; The conversation pane, in SCREEN coordinates. Default is automation.py's
@@ -117,7 +119,7 @@ NFU_GroupAt(m, group, hay, cfg) {
     ; a mass: press 3 sends the default, press 4 still reads f2 as the last one
     ; sent and sends the default AGAIN, to a fan who has already had it. Match
     ; what will actually be SENT, not what happens to be stored.
-    for part in _FuParts(m, group) {
+    for part in MASS_FuParts(m, group) {
         if (Trim(part) = "")
             continue
         for needle in NFU_Needles(part, cfg) {
@@ -152,6 +154,11 @@ NFU_LastGroup(m, hay, cfg) {
 
 ; OCR the pane to one string, or "" if it could not be read.
 NFU_ReadChat(cfg := 0) {
+    ; Per-monitor DPI for the length of this call — see core/dpi.ahk. Without
+    ; it every coordinate below is virtualised on any monitor whose scaling
+    ; differs from the primary's, and the wrong numbers stay self-consistent
+    ; while disagreeing with the screen.
+    _dpi := DpiScope()
     if !cfg
         cfg := NFU_Cfg()
     if (cfg.w < 8 || cfg.h < 8)
@@ -204,7 +211,7 @@ NFU_MassPresence(m, hay, cfg) {
 NFU_NextWithContent(m, after) {
     g := after
     while (++g <= 3)
-        for part in _FuParts(m, g)
+        for part in MASS_FuParts(m, g)
             if (Trim(part) != "")
                 return g
     return 0

@@ -127,11 +127,11 @@ ActionsDispatch(idx, prevWin) {
     HK_Broadcast(HK_MSG_FIRE, idx)
 }
 
+; HK_IndexOf's, kept as a name because a dozen call sites in this file read well
+; with it. The lookup itself moved to core\hotkeys.ahk, next to HK_ORDER, when
+; hotstrings\shortcuts.ahk needed the same number without needing this window.
 ActionsIndexOf(id) {
-    for i, hid in HK_ORDER
-        if (hid = id)
-            return i
-    return 0
+    return HK_IndexOf(id)
 }
 
 ActionsToggle(*) {

@@ -1,5 +1,6 @@
 #Requires AutoHotkey v2.0
 #Include "../vendor/OCR.ahk"
+#Include "../core/dpi.ahk"
 ; ═══════════════════════════════════════════════════════════════════════════════
 ;  ocr_grab.ahk — drag a box on screen, OCR it, get the text back.
 ;
@@ -113,8 +114,14 @@ OcrSelectRegion() {
                 MouseGetPos &x2, &y2
                 bx := Min(x1, x2), by := Min(y1, y2)
                 bw := Abs(x2 - x1), bh := Abs(y2 - y1)
-                if (bw > 0 && bh > 0)
+                if (bw > 0 && bh > 0) {
                     box.Show("x" bx " y" by " w" bw " h" bh " NoActivate")
+                    ; Re-punched on every tick, not once at creation: a window
+                    ; region is in WINDOW coordinates, so it does not follow a
+                    ; resize. Skip this and the frame is whatever size the box
+                    ; first happened to be.
+                    HollowBox(box.Hwnd, bw, bh)
+                }
                 Sleep 10
             }
             MouseGetPos &x2, &y2
@@ -133,9 +140,44 @@ OcrSelectRegion() {
     return rect
 }
 
+; Punch the middle out of the selection box, leaving a frame you can see through.
+;
+; The box was a SOLID fill, and that is what made this thing so hard to aim. It is
+; drawn ON TOP of the very text you are framing, over a sheet that has already
+; dimmed the desktop — so from the moment the drag starts you cannot read a word
+; of what you are selecting. You end up placing the edges by memory, and an edge a
+; few pixels out slices a line in half. What comes back then looks exactly like
+; OCR "cutting" the text, when the engine in fact read every pixel it was given:
+; measured on a real grab, the box itself had clipped "...Imagine" to "k..." and
+; "her ball" to "ter ball" before OCR ever ran.
+;
+; RGN_DIFF of the outer rect against an inset one. After SetWindowRgn the WINDOW
+; owns the region, so `outer` must not be deleted here — `inner` must.
+HollowBox(hwnd, bw, bh, thick := 3) {
+    ; No inside to punch. Leave it filled rather than build an empty region, which
+    ; would make the box vanish exactly when it is a thin sliver — and a selection
+    ; tool that disappears while you are dragging it is worse than a solid one.
+    if (bw <= thick * 2 || bh <= thick * 2)
+        return
+    outer := DllCall("CreateRectRgn", "int", 0, "int", 0, "int", bw, "int", bh, "ptr")
+    inner := DllCall("CreateRectRgn", "int", thick, "int", thick,
+                     "int", bw - thick, "int", bh - thick, "ptr")
+    DllCall("CombineRgn", "ptr", outer, "ptr", outer, "ptr", inner, "int", 4)  ; RGN_DIFF
+    DllCall("DeleteObject", "ptr", inner)
+    DllCall("SetWindowRgn", "ptr", hwnd, "ptr", outer, "int", 1)
+}
+
 ; OCR a screen rect and return its text, one line per line, in reading order.
 OcrRegionToText(rect) {
-    res := OCR.FromRect(rect.x, rect.y, rect.w, rect.h)
+    ; scale 3 AND grayscale, both measured on this UI rather than picked to taste.
+    ; Read plain, Infloww's chat comes back as "(.. •mag•ne tne nectar tnat would mow
+    ; out" — the recogniser guessing h→n, i→t, fl→m at the size these glyphs land on
+    ; screen. grayscale ALONE does not fix that. And scale 2 is worse than nothing:
+    ; it drops a whole line instead of garbling it, which is the failure you cannot
+    ; see in the review box. scale 3 + grayscale reads the same rect back as
+    ; "Imagine the nectar that would flow out" — the pair model_detector.ahk and
+    ; fansly_detector.ahk already settled on.
+    res := OCR.FromRect(rect.x, rect.y, rect.w, rect.h, {scale: 3, grayscale: 1})
     lines := []
     for line in res.Lines {
         t := CleanOcrLine(line.Text)
@@ -206,11 +248,19 @@ CleanOcrLine(t) {
 }
 
 ; The whole flow: select -> OCR -> text. Returns "" if cancelled or nothing read.
+;
+; The whole thing runs per-monitor aware, and it has to be the WHOLE thing rather
+; than the capture alone: the overlay you drag, the mouse coordinates it is built
+; from, and the rect handed to OCR must all land in the same space. Under AHK's
+; default system awareness they agree with each other and disagree with the
+; screen on any monitor scaled differently from the primary — so the box sits
+; away from the cursor and the text comes back clipped. See core/dpi.ahk.
 OcrGrabToText() {
-    rect := OcrSelectRegion()
-    if !rect
-        return ""
+    _dpi := DpiScope()
     try {
+        rect := OcrSelectRegion()
+        if !rect
+            return ""
         return OcrRegionToText(rect)
     } catch as e {
         MsgBox "OCR failed: " e.Message

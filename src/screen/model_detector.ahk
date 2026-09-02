@@ -3,14 +3,20 @@
 #SingleInstance Force
 #Include "../vendor/OCR.ahk"
 #Include "pill_scan.ahk"
+#Include "../core/dpi.ahk"
 
 ; ============================================================================
 ;  model_detector.ahk — active-model detector (hybrid CV + OCR)
 ; ----------------------------------------------------------------------------
 ;  Writes the on-screen active model tab's NAME to detector_status.ini, which
-;  utils.ahk's ReadActiveModel()/ModelIsActive()/FuGate() read so a single set
-;  of f1/f2/f3 hotkeys can serve whichever model tab is focused: each mass
-;  script only fires while ITS model is the active one.
+;  core/active_model.ahk's ReadActiveModel() and ActiveModelNo() read, so a
+;  single set of f1/f2/f3 hotkeys can serve whichever model tab is focused.
+;
+;  It said utils.ahk's ReadActiveModel()/ModelIsActive()/FuGate() until this was
+;  checked: two of those three have not existed since the three model scripts
+;  became one engine, and the survivor moved to core/active_model.ahk — utils.ahk
+;  only #Includes it. "Each mass SCRIPT fires while ITS model is active" went
+;  with them: there is one engine now, and it resolves the model at fire time.
 ;
 ;  Hybrid: every poll a fast pixel scan finds the ACTIVE (grey) pill and its
 ;  horizontal span. OCR — the expensive part — runs ONLY when that pill moves
@@ -77,6 +83,10 @@ if (IniRead(CFG, "Detector", "RegionW", "") = "") {
         try IniWrite(v, CFG, "Detector", k)
 }
 
+; This script only reads pixels — it has no Gui at all — so it holds per-monitor
+; awareness for its whole life rather than scoping each call. One top-level
+; statement, and no code path can miss it. See core/dpi.ahk.
+DPI_ScriptWide()
 CoordMode "Pixel", "Screen"
 
 ; ALL of these must be assigned before the first Poll() below, not merely

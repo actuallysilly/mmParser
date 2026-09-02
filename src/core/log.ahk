@@ -1,4 +1,4 @@
-#Requires AutoHotkey v2.0
+﻿#Requires AutoHotkey v2.0
 #Include "paths.ahk"
 ; ═══════════════════════════════════════════════════════════════════════════════
 ;  log.ahk — one log, every process, and a switch that turns failures into dialogs.
@@ -170,16 +170,24 @@ LOG_Popups() => (_LOG_Settings(), _LOG_POP)
 ; way. `if LOG_Max()` in front of that is the difference.
 LOG_Max()    => (_LOG_Settings(), _LOG_MAX)
 
-; Write the three keys into the cfg the first time we look, so they are
+; Write the [Debug] keys into the cfg the first time we look, so they are
 ; discoverable by opening the file rather than being invisible defaults buried
 ; here. Same trick AltStageSetting plays in utils.ahk.
+;
+; FanslyRail is not a logging switch and this file does not read it — the rail
+; readout in ui\fansly_badge.ahk does. It is seeded here anyway because seeding is
+; a fact about the SECTION, not about logging: [Debug] should list everything it
+; holds, and a second seeder writing one more key into the same section is how the
+; two end up racing to create it. If a third [Debug] key ever arrives that this
+; file also does not read, that is still the right trade.
 LOG_Seed() {
     static done := false
     if done
         return
     done := true
     try {
-        for k, dflt in Map("Logging", "1", "Popups", "0", "MaxLogging", "0")
+        for k, dflt in Map("Logging", "1", "Popups", "0", "MaxLogging", "0",
+                           "FanslyRail", "0")
             if (Trim(IniRead(MMA_CFG, "Debug", k, "«unset»")) = "«unset»")
                 IniWrite(dflt, MMA_CFG, "Debug", k)
     }
@@ -268,7 +276,7 @@ _LOG_Write(level, tag, msg) {
 ; ═══════════════════════════════════════════════════════════════════════════════
 ;  The public API
 ; ───────────────────────────────────────────────────────────────────────────────
-;  Six levels, and which one you reach for is the whole skill of reading this
+;  Seven levels, and which one you reach for is the whole skill of reading this
 ;  file back:
 ;
 ;    LOGI     INFO  something happened that you would want in a timeline
@@ -277,6 +285,11 @@ _LOG_Write(level, tag, msg) {
 ;    LOGE     FAIL  it did not work — the only level that can raise a dialog
 ;    LOG_Bail BAIL  it deliberately did nothing, and here is why
 ;    LOG_Ok   DONE  a thing that can fail finished — pairs with the FAIL above it
+;    LOGD     DEVL  a breadcrumb: this handler was entered. Also LOG_Heartbeat,
+;                   the once-a-minute version for things that run on a timer.
+;                   Its own block further down says why it is not gated behind
+;                   max logging. This list said "Six levels" and omitted it while
+;                   a dozen files were already calling it.
 ;
 ;  `tag` is a dotted scope: "mass.fu2", "hk.bind", "proc.engine". Keep it short
 ;  and keep it stable; it is the column you grep.

@@ -1,4 +1,4 @@
-#Requires AutoHotkey v2.0
+﻿#Requires AutoHotkey v2.0
 #Include "../core/paths.ahk"
 ; ═══════════════════════════════════════════════════════════════════════════════
 ;  record.ahk — what the activity tracker writes down, and how it is read back.
@@ -19,7 +19,9 @@
 ;  be put in even by accident.
 ;
 ;  ── Why one file PER PROCESS per day ─────────────────────────────────────────
-;  MMA is up to eight processes. Today only tracker.ahk writes here, so a single
+;  MMA is a dozen or more processes — the count is deliberately not written down,
+;  because it was "eight" here until somebody counted. Today only tracker.ahk
+;  writes here, so a single
 ;  shared file would work — right up until the second writer arrives, at which
 ;  point two processes are appending to one file and the loser of the race
 ;  silently loses a minute of data.

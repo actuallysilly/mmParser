@@ -1,4 +1,4 @@
-#Requires AutoHotkey v2.0
+﻿#Requires AutoHotkey v2.0
 #Include "../core/paths.ahk"
 ; ═══════════════════════════════════════════════════════════════════════════════
 ;  debug_panel.ahk — the Debug tab: launch the probes, run the tests, read the logs.
@@ -85,7 +85,27 @@ class DebugPanel {
         ; LAST in HK_ORDER) is what stops the Actions menu firing the wrong action
         ; in a script that started before you bound one.
         {label: "hotstring keys",       file: "tools\test\hotstring_key_test.ahk"},
+        ; The manager's WRITERS — the round trip from a message you typed, out to
+        ; AHK source and back. Listed because that round trip is the only thing
+        ; standing between an edit and a quietly different message: an escape that
+        ; does not survive it truncates a block at the first quote in your own
+        ; words, which still loads and still fires. Writes only to a sandbox file
+        ; it creates and deletes in content\.
+        {label: "hotstring editing",    file: "tools\test\hotstring_edit_test.ahk"},
+        ; What a mass SENDS — the part order, the FuSingle join, the f3 fallback,
+        ; what a branch contributes — plus where the chat simulator's composer
+        ; writes. Listed because the engine and that window now read one set of
+        ; rules (mass\shape.ahk), and the whole value of doing it that way is
+        ; that the rules are pinned. Pure: builds records in memory, and puts
+        ; back the two Settings keys it has to drive.
+        {label: "mass shape",           file: "tools\test\mass_shape_test.ahk"},
         {label: "active model",         file: "tools\test\active_model_test.ahk"},
+        ; The background-service registry. Pure — it reads SVC_META and the
+        ; filesystem, and starts nothing. Listed because the bugs it guards were
+        ; invisible in exactly the way this tab exists for: a service missing from
+        ; one of the four hand-kept lists started five seconds late, or never
+        ; stopped when you unticked it, and said nothing either way.
+        {label: "service registry",     file: "tools\test\services_test.ahk"},
         ; The click wall's decisions — which rectangle, in which coordinate space,
         ; and whether the list moved while a click was held. Listed because every
         ; way this can be wrong is silent: a client region read as a screen one
@@ -100,6 +120,13 @@ class DebugPanel {
         ; waiting twelve minutes gets no box at all, too loud and the NEWEST row
         ; in the list wears the loudest colour, which trains you to ignore them.
         {label: "reply timers",         file: "tools\test\reply_tiers_test.ahk"},
+        ; The two Settings front ends offer the same settings. Pure text - it
+        ; reads the field table and settings_window.ahk as a file, builds no
+        ; window and touches no config. Listed because the drift it catches is
+        ; silent AND lands on the DEFAULT window: a setting added to the shared
+        ; table without a control in the Win32 tab simply is not there for
+        ; anyone who switched shells, and nothing anywhere says so.
+        {label: "settings parity",      file: "tools\test\settings_parity_test.ahk"},
         ; Builds a real Settings window and closes it, so a window flashes.
         {label: "settings window",      file: "tools\test\settings_build_test.ahk"},
         ; Same — builds the Add alt-FU window. Also covers what that window
@@ -110,7 +137,14 @@ class DebugPanel {
         ; unmissable in use: that list is rebuilt on every edit, and it has to come
         ; back with your place still in it. Writes nothing — the edits it makes die
         ; with the window, and Save is never called.
-        {label: "hotkey editor",        file: "tools\test\hotkeys_panel_test.ahk"}]
+        {label: "hotkey editor",        file: "tools\test\hotkeys_panel_test.ahk"},
+        ; The shortcuts file, end to end. Listed because two of the three things
+        ; it guards are invisible from inside a running MMA: whether the file it
+        ; seeds can be read back by the WINDOWS ini parser (a different parser
+        ; from the one that wrote it), and whether the COMMENTED-OUT examples
+        ; still name real actions — which nothing reads until the day you
+        ; uncomment one. Writes only to A_Temp.
+        {label: "hotstring shortcuts",  file: "tools\test\shortcuts_test.ahk"}]
 
     __New(hostGui, x, y, w, h) {
         this.gui     := hostGui
@@ -135,12 +169,41 @@ class DebugPanel {
 
         forced := DebugPanel.Forced()
 
+        ; ── four switches in two rows of three columns ────────────────────────
+        ; THREE columns, not two, and no new row — measured, because this tab has
+        ; no room for one. The page is 622px tall and the Environment buttons at
+        ; the bottom already ended within 4px of it (the note on the probe-row
+        ; pitch further down is about the same wall). A fourth switch on a row of
+        ; its own plus a help line under it came to 52px and pushed those buttons
+        ; 48px off the page — invisible in the source, obvious the moment you open
+        ; the tab. tools\ has no fixture for this; it was measured by building the
+        ; panel into an unshown Gui and comparing the lowest control's bottom
+        ; against CY+CH. Do that again before adding a fifth.
         this.cbLog := hostGui.Add("Checkbox", "x" x " y" y0 " w300"
                                             . (DebugPanel.Get("Logging", "1") ? " Checked" : ""),
                                   "Write a log file")
-        this.cbPop := hostGui.Add("Checkbox", "x" (x + 310) " y" y0 " w" (w - 310)
+        this.cbPop := hostGui.Add("Checkbox", "x" (x + 310) " y" y0 " w300"
                                             . (DebugPanel.Get("Popups", "0") ? " Checked" : ""),
                                   "Report errors with a pop-up")
+
+        ; ── the Fansly rail readout ───────────────────────────────────────────
+        ; The only one of the four that puts something ON SCREEN rather than into
+        ; a file. It belongs here anyway, for the reason the other three do: it is
+        ; a thing MMA shows you about itself, not a thing MMA does for you, so it
+        ; is a debug switch and not a Feature (see this file's header).
+        ;
+        ; It also has to be reachable while the rail is misbehaving, which is
+        ; exactly when you do not want to be hunting through Features — and being
+        ; written on click means it is live in the engine within a second and a
+        ; half, with no Save and no restart.
+        ;
+        ; What it shows and how to read it is on the badge itself, not here: green
+        ; names the model, amber says the shared keys have no answer with the
+        ; reason on the line under it. A legend in Settings for a thing that is
+        ; already on screen explaining itself is a legend nobody reads.
+        this.cbRail := hostGui.Add("Checkbox", "x" (x + 620) " y" y0 " w" (w - 620)
+                                             . (DebugPanel.Get("FanslyRail", "0") ? " Checked" : ""),
+                                   "Fansly rail readout")
         y0 += 22
         this.cbMax := hostGui.Add("Checkbox", "x" x " y" y0 " w300"
                                             . (DebugPanel.Get("MaxLogging", "0") ? " Checked" : ""),
@@ -154,10 +217,17 @@ class DebugPanel {
         this.cbLog.OnEvent("Click", (*) => this.SetFlag("Logging", this.cbLog.Value))
         this.cbPop.OnEvent("Click", (*) => this.SetFlag("Popups", this.cbPop.Value))
         this.cbMax.OnEvent("Click", (*) => this.SetFlag("MaxLogging", this.cbMax.Value))
+        this.cbRail.OnEvent("Click", (*) => this.SetFlag("FanslyRail", this.cbRail.Value))
 
         ; The environment beats the cfg, so if it is set these boxes cannot do
         ; anything. Say that and grey them, rather than letting somebody tick a
         ; box and wonder why the log did not change.
+        ;
+        ; The rail readout is deliberately NOT in this list. MMA_DEBUG forces the
+        ; three LOGGING levels and has no opinion about an overlay, so grey it and
+        ; you have taken away a working switch to report an override that is not
+        ; overriding it — which is the same "silently does nothing" failure this
+        ; branch exists to prevent, pointed the other way.
         if (forced != "") {
             for _, cb in [this.cbLog, this.cbPop, this.cbMax]
                 cb.Enabled := false
@@ -509,10 +579,12 @@ class DebugPanel {
 
     PaintEnv(*) {
         up := []
-        for _, s in [["engine", EngineRunning()], ["detector", DetectorRunning()],
-                     ["pinger", PingerRunning()], ["stats", StatsOverlayRunning()],
-                     ["automation", AutomationListenerRunning()]]
-            up.Push(s[1] (s[2] ? " ●" : " ○"))
+        up.Push("engine" (EngineRunning() ? " ●" : " ○"))
+        ; Every declared service, in registry order, rather than the four this
+        ; picked out by hand — a readout whose whole job is answering "is it
+        ; running?" should not have services it cannot see.
+        for _svc in SVC_ORDER
+            up.Push(_svc (SVC_Running(_svc) ? " ●" : " ○"))
 
         logs := 0, bytes := 0
         for _, pattern in ["\*.txt", "\*.log"] {

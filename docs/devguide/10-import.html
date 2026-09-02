@@ -1,0 +1,481 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>10 — Auto import</title>
+<link rel="stylesheet" href="guide.css">
+<script src="nav.js"></script>
+</head>
+<body>
+<div class="shell">
+<nav class="side"></nav>
+<main>
+
+<p class="eyebrow">Chapter 10</p>
+<h1>Auto import</h1>
+
+<p class="lede">Ctrl+click a message in Discord and it becomes a parsed, saved mass on the right
+model's tab. Six steps, two processes, two OCR reads and a window message. This is the feature
+that has been reported broken most often, and never once because of its own logic.</p>
+
+<h2>The flow</h2>
+
+<pre><code>you Ctrl+click a Discord message
+   │
+   ▼  the DISCORD process is in front; the key belongs to SEQUENCES.AHK
+copyDiscordMessageSeq()                          sequences/sequences.ahk
+   │
+   ├─ 1.  Click "Right"                          open Discord's context menu
+   ├─ 2.  poll for the "Copy Text" row           bitmap match, then OCR
+   ├─ 3.  Click it, ClipWait                     the mass is now on the clipboard
+   ├─ 4.  DiscordChannelName()                   window title, then OCR the header
+   ├─ 5.  ModelFromChannel(chan)                 "aliw-staff-chat" → "aliw"
+   ├─ 6.  prepend "@model: aliw" to the clipboard
+   └─ 7.  PostMessage MMA_MSG_AUTOPARSE → the GUI's window
+                                     │
+                                     ▼  a DIFFERENT PROCESS
+                       AutoParseFromClipboard()  ui/main_core.ahk
+                                     │
+                       ExtractModelName(&amp;raw)    strips the @model line
+                       MatchModelName(detected)  → a slot number, or 0
+                                     │
+                    ┌────────────────┴────────────────┐
+                    ▼ known                            ▼ unknown
+          tabs.Value := slot                   PromptSaveTarget(detected)
+          ParseCurrent()                       (the routing dialog, which can
+          ApplyFile(_mFiles[slot], true)        remember the name for next time)
+</code></pre>
+
+<h2>Why <code>sequences.ahk</code> has no off switch</h2>
+
+<p>Read this before the code, because it is the reason the feature "broke again" repeatedly.</p>
+
+<p>It was reached <strong>only</strong> through the startup-scripts list, which is a list of
+checkboxes. So:</p>
+
+<ul>
+<li><strong>Every fresh install had the import dead on arrival.</strong> A new
+<code>mass_gui.cfg</code> has no <code>StartupScripts</code> key at all, and the default when the
+key is absent is <code>general.ahk</code> alone.</li>
+<li><strong>One untick killed it</strong> — or one Save from a Settings window that happened to
+load before the box was ticked. Silently, with the key still listed in the Hotkeys tab.</li>
+<li>It also had a <code>FEAT_Def</code>, which made <strong>Easy mode a fourth killer</strong>:
+Easy switches off everything in the registry, so the import died there with no box to find and
+nothing to untick.</li>
+</ul>
+
+<p>So it now starts unconditionally, exactly like the mass engine, from
+<code>CORE_BootEarly()</code>. <strong>A script that owns hotkeys should not be a checkbox.</strong></p>
+
+<div class="note">
+<p><b>And the first line of the handler is a breadcrumb, for exactly this reason:</b></p>
+<pre><code>LOGD("seq.discord", "Ctrl+click import fired — right-clicking to open the menu")</code></pre>
+<p>"'The Discord import broke again' starts here. If this line is absent the key never reached the
+handler — script not running, key unbound, wrong window — <strong>which has been the cause every
+time so far.</strong>"</p>
+</div>
+
+<hr>
+
+<h2>Step 1–3: getting the text</h2>
+
+<h3>Finding "Copy Text" in a menu that is not a window</h3>
+
+<p>Discord renders its context menu <em>inside its own window</em> — there is no popup window of
+its own — so a normal window search finds nothing. Two strategies, tried in order.</p>
+
+<h4>Fast path: bitmap match</h4>
+
+<pre><code>CoordMode "Pixel", "Screen"
+try {
+    if ImageSearch(&amp;fx, &amp;fy, mx - b.left, my - b.up, mx + b.right, my + b.down,
+                   "*20 " COPY_TEXT_IMG)
+        return {sx: fx + 10, sy: fy + 10}
+}
+</code></pre>
+
+<p><code>ImageSearch</code> against <code>assets\copy_text.png</code>, ~10 ms, exact when it hits.
+<code>*20</code> is a per-channel tolerance.</p>
+
+<p>It is kept, and nothing depends on it: it stops hitting the moment Discord restyles or rescales
+its menus — <em>which is what happened here: it missed at <code>*20</code>, <code>*50</code> AND
+<code>*100</code>.</em></p>
+
+<h4>Robust path: read the menu</h4>
+
+<pre><code>FindCopyTextRow(nearX, nearY, box := 0) {
+    opts := box ? {x: box.x, y: box.y, w: box.w, h: box.h, scale: 2, mode: 4}
+                : {scale: 2, mode: 4}
+    try res := OCR.FromWindow("ahk_exe Discord.exe", opts)
+    if !res
+        return 0
+    best := 0, bestDist := 0
+    for w in res.Words {
+        if (StrLower(w.Text) != "copy")
+            continue
+        a := w.BoundingRect
+        for w2 in res.Words {
+            if (StrLower(w2.Text) != "text")
+                continue
+            b := w2.BoundingRect
+            if !(Abs(b.y - a.y) &lt;= a.h &amp;&amp; b.x &gt; a.x &amp;&amp; b.x - (a.x + a.w) &lt; 40)
+                continue
+            row  := {x: (a.x + b.x + b.w) // 2, y: a.y + a.h // 2}
+            dist := Abs(row.x - nearX) + Abs(row.y - nearY)
+            if (!best || dist &lt; bestDist)
+                best := row, bestDist := dist
+        }
+    }
+    return best
+}
+</code></pre>
+
+<div class="concept">
+<span class="tag">CONCEPT-ENCOUNTERED</span>
+<h3>OCR with word geometry, not just text</h3>
+<p>Windows' OCR engine (driven through <code>src/vendor/OCR.ahk</code>, no install required)
+returns not just a string but a list of <strong>words with bounding rectangles</strong>. That is
+what makes this possible: you can ask "is there a word 'text' on the same line, immediately to the
+right of this 'copy'?"</p>
+<p><code>mode: 4</code> is <code>PrintWindow</code> with <code>PW_RENDERFULLCONTENT</code> — the
+only capture mode that returns anything but black for a hardware-accelerated Electron window, and
+it reads Discord <em>even when another window covers it</em>.</p>
+</div>
+
+<p><strong>Three traps this has to avoid</strong>, and all three are in the comments:</p>
+
+<ol>
+<li>The same menu carries <strong>"Copy Message Link"</strong>. Matching a lone "Copy" clicks that
+about half the time, depending on which one OCR reports first. So a "Text" word is
+<em>required</em> on the same row, immediately to its right.</li>
+<li>A message in the channel can itself contain the words "copy text". <strong>Ties are broken by
+distance to the click</strong>, and the menu opens <em>at</em> the click.</li>
+<li>The whole window is a lot of pixels for a menu that is always at the cursor.
+<strong>OCR cost tracks area</strong> — the whole window at scale 2 measured ~157 ms — so the read
+is boxed to a rectangle around the click.</li>
+</ol>
+
+<h4>The clamp that is not defensive padding</h4>
+
+<pre><code>bx := Max(0, cx - b.left)
+by := Max(0, cy - b.up)
+bw := Min(b.left + b.right, (ccw ? ccw : bx + 1) - bx)
+bh := Min(b.up + b.down,    (cch ? cch : by + 1) - by)
+if (bw &lt; 40 || bh &lt; 40)
+    return 0
+</code></pre>
+
+<blockquote><p>"A right-click near the top of the message list puts <code>cy - up</code> well below
+zero, and a capture region starting off the bitmap is <strong>not a smaller read — it is a
+throw</strong>, inside a <code>try</code>, which would look exactly like 'the menu was not
+found.'"</p></blockquote>
+
+<h3>Polling instead of sleeping</h3>
+
+<pre><code>global SEQ_MENU_FIRST_MS := 60     <span class="c">; before the first look</span>
+global SEQ_MENU_STEP_MS  := 55     <span class="c">; between looks</span>
+global SEQ_MENU_MAX_MS   := 600    <span class="c">; give up, measured from the click</span>
+
+Sleep SEQ_MENU_FIRST_MS
+Loop {
+    tries++
+    hit := _SeqFindMenu(mx, my)
+    if (hit || A_TickCount - t0 &gt; SEQ_MENU_MAX_MS)
+        break
+    Sleep SEQ_MENU_STEP_MS
+}
+</code></pre>
+
+<div class="concept">
+<span class="tag">CONCEPT-ENCOUNTERED</span>
+<h3>Poll to a deadline, do not sleep to a guess</h3>
+<p>"This was one flat <code>Sleep 250</code> and a single attempt. 250 ms is a guess at the slowest
+frame Discord might need, <strong>paid in full on every import even when the menu was up in
+60</strong> — and if it was <em>not</em> up yet, the one attempt was spent on a blank patch of chat
+and the whole import failed."</p>
+<p>Polling fixes both ends: the common case is fast and the slow case still works. Any time you see
+a fixed <code>Sleep</code> before checking for something asynchronous, that is the shape to
+replace.</p>
+</div>
+
+<p>And there is a last-resort whole-window read after the loop, which logs a
+<code>LOGW</code> when it succeeds: <em>"If this line is common, <code>SEQ_MENU_BOX</code> is too
+small."</em> That is instrumentation telling you how to tune it.</p>
+
+<h3>Failure is specific</h3>
+
+<pre><code>if !hit {
+    Send "{Escape}"          <span class="c">; don't leave the menu hanging open over the chat</span>
+    LOGE("seq.discord", "neither the bitmap match nor the OCR read found a"
+                      . " 'Copy Text' row in Discord's context menu — nothing"
+                      . " imported",
+                      "clicked at " mx "," my
+                    . "; bitmap needle " COPY_TEXT_IMG
+                    . " (goes stale when Discord restyles its menus)")
+    ToolTip("Import: no 'Copy Text' in the menu")
+    SetTimer(ClearImportTip, -2000)
+    return
+}
+</code></pre>
+
+<p><strong>Naming which of the two routes failed matters, because the fixes are completely
+different</strong> — one goes stale when Discord restyles, the other depends on the window being
+readable.</p>
+
+<hr>
+
+<h2>Step 4–5: which model is this for?</h2>
+
+<p>The channel name is the routing key: <code>#-aliw-staff-chat</code> → <code>aliw</code> → the
+Aliw model.</p>
+
+<h3>Two readers, title first</h3>
+
+<pre><code>DiscordChannelName() {
+    DetectHiddenWindows false
+    CoordMode "Pixel", "Client"
+    chan := DiscordChannelFromTitle()
+    if (chan = "")
+        chan := DiscordChannelFromHeader()
+    <span class="c">; …restore both…</span>
+    return chan
+}
+</code></pre>
+
+<p>Neither covers everything: the title is exact and instant but only names a <em>text</em>
+channel, while the header is on screen whatever the title says.</p>
+
+<pre><code>DiscordChannelFromTitle() {
+    try t := WinGetTitle("ahk_exe Discord.exe")
+    if !RegExMatch(t, "^#(.+?)\s*\|", &amp;m)
+        return ""
+    return DiscordSlug(m[1])
+}
+</code></pre>
+
+<div class="warn">
+<span class="tag">The leading <code>#</code> is the whole test</span>
+<p>Discord titles a text channel <code>"#&lt;emoji&gt;-aliw-staff-chat | ILTC - Discord"</code>.
+The <code>#</code> marks a TEXT channel.</p>
+<p>A <strong>voice</strong> channel or the settings page titles itself <em>without</em> one — and
+those have to fall through to the OCR read rather than have their <strong>SERVER name</strong>
+matched as if it were a channel.</p>
+<p>This is the source of a recurring confusion in this repo's own notes: the window title you get
+when someone is in a voice channel is the voice channel's, not the text channel you are reading.</p>
+</div>
+
+<h3>Two <code>CoordMode</code> / <code>DetectHiddenWindows</code> flips, both necessary</h3>
+
+<blockquote><p>"This script runs with <code>DetectHiddenWindows</code> ON (it needs it to
+<code>PostMessage</code> the MMA GUI). Left on, <code>ahk_exe Discord.exe</code> can resolve to one
+of Discord's <strong>hidden helper windows</strong> — blank title, nothing to capture."</p>
+<p>"Client coords, so a maximized window's <strong>invisible border</strong> (its rect starts at
+−8,−8) does not shift the band out from under the header."</p></blockquote>
+
+<p>Both are saved and restored around the call. This is the standard shape for any function that
+changes a thread-global.</p>
+
+<h3>Matching the slug shape, not the first characters</h3>
+
+<pre><code>DiscordSlug(txt) {
+    if RegExMatch(txt, "([A-Za-z][A-Za-z0-9]*(?:-[A-Za-z0-9]+)+)", &amp;m)
+        return StrLower(m[1])
+    return ""
+}
+</code></pre>
+
+<p><strong>Requiring the hyphen is what keeps prose from being read as a channel</strong> — "Set a
+channel topic", a banner, a server name. And Discord draws an emoji immediately before the name,
+which OCR turns into junk, so matching the <em>shape</em> rather than the start is what survives
+that.</p>
+
+<h3>Which segment is the model?</h3>
+
+<pre><code>ModelFromChannel(chan) {
+    segs := StrSplit(chan, "-")
+    for known in KnownModelNamesFromCfg()
+        for s in segs
+            if (s != "" &amp;&amp; StrLower(s) = StrLower(known))
+                return s                      <span class="c">; a known name wins outright</span>
+    for s in segs
+        if (StrLen(s) &gt;= 3)
+            return s                          <span class="c">; else the first non-debris segment</span>
+    return segs.Length ? segs[1] : ""
+}
+</code></pre>
+
+<p>Not simply "the first segment": OCR can render the emoji as a stray character or two, so the
+slug can arrive as <code>q-aliw-staff-chat</code>. So a segment that matches a model MMA
+<em>already knows</em> wins, and only if none does do we fall back to the first segment long enough
+not to be OCR debris.</p>
+
+<p><code>KnownModelNamesFromCfg()</code> reads the model slots plus the
+<code>[ModelAliases]</code> table from the cfg — <strong>read, not hard-coded, so renaming a model
+in Settings does not quietly break the routing.</strong></p>
+
+<hr>
+
+<h2>Step 6–7: crossing the process boundary</h2>
+
+<pre><code>chan  := DiscordChannelName()
+model := chan != "" ? ModelFromChannel(chan) : ""
+if (model != "")
+    A_Clipboard := "@model: " model "`n" A_Clipboard
+
+LOGI("seq.discord", "copied " StrLen(A_Clipboard) " chars"
+                  . "  channel='" chan "'"
+                  . "  → model='" (model = "" ? "(not recognised)" : model) "'")
+</code></pre>
+
+<div class="concept">
+<span class="tag">CONCEPT-ENCOUNTERED</span>
+<h3>Tagging data in-band, because the channel cannot carry metadata</h3>
+<p>A window message carries two integers. The clipboard carries text. There is <em>nowhere</em> to
+put "this mass is for model 2" except in the text itself.</p>
+<p>So the sender prepends <code>@model: aliw</code> as a line, and the receiver strips it:</p>
+<pre><code>ExtractModelName(&amp;raw) {
+    lines := StrSplit(...)
+    for i, ln in lines {
+        t := Trim(ln)
+        if t = ""
+            continue
+        if RegExMatch(t, "i)^@(?:mma-)?model\s*[:=]?\s*(.+)$", &amp;m) {
+            name := Trim(m[1])
+            lines.RemoveAt(i)
+            raw := ""                          <span class="c">; rebuild WITHOUT that line</span>
+            for _, l in lines
+                raw .= (raw = "" ? "" : "`n") l
+            return name
+        }
+        return ""      <span class="c">; first real line isn't a marker — stop looking</span>
+    }
+    return ""
+}</code></pre>
+<p>Note the <code>return ""</code> in the loop body: it only looks at the <em>first non-blank
+line</em>. A <code>@model:</code> further down is message text, not a marker.</p>
+<p>The <strong>in-band signalling</strong> pattern always has this hazard — real content that looks
+like a marker — and the standard defence is the one used here: only recognise the marker in a
+position where content cannot appear.</p>
+</div>
+
+<h3>The last link, and the one that fails silently</h3>
+
+<pre><code>_guiWin := MMA_GuiWin()
+if WinExist(_guiWin) {
+    PostMessage MMA_MSG_AUTOPARSE, 0, 0, , _guiWin
+    LOGI("seq.discord", "told the MMA window to auto-parse the clipboard")
+} else {
+    LOGE("seq.discord", "the copied text is on the clipboard, but the MMA window"
+                      . " is not running — nothing will parse it",
+                      "looked for window title " _guiWin)
+}
+</code></pre>
+
+<p>"The text is on the clipboard, tagged and ready, and if the GUI is not running there is nothing
+to receive it. <strong>From Discord that looks exactly like the import having done nothing at
+all.</strong>"</p>
+
+<p><code>MMA_GuiWin()</code> rather than <code>MMA_SRC_GUI</code> — chapter 3 covers why. Hard-coding
+the Win32 shell's path was correct while it was the only front end and silently wrong the moment
+WebView could be the running window.</p>
+
+<hr>
+
+<h2>The other import route</h2>
+
+<pre><code>WEB_IMPORT_SENTINEL := "#MMA-IMPORT#"
+
+WebImportFromClipboard(dataType) {
+    if _webImporting || dataType != 1     <span class="c">; 1 = clipboard now holds text</span>
+        return
+    cb := A_Clipboard
+    if SubStr(cb, 1, StrLen(WEB_IMPORT_SENTINEL)) != WEB_IMPORT_SENTINEL
+        return
+    _webImporting := true
+    body := LTrim(SubStr(cb, StrLen(WEB_IMPORT_SENTINEL) + 1), "`r`n")
+    A_Clipboard := body                   <span class="c">; leave a clean copy</span>
+    ClipWait(0.5)
+    try WinActivate("ahk_id " g.Hwnd)
+    PostMessage(MMA_MSG_AUTOPARSE, 0, 0, , "ahk_id " g.Hwnd)
+    _webImporting := false
+}
+</code></pre>
+
+<p>Registered by <code>OnClipboardChange</code>. A web page's "Send to MMA" button copies a sentinel
+plus the mass text; MMA notices, strips the sentinel, and reuses the same parse path.</p>
+
+<p>Two guards worth noting: <code>dataType != 1</code> ignores non-text clipboard events, and
+<code>_webImporting</code> is a <strong>re-entrancy flag</strong> — writing the clean copy back to
+the clipboard re-fires this very handler, and without the flag it would recurse.</p>
+
+<hr>
+
+<h2>Routing at the receiving end</h2>
+
+<p>Covered in <a href="09-gui.html">chapter 9</a>. In summary:</p>
+
+<div class="tablewrap">
+<table>
+<thead><tr><th>Situation</th><th>Behaviour</th></tr></thead>
+<tbody>
+<tr><td>Name matches a slot, fast-parse on</td><td>Switch tab, parse, save silently. <code>_lastImportModel</code> is remembered.</td></tr>
+<tr><td>No name at all, fast-parse on, a previous import exists</td><td>Route to the same model as last time.</td></tr>
+<tr><td>Anything else</td><td><code>PromptSaveTarget(detected)</code> — a dialog with a name combo and a model dropdown, plus a "remember this name" checkbox.</td></tr>
+</tbody>
+</table>
+</div>
+
+<p>The prompt's name combo is pre-filled with <code>KnownModelNames()</code> and the detected
+name, so the common case is one Enter. And the "remember" checkbox goes through
+<code>RememberModelName</code>, which <em>adopts</em> the name when the slot has never been named
+and writes an <em>alias</em> otherwise — chapter 9 covers the bug that distinction fixed.</p>
+
+<hr>
+
+<h2>Calibration and debugging</h2>
+
+<div class="tablewrap">
+<table>
+<thead><tr><th>Setting</th><th>Default</th><th>Meaning</th></tr></thead>
+<tbody>
+<tr><td><code>[Discord] HeaderX/Y/W/H</code></td><td>460, 42, 500, 38</td><td>The header band, <strong>client-relative</strong>. X depends on how wide your channel sidebar is.</td></tr>
+<tr><td><code>SEQ_MENU_BOX</code></td><td>left 40, right 340, up/down 380</td><td>Where the menu is looked for, around the click. Wider right because the menu opens rightwards.</td></tr>
+<tr><td><code>SEQ_MENU_*_MS</code></td><td>60 / 55 / 600</td><td>First look, interval, deadline.</td></tr>
+<tr><td><code>assets\copy_text.png</code></td><td>—</td><td>The bitmap needle. Re-capture it if Discord restyles.</td></tr>
+</tbody>
+</table>
+</div>
+
+<p><code>tools/discord_header_test.ahk</code> tunes the header band. It is a <strong>probe</strong>
+despite its name — it binds a key and stays resident so you can look at your own screen through
+it.</p>
+
+<div class="warn">
+<span class="tag">The header band deliberately starts to the RIGHT of the sidebar</span>
+<p>The channel <em>list</em> is full of other channel names, and OCR that wandered into it would
+report the wrong one with full confidence.</p>
+</div>
+
+<h3>Reading the log</h3>
+
+<div class="tablewrap">
+<table>
+<thead><tr><th>Symptom</th><th>Look for</th><th>Meaning</th></tr></thead>
+<tbody>
+<tr><td>Nothing at all happens</td><td><code>seq.discord</code> <code>DEVL</code></td><td><strong>Absent</strong> → the script is not running, or the key is unbound, or you were not in Discord. Check <code>hk.summary</code> for sequences at startup.</td></tr>
+<tr><td>Menu opens, nothing copies</td><td><code>seq.discord</code> <code>FAIL</code></td><td>Neither route found "Copy Text". Re-capture the bitmap, or widen <code>SEQ_MENU_BOX</code>.</td></tr>
+<tr><td>Copies, but goes to the wrong model</td><td><code>seq.discord</code> <code>channel=</code></td><td>Shows the raw string OCR read. Usually a voice-channel title, or a segment shorter than 3 chars.</td></tr>
+<tr><td>"channel not recognised"</td><td>the same line</td><td>Add the name under <code>[ModelAliases]</code>, or use the routing prompt's remember checkbox.</td></tr>
+<tr><td>Copies, then nothing</td><td><code>seq.discord</code> "MMA window is not running"</td><td>The GUI died, or the shell preference changed without a restart.</td></tr>
+<tr><td>Lands in the wrong tab</td><td><code>gui.parse</code></td><td>It names the model it parsed into. Compare with the <code>@model</code> line.</td></tr>
+<tr><td>Import is slow</td><td><code>seq.discord</code> "found after N look(s), Xms"</td><td>N &gt; 3 means the menu is slow to paint; the last-resort <code>LOGW</code> means the box is too small.</td></tr>
+</tbody>
+</table>
+</div>
+
+<div class="pager"></div>
+</main>
+</div>
+</body>
+</html>

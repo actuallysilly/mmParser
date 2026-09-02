@@ -152,6 +152,20 @@ HK_Def(id, label, when := "", owner := "") {
     HK_ORDER.Push(id)
 }
 
+; Where an id sits in HK_ORDER, or 0. The number HK_Broadcast(HK_MSG_FIRE, …)
+; carries, because PostMessage carries only numbers — see _HK_OnFire.
+;
+; Here rather than in whichever window happened to need it first. It lived in
+; actions_menu.ahk as ActionsIndexOf, which meant hotstrings\shortcuts.ahk had to
+; reach into the Actions menu to fire an action that has nothing to do with the
+; Actions menu. The index of a registry id is a fact about the registry.
+HK_IndexOf(id) {
+    for i, hid in HK_ORDER
+        if (hid = id)
+            return i
+    return 0
+}
+
 ; "mass.1.fu1" -> section "mass.1", key "fu1"  (split at the LAST dot)
 ;
 ; ─── EXCEPT FOR [hotstring], WHICH SPLITS AT THE FIRST ────────────────────────
@@ -267,7 +281,7 @@ HK_Def("mass.3.ppvFus", "PPV follow-ups",   , "engine.ahk")
 ;
 ;  One process, one declaration, no exemption, and the conflict report can now be
 ;  believed. With no detector answer these simply do nothing; the per-model keys
-;  above are the manual answer. See ARCHITECTURE.md §5.1.
+;  above are the manual answer. See docs/decisions.md §5.1.
 ;  The HK_Section is not optional decoration: hotkeys_window.ahk reads
 ;  HK_SECTION_LABEL[section] for the first row of each group, and an AHK Map
 ;  THROWS on a missing key. These ids were declared without one, so the Hotkeys
@@ -350,8 +364,19 @@ HK_Def("gui.toggleReplyBox", "Toggle reply timers",          "replyBox",    "rep
 ; something has been recorded, and the tracker running is exactly that condition.
 HK_Def("gui.activity",       "Activity chart (typing stats)", ,            "tracker.ahk")
 HK_Def("gui.branchBuilder",  "Branch builder (draw a conversation)", ,     "main_window.ahk")
+HK_Def("gui.chatSim",        "Chat simulator (write a mass in context)", , "main_window.ahk")
 HK_Def("gui.actions",        "Actions menu (what can I do?)", ,             "actions_menu.ahk")
+; The quick menu is bound in a MESSAGE script, not in the GUI — it sends a
+; hotstring, and only a script that #Includes core\utils.ahk can send. Which
+; one, and why exactly one, is HSQ_Register in hotstrings\quick_menu.ahk.
+HK_Def("gui.hotstringMenu",  "Hotstrings quick menu (pinned + recent)", ,   "general.ahk")
 HK_Def("gui.quickActions",   "Quick actions (pinned buttons)", ,            "actions_menu.ahk")
+; Owned by the ENGINE, not by a window: the badge is built there, beside the lock
+; badge, because that is the process that resolves the model it names
+; (ui\fansly_badge.ahk). Ships with no key — it is meant to be reached by typing
+; ..dorail, which is what hotstrings\shortcuts.ahk is for — but it is a registry
+; action like any other, so the Actions menu lists it and hotkeys.ini can bind it.
+HK_Def("gui.toggleRailBadge", "Toggle the Fansly rail readout", ,           "engine.ahk")
 
 ; --- Marks: vertical divider bars drawn on your own tab strip ------------------
 ;  Decoration, and nothing but: a bar means whatever you decided it means when you
@@ -374,7 +399,7 @@ HK_Def("recorder.toggle", "Start / stop recording", , "recorder.ahk")
 
 ; Declared here so the GUI lists, edits and conflict-checks them like any other
 ; key — but BOUND BY PYTHON, not AHK: no script calls HK_Bind for these. The
-; listener (automation\automation.py --listen) reads the same ini and
+; listener (src/services/automation/automation.py --listen) reads the same ini and
 ; polls, so it must be running for them to fire. It gates itself to the Infloww
 ; Messages window, which is why "when" is blank rather than a registered context.
 HK_Section("automation", "Automation (automation.py)")
@@ -717,7 +742,7 @@ OnMessage(HK_MSG_FIRE, _HK_OnFire)
 ; ── schema stamp ──────────────────────────────────────────────────────────────
 ;  v1 carried a migration that lifted hotkeys out of mass_gui.cfg's old
 ;  [Hotkeys] / [NavHotkeys] / [Recorder] sections into hotkeys.ini. 2.0.0 is a
-;  clean break with no installed base (ARCHITECTURE.md §4.7), so there is nothing
+;  clean break with no installed base (docs/decisions.md §4.7), so there is nothing
 ;  left to lift and the whole lift-and-delete pass is gone — along with _HK_Lift
 ;  and HK_CFG, which existed only to serve it.
 ;

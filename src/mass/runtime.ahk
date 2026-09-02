@@ -5,7 +5,7 @@
 ; ───────────────────────────────────────────────────────────────────────────────
 ;  Follow-ups, alts, branches, PPV, the __mm triggers and the Settings toggles all
 ;  live here. The message text itself is DATA and lives in userdata\masses.json,
-;  read through mass/store.ahk — see ARCHITECTURE.md §5.
+;  read through mass/store.ahk — see docs/decisions.md §5.
 ;
 ;  This behaviour used to be copied into each of 1_mass.ahk / 2_mass.ahk /
 ;  3_mass.ahk, and the copies drifted: 1_mass honoured EditableFu / WalletCheckFu3
@@ -25,6 +25,9 @@
 ; ═══════════════════════════════════════════════════════════════════════════════
 
 #Include "store.ahk"
+; MASS_FuParts / DefaultFu3Parts / BranchList — the send-shape rules, shared
+; with the chat simulator so there is one answer to "what does this mass send".
+#Include "shape.ahk"
 #Include "../core/coords.ahk"
 #Include "../core/utils.ahk"
 #Include "next_fu.ahk"
@@ -36,6 +39,11 @@
 ; below that put a lock on, and a lock you cannot see is the one thing lock mode
 ; must never be — see the header of ui/lock_badge.ahk.
 #Include "../ui/lock_badge.ahk"
+; The rail readout, beside lock_badge for the same reason it is beside it in
+; engine.ahk: both are small always-on-top strips this process owns, both read
+; state the keys resolve through, and neither is allowed to steal a keystroke.
+; Off unless [Debug] FanslyRail is ticked — see ui/fansly_badge.ahk.
+#Include "../ui/fansly_badge.ahk"
 
 ; ── __1mm … __12mm ────────────────────────────────────────────────────────────
 ;  "Paste model n's mass", one trigger per model slot. Registered rather than
@@ -186,7 +194,7 @@ SndFuEditable(parts*) {
 }
 
 ; ── which model is firing ─────────────────────────────────────────────────────
-; One process now serves all three models (ARCHITECTURE.md §5), so "the current
+; One process now serves all three models (docs/decisions.md §5), so "the current
 ; model" is no longer a per-process constant — it is whichever model owns the key
 ; you just pressed. Every mass handler is bound through _ModelFire below, which
 ; sets it immediately before running the handler.
@@ -265,48 +273,24 @@ _DoFuGroup(group, editable, openTab) {
         return
     m := CurMass()
     if editable {
-        SndFuEditable(_FuParts(m, group)*)
+        SndFuEditable(MASS_FuParts(m, group)*)
         return
     }
     if sendBoth {
-        sndFu(group, _FuParts(CurMassSlot(1), group)*)
-        sndFu(group, _FuParts(CurMassSlot(2), group)*)
+        sndFu(group, MASS_FuParts(CurMassSlot(1), group)*)
+        sndFu(group, MASS_FuParts(CurMassSlot(2), group)*)
     } else {
-        sndFu(group, _FuParts(m, group)*)
+        sndFu(group, MASS_FuParts(m, group)*)
     }
     if openTab
         clickReturn(openInNewTabButton)
 }
 
-; The three fields that make up a follow-up group: fuN, fuN_5, fuN_7.
-;
-; Group 3 alone has a fallback: a mass with no f3 at all sends the DefaultFu3 text
-; from Settings instead of nothing. Applied here rather than in sndFu because
-; SndFuEditable takes the same parts and has no idea which group it is holding —
-; one place covers the plain send, the editable/wallet paste, and both halves of
-; a double-MM (so a second model with no f3 still gets the default).
-_FuParts(m, group) {
-    parts := [m.%"fu" group%, m.%"fu" group "_5"%, m.%"fu" group "_7"%]
-    if (group != 3)
-        return parts
-    for p in parts
-        if Trim(p) != ""
-            return parts
-    return DefaultFu3Parts()
-}
+; _FuParts() and DefaultFu3Parts() stood here. Both are in mass\shape.ahk now,
+; as MASS_FuParts() and DefaultFu3Parts() — neither ever touched a key or the
+; clipboard, and the chat simulator needs the same answer this file does about
+; which three fields a follow-up is made of and what happens when f3 is empty.
 
-; The fallback FU3, as one part per line. Stored in mass_gui.cfg with `n for a
-; line break — an ini has no other way to hold one — which is the same escape the
-; alt fields use, so MASS_SplitParts already knows how to read it. Each line goes out
-; as its own message, exactly like the three f3 fields would have.
-;
-; Read per press rather than cached: editing it in Settings then takes effect
-; without restarting the model scripts, the same trade sndFu makes for FuSingle.
-DefaultFu3Parts() {
-    if !FEAT("defaultFu3")
-        return ["", "", ""]
-    return MASS_SplitParts(IniRead(MMA_CFG, "Settings", "DefaultFu3", ""))
-}
 
 ; ── devlog: the handler was reached ───────────────────────────────────────────
 ;  One line each, at the top, before any decision is taken. These are the three
@@ -613,7 +597,14 @@ _RunOnActiveModel(fn, slot := "") {
     ; remembered model — a window in front of EVERY shared key would be a window in
     ; front of everything, and __mm already has its own asking route (the hotstring,
     ; via MassSendOrPick) for when you are genuinely unsure.
-    if (ModelMatchMode() = "manual") {
+    ;
+    ; ActiveSiteMatchMode, not ModelMatchMode: the two sites carry their own modes
+    ; now, so the question is "is the site I am LOOKING AT in manual", not "is
+    ; Infloww". Reading Infloww's key here would open the picker on the Fansly rail
+    ; while Infloww ran automatic, and skip it on the rail while Infloww was
+    ; manual — the wrong answer in both directions on exactly the mixed desk
+    ; per-site modes exist for.
+    if (ActiveSiteMatchMode() = "manual") {
         group := PickGroupForSlot(slot)
         if group {
             MassPickThenFu(group)
@@ -681,21 +672,28 @@ SelectModel(n) {
         LOCKBADGE_Sync()
     }
 
-    mode := ModelMatchMode()
-
-    ; ── on Fansly, the same key teaches the RAIL ─────────────────────────────
+    ; ── on Fansly, this press belongs to the OTHER site entirely ─────────────
     ; "Active model = 2" pressed while the Fansly rail is in front means "the card
     ; I am looking at is model 2", exactly as it means "the tab I am looking at"
-    ; on Infloww. Same key, same sentence, different platform — and it must NOT
-    ; fall through to TeachPosition below, which would file a Fansly model under
+    ; on Infloww. Same key, same sentence, different site — and it must NOT fall
+    ; through to the Infloww half below, which would file a Fansly model under
     ; whatever Infloww tab happened to be lit behind the window and quietly
     ; reroute that tab's sends. That is the same destructive mistake the manual
-    ; note beneath this one is about.
+    ; note further down is about.
     ;
     ; Checked before the platform check on purpose: which window is in front is a
     ; fact, and the per-model platform setting is a claim.
-    if TeachFanslyRow(n)
+    ;
+    ; Everything past this point reads and writes INFLOWW's mode. That is the
+    ; whole reason the sites split: this key used to write [Settings] ModelMatch
+    ; = manual from a press made on the Fansly rail, which switched the Infloww
+    ; tab strip off as a side effect of saying something about Fansly.
+    if FanslyIsUp() {
+        _SelectOnFansly(n)
         return
+    }
+
+    mode := ModelMatchMode()
 
     ; A model on a platform the detector cannot see has no tab index to record,
     ; and trying would be actively destructive: TeachPosition maps whatever
@@ -719,9 +717,40 @@ SelectModel(n) {
     }
     ; Any other mode becomes manual, because a key labelled "active model = 2"
     ; that left the detector in charge would be lying about what it does.
+    ;
+    ; [Settings] ModelMatch and NOT [Fansly] Match: this branch is only reached
+    ; with the Fansly rail not in front, so the sentence is about Infloww.
     if (mode != "manual")
         IniWrite("manual", MMA_CFG, "Settings", "ModelMatch")
-    _MassToast("Active model: " ModelLabel(n) _LockSuffix())
+    _MassToast("Active model: " ModelLabel(n) "   (Infloww)" _LockSuffix())
+}
+
+; The same press, made while the Fansly rail is in front.
+;
+; Mirrors the Infloww half exactly, one site over: in position mode it teaches
+; the row, and in any other mode it means "this is the model now" and switches
+; THIS SITE to manual. Same sentence, same two outcomes, its own config key.
+;
+; The key that used to be here forced [Fansly] Match=position on every press, on
+; the argument that a key labelled "active model = 2" which left name mode in
+; charge would be lying about what it does. True — and it also made Fansly-manual
+; unreachable from the keyboard, on the one platform whose detector currently
+; cannot tell its rows apart (see the refusal in FanslyLitRow). So it now sets
+; the mode the press actually implies rather than one fixed mode.
+_SelectOnFansly(n) {
+    global MMA_CFG
+    if (FanslyMatchMode() = "position") {
+        ; Owns its own feedback in every outcome, including the failures — a
+        ; press that could not read the rail must say so out loud, because your
+        ; eyes are on the chat and not on MMA.
+        TeachFanslyRow(n)
+        return
+    }
+    if (FanslyMatchMode() != "manual")
+        IniWrite("manual", MMA_CFG, "Fansly", "Match")
+    SoundBeep(880, 90)
+    _MassToast("Active model: " ModelLabel(n) "   (Fansly — manual)" _LockSuffix()
+             . "`nInfloww is unaffected; it keeps its own setting.")
 }
 
 ; ── lock mode, from the engine's side ─────────────────────────────────────────
@@ -754,8 +783,12 @@ ToggleMassLock(*) {
         was := ClearMassLock()
         LOCKBADGE_Sync()
         SoundBeep(600, 80)
+        ; The site you are looking at, not Infloww — this sentence says what the
+        ; keys will do NEXT, and with per-site modes that depends on which window
+        ; is in front. Reading Infloww's key here promised "the shared keys follow
+        ; the screen again" while standing on a Fansly rail set to manual.
         _MassToast("Unlocked" (was ? " (was " ModelLabel(was) ")" : "") "`n"
-                 . (ModelMatchMode() = "manual"
+                 . (ActiveSiteMatchMode() = "manual"
                         ? "the shared keys ask which model again"
                         : "the shared keys follow the screen again"))
         return
@@ -856,47 +889,43 @@ _TeachFail(msg) {
 ; ── saying which model the CARD in front is ───────────────────────────────────
 ;  The Fansly twin of TeachPosition, and the only writer of [FanslyPos].
 ;
-;  Returns TRUE when it handled the press — meaning Fansly was in front, whatever
-;  the outcome. SelectModel uses that to stop, because a press aimed at the rail
-;  must never fall through to the Infloww teacher underneath it.
-;
-;  FALSE means "not my platform, carry on", and it is the answer on every machine
-;  with the feature off, at the cost of one ini read.
+;  Called only from _SelectOnFansly, and only in position mode — the site check
+;  and the mode check both happen there now. It used to make both decisions
+;  itself and return a bool meaning "I handled it", which is what let a press on
+;  the rail force [Fansly] Match=position no matter what you had chosen.
 ;
 ;  Reads the pixels HERE, at the moment of the press, for the reason spelled out
 ;  above TeachPosition: the background service polls every 500ms, so a value read
 ;  from its status file is a value from before you clicked the card.
+;
+;  ─── WHY THIS FAILS MORE OFTEN THAN IT USED TO ───────────────────────────────
+;  FanslyLitRow now refuses to answer when the rail sweep found fewer cards than
+;  the rail has rows, because in that state the card's place in the found-list is
+;  not its row number — it is 1, every time, for every model. This teacher
+;  therefore reports a loud failure where it previously wrote [FanslyPos] Pos1
+;  over and over, each press quietly re-pointing row 1 at a different model. The
+;  failure is the fix; the message below says what to do about it.
 TeachFanslyRow(n) {
-    if !FEAT("fanslyDetector")
-        return false
     cfg := FanslyCfg()
-    if !FanslyWindowUp(cfg)
-        return false
-
     lit := FanslyLitRow(cfg)
     if (lit.index < 1) {
         ; The counts ARE the diagnosis, so show them — the same three readings
         ; the probe explains. Without them "it did not work" is unactionable.
+        ; `why` carries the sweep's own refusal, which is the specific one.
         _TeachFail("No card on the Fansly rail reads as selected."
                  . "`nper-row pixels: " _FanCountsLine(lit.counts)
-                 . "`nNothing changed. All zeros means the colour or the rail"
-                 . " origin is wrong; two large numbers means RowPitch is wrong."
-                 . " Run tools\fansly_probe.ahk.")
-        return true
+                 . (lit.why != "" ? "`n" lit.why : "")
+                 . "`nNothing changed. Run tools\fansly_probe.ahk, or set Fansly"
+                 . " to Manual in Settings ▸ Models and pick the model with this"
+                 . " same key.")
+        return
     }
     if !SetFanslyPosFor(lit.index, n) {
         _TeachFail("Could not set rail row " lit.index " to model " n ".")
-        return true
+        return
     }
-    ; Also switch the resolver to positional if it is not already. A key labelled
-    ; "active model = 2" that taught the row and then left name mode in charge —
-    ; where truncated labels routinely match nothing — would be lying about what
-    ; it does, which is the same reasoning as the ModelMatch write below.
-    if (FanslyMatchMode() != "position")
-        IniWrite("position", MMA_CFG, "Fansly", "Match")
     SoundBeep(880, 90)
     _MassToast("Fansly row " lit.index " = " ModelLabel(n))
-    return true
 }
 
 ; Per-row pixel counts, for the message above that has to show its working.

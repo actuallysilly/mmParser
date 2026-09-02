@@ -13,7 +13,24 @@
 ;  the whole integration, and it is deliberately one branch: routing by "which
 ;  window am I actually looking at" needs no setting, no mode and no guess.
 ;
-;  ─── TWO MODES, AND WHY POSITION IS THE DEFAULT HERE ─────────────────────────
+;  ─── THE MODE IS THIS PLATFORM'S ALONE ───────────────────────────────────────
+;  [Fansly] Match answers "how is the model on the Fansly rail decided" and
+;  NOTHING about Infloww; [Settings] ModelMatch answers the same question for
+;  Infloww and nothing about Fansly. Three values each: manual, name, position.
+;
+;  Manual used to be a THIRD thing, global, living only in [Settings] ModelMatch
+;  and short-circuiting ActiveModelStatus before this file was ever asked. That
+;  made the two sites one switch: turning the rail off — the correct response to
+;  a rail detector that cannot tell its rows apart — also turned the Infloww tab
+;  strip off, and there was no way to say "read the tab strip, ask me about
+;  Fansly". Which is the normal shape of a mixed desk, not an edge case.
+;
+;  So manual lives on BOTH sides now, and the window in front decides which one
+;  is in charge. The cost is that "manual" is no longer one fact you can read off
+;  one key; the benefit is that the two sites can disagree, which is the whole
+;  reason they are separate files.
+;
+;  ─── THREE MODES, AND WHY POSITION IS THE DEFAULT HERE ───────────────────────
 ;  On Infloww, name mode is the default and position is the fallback. On Fansly
 ;  it is the other way round, for reasons that are properties of the interface
 ;  rather than preferences:
@@ -41,11 +58,34 @@
 ;  unguarded Integer(), and the pixel work is cached. The GUI owns the asking.
 ; ═══════════════════════════════════════════════════════════════════════════════
 
-; "position" (default) or "name". See the header for why the default is not the
-; same as Infloww's.
+; "position" (default), "name" or "manual" — Fansly's mode and only Fansly's.
+; See the header for why the default is not the same as Infloww's, and why manual
+; had to stop being a single global switch over both sites.
+;
+; Unknown values read as "position" rather than throwing: this is reached from
+; #HotIf, so a hand-typed value must degrade, never open a dialog per keystroke.
 FanslyMatchMode() {
     m := StrLower(Trim(IniRead(MMA_CFG, "Fansly", "Match", "position")))
-    return (m = "name") ? "name" : "position"
+    if (m = "name")
+        return "name"
+    if (m = "manual")
+        return "manual"
+    return "position"
+}
+
+; Is the Fansly rail the site you are actually looking at?
+;
+; The EXACT gate FanslyStatus() uses to decide whether to answer at all, factored
+; out so the two can never drift. Anything asking "which site am I on" — the
+; select key, the picker, Settings' readout — has to get the same answer as the
+; resolver, or a key teaches one site while the shared keys follow the other.
+;
+; Takes an optional cfg so a caller that already built one does not pay for a
+; second: FanslyCfg() is ~45 ini reads.
+FanslyIsUp(cfg := 0) {
+    if !FEAT("fanslyDetector")
+        return false
+    return FanslyWindowUp(cfg ? cfg : FanslyCfg())
 }
 
 ; ── what the background service last saw ─────────────────────────────────────
@@ -184,6 +224,10 @@ global _FAN_CACHE_R := 0
 ;   "off"        Fansly is not what you are looking at — the feature is off or
 ;                its window is not in front. The ONLY state that means "ask the
 ;                Infloww path instead", which is why it is distinct from "none".
+;                Manual mode does NOT return this: manual is an answer about
+;                Fansly, not a refusal to answer, and falling through to the
+;                Infloww detector while you are looking at the Fansly rail is
+;                exactly the cross-site send this file exists to prevent.
 ;   "ok"         .no is the model on the rail.
 ;   "none"       Fansly IS in front and nothing reads as selected. A real
 ;                failure: wrong RegionY, wrong CardTol, or the rail scrolled.
@@ -200,44 +244,99 @@ FanslyStatus() {
     return res
 }
 
+; One record shape, filled on EVERY path, so a reader never has to ask whether a
+; field is there before looking at it.
+;
+; The three diagnostic fields are why this helper exists. `state` says a resolve
+; failed; only `why`, `row`, `cards` and `rows` say what to DO about it, and until
+; the rail badge (ui/fansly_badge.ahk) there was nowhere for them to go but a log
+; line you had to know to go and read. They cost nothing to carry — every value
+; below was already computed at the point it is returned and then thrown away.
+;
+;   mode   this site's match mode, or "" when Fansly is not the site in front
+;   why    the short human reason for a non-ok state, "" when state is "ok"
+;   row    the lit rail row, or 0 for "nothing lit"
+;   cards  how many cards the sweep found, or -1 when no sweep was run
+;   rows   how many rows the rail is configured to have, or 0
+_FanRes(no, name, state, mode := "", why := "", row := 0, cards := -1, rows := 0) {
+    return {no: no, name: name, state: state, mode: mode,
+            why: why, row: row, cards: cards, rows: rows}
+}
+
 _FanslyStatusUncached() {
     ; FEAT first, and cheapest: with the feature off this must cost one ini read
     ; and get out of the way, because every keystroke in Infloww passes through
     ; here on its way to the detector that IS switched on.
     if !FEAT("fanslyDetector")
-        return {no: 0, name: "", state: "off"}
+        return _FanRes(0, "", "off", "", "the Fansly rail detector is switched off"
+                                        . " in Settings ▸ Features")
 
     cfg := FanslyCfg()
-    if !FanslyWindowUp(cfg)
-        return {no: 0, name: "", state: "off"}
+    if !FanslyIsUp(cfg)
+        return _FanRes(0, "", "off", "", "the Fansly window is not in front")
+
+    ; ── manual: the rail is not read at all ──────────────────────────────────
+    ;  You said which model with a [mass.select] key, and that stands until you
+    ;  say otherwise. No sweep, no OCR, no guess — which is the whole point on a
+    ;  platform whose selected-card colour cannot currently tell one row from
+    ;  another (see the refusal in FanslyLitRow).
+    ;
+    ;  BEFORE the scan, not after it: a mode that reads no pixels must cost no
+    ;  pixels, and this is on the keystroke path.
+    ;
+    ;  The remembered model is the SAME [Settings] CurrentModel the Infloww side
+    ;  uses, and deliberately so. It is "which model am I working on", one fact
+    ;  about you rather than one per site; you are looking at one window at a
+    ;  time, and the select key that sets it knows which site you are on.
+    mode := FanslyMatchMode()
+    if (mode = "manual") {
+        n := ManualModelNo()
+        LOGV("fansly.resolve", "manual mode → model " n " (" FanslyDisplayName(n)
+                             . ") because you said so; the rail was not read")
+        return _FanRes(n, FanslyDisplayName(n), "ok", mode, "", 0, -1, cfg.rows)
+    }
 
     ; Scanned HERE rather than read out of fansly_status.ini, and for the reason
     ; the Infloww positional path learned the hard way: the service polls every
     ; 500ms, so "click a card, press the key" reads a value from before the
     ; click. The pixels are right there and one BitBlt of the rail is under a
     ; millisecond. Never stale, by construction.
-    lit := FanslyLitRow(cfg)
+    lit   := FanslyLitRow(cfg)
+    cards := lit.cards
     if !lit.index {
         LOG_Bail("fansly.resolve", "'" cfg.win "' is in front but no row on the rail"
                                  . " reads as selected, so every [mass.active]"
                                  . " shared key will do nothing. Per-row counts: "
-                                 . _FanCounts(lit.counts) ". Run"
-                                 . " tools\fansly_probe.ahk — this is normally"
-                                 . " RegionY, CardTol, or the rail having scrolled.")
-        return {no: 0, name: "", state: "none"}
+                                 . _FanCounts(lit.counts)
+                                 . (lit.why != "" ? ". " lit.why : "")
+                                 . (cfg.anchor
+                                    ? ". The rail is anchored to the active window"
+                                    . " and swept for cards, so this is CardColor"
+                                    . " or CardTol — it is no longer the window"
+                                    . " having been moved."
+                                    : ". Run tools\fansly_probe.ahk — this is"
+                                    . " normally RegionY, CardTol, or the rail"
+                                    . " having scrolled."))
+        return _FanRes(0, "", "none", mode,
+                       lit.why != "" ? lit.why : "nothing on the rail reads as"
+                                               . " selected", 0, cards, cfg.rows)
     }
 
-    if (FanslyMatchMode() = "position") {
+    if (mode = "position") {
         n := FanslyPosSlot(lit.index)
         if !n {
             LOGW("fansly.resolve", "rail row " lit.index " is selected but no model"
                                  . " slot claims it. Press a mass.select key on"
                                  . " this card, or set [FanslyPos] Pos" lit.index
                                  . " in mass_gui.cfg.")
-            return {no: 0, name: "", state: "unlearned"}
+            return _FanRes(0, "", "unlearned", mode,
+                           "no model is mapped to rail row " lit.index " — press"
+                         . " that model's key on this card", lit.index, cards,
+                           cfg.rows)
         }
         LOGV("fansly.resolve", "rail row " lit.index " → model " n)
-        return {no: n, name: FanslyDisplayName(n), state: "ok"}
+        return _FanRes(n, FanslyDisplayName(n), "ok", mode, "", lit.index, cards,
+                       cfg.rows)
     }
 
     ; ── name mode ────────────────────────────────────────────────────────────
@@ -250,25 +349,29 @@ _FanslyStatusUncached() {
                                  . " The rail's labels are truncated and dim, so"
                                  . " this is the expected outcome more often than"
                                  . " not — set [Fansly] Match=position.")
-        return {no: 0, name: "", state: "none"}
+        return _FanRes(0, "", "none", mode, "OCR read nothing off the rail label",
+                       lit.index, cards, cfg.rows)
     }
     hits := []
     Loop MASS_MODELS
         if FanslySlotOwnsName(A_Index, text)
             hits.Push(A_Index)
     if (hits.Length = 1)
-        return {no: hits[1], name: text, state: "ok"}
+        return _FanRes(hits[1], text, "ok", mode, "", lit.index, cards, cfg.rows)
     if (hits.Length > 1) {
         LOGW("fansly.resolve", "name mode: OCR read '" text "' which matches "
                              . hits.Length " models at once, so MMA refuses to"
                              . " guess. The rail truncates names, so two models"
                              . " sharing a prefix will always do this — use"
                              . " [Fansly] Match=position.")
-        return {no: 0, name: text, state: "ambiguous"}
+        return _FanRes(0, text, "ambiguous", mode,
+                       "'" text "' matches " hits.Length " models at once",
+                       lit.index, cards, cfg.rows)
     }
     LOGW("fansly.resolve", "name mode: OCR read '" text "' and no model claims it."
                          . " Add it under [FanslyMap] File<n> in mass_gui.cfg.")
-    return {no: 0, name: text, state: "unknown"}
+    return _FanRes(0, text, "unknown", mode, "no model claims the name '" text "'",
+                   lit.index, cards, cfg.rows)
 }
 
 ; What Settings calls this model. "" when the slot is unnamed — callers show the

@@ -1,0 +1,40 @@
+# ═══════════════════════════════════════════════════════════════════════════════
+#  Every Python package MMA can use, in one place.
+# ───────────────────────────────────────────────────────────────────────────────
+#  Python is OPTIONAL. Nothing here is needed to run MMA — masses, follow-ups,
+#  branches, PPV, the GUI, the parser and even the OCR are pure AutoHotkey. These
+#  four background services are what needs it (see README.md).
+#
+#      pip install -r requirements.txt
+#
+#  ─── WHY THIS FILE EXISTS ────────────────────────────────────────────────────
+#  There are two ways to install MMA, and they used to carry two hand-written
+#  copies of this list:
+#
+#      tools/install/install.ps1     numpy pillow opencv-python pynput
+#      tools/packaging/MMA.iss       numpy pillow opencv-python
+#
+#  They had already drifted. Anyone who installed from MMA-Setup.exe got no
+#  pynput, which is typelog AND autoword — two services that then refuse to start
+#  with no sign of why, on a machine whose owner was told Python was set up.
+#
+#  So both installers now run `pip install -r requirements.txt` and neither one
+#  names a package. A service's dependency is declared once, next to the service
+#  that imports it, and both installers pick it up for free — the same rule the
+#  rest of the tree follows for features, hotkeys and services.
+#
+#  Adding a dependency: put it in that service's own requirements.txt, and add a
+#  `-r` line here if the service is new. Nothing else needs editing.
+# ═══════════════════════════════════════════════════════════════════════════════
+
+# pip resolves these paths relative to THIS file, so the aggregate works from any
+# working directory.
+-r src/services/automation/requirements.txt
+-r src/services/pinger/requirements.txt
+-r src/services/typelog/requirements.txt
+-r src/services/autoword/requirements.txt
+
+# src/services/llm/ is deliberately absent. It reaches Ollama over HTTP with
+# urllib from the standard library, Ollama itself is not a pip package, and the
+# one numpy import it has comes in with automation above. Give it a
+# requirements.txt and a `-r` line here the day it needs something of its own.

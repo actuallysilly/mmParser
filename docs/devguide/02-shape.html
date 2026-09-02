@@ -1,0 +1,467 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>2 — The shape of MMA</title>
+<link rel="stylesheet" href="guide.css">
+<script src="nav.js"></script>
+</head>
+<body>
+<div class="shell">
+<nav class="side"></nav>
+<main>
+
+<p class="eyebrow">Chapter 2</p>
+<h1>The shape of MMA</h1>
+
+<p class="lede">Eight to a dozen processes that never call each other. What each one is, how
+they find each other, how they cooperate, and exactly what happens between double-clicking
+<code>MMA.ahk</code> and having a working keyboard.</p>
+
+<h2>Why it is not one program</h2>
+
+<p>The obvious design is one AHK script: the window, the hotkeys, the detector, all in one
+process. MMA is not that, for reasons that are worth understanding before you read a line of
+the code, because almost every unusual thing in this codebase follows from it.</p>
+
+<h3>Reason one: a GUI blocks</h3>
+
+<p>An AHK script runs one pseudo-thread at a time. While the GUI is showing a modal
+<code>MsgBox</code>, that process is not answering hotkeys. Put the mass hotkeys in the GUI's
+process and every dialog freezes your ability to send. Worse, the WebView shell carries a full
+Edge runtime; <code>CreateControllerAsync</code> was measured at <strong>60.8 seconds</strong>
+from launch to ready on a cold start. A minute of MMA visibly running with every key dead.</p>
+
+<h3>Reason two: a crash should be survivable</h3>
+
+<p>If the detector throws, you want the detector to die — not the mass engine. Separate
+processes give you that for free. It is also what makes the watchdog possible: something has to
+be alive to notice something else died.</p>
+
+<h3>Reason three: some parts must be reloadable and some must not</h3>
+
+<p>You edit masses constantly. You do not want to restart the thing holding your hotkeys every
+time. Because they are separate processes sharing a file, the GUI can rewrite the whole mass
+library and the engine picks it up on the next keypress.</p>
+
+<div class="concept">
+<span class="tag">CONCEPT-ENCOUNTERED</span>
+<h3>Shared-nothing processes, coordinated by files and nudges</h3>
+<p>The architecture in one sentence: <strong>a file says what the data is; a window message says
+go and re-read it.</strong></p>
+<p>The message is never the data. It cannot be — a Windows message carries two integers and no
+string. So the design that constraint forces turns out to be the right one anyway: there is one
+authoritative copy of every piece of state, on disk, and no process ever has to reconcile its
+in-memory copy with anyone else's.</p>
+<p>The alternative — one process holding everything in globals — is faster and would have made
+half this codebase unnecessary. It would also mean that "the GUI is busy" and "the hotkeys are
+dead" are the same sentence.</p>
+</div>
+
+<h2>The processes</h2>
+
+<h3>Always running</h3>
+
+<div class="tablewrap">
+<table>
+<thead><tr><th>Process</th><th>Owns</th></tr></thead>
+<tbody>
+<tr>
+  <td><code>ui/webview_main_window.ahk</code><br><em>or</em> <code>ui/main_window.ahk</code></td>
+  <td><strong>The app.</strong> One of two shells, chosen by <code>MMA_ShellFor("main")</code>.
+      Edits masses, writes <code>masses.json</code>, and <strong>supervises every other
+      process</strong> — it is the one that launches and watchdogs the rest. Shared logic lives
+      in <code>ui/main_core.ahk</code>.</td>
+</tr>
+<tr>
+  <td><code>mass/engine.ahk</code></td>
+  <td><strong>The mass process. One of them, for all models.</strong> Binds
+      <code>[mass.1..N]</code>, the shared <code>[mass.active]</code> set, the
+      <code>[mass.select]</code> keys, and the navigation keys. Re-reads the library on
+      <code>MMA_MSG_MASSES_CHANGED</code>. This is where every follow-up you press ends up.</td>
+</tr>
+<tr>
+  <td><code>sequences/sequences.ahk</code></td>
+  <td>Recorded macros and the <strong>Discord Ctrl+click import</strong>. Deliberately has no
+      feature switch — chapter 10 explains why that matters.</td>
+</tr>
+<tr>
+  <td><code>content/general.ahk</code><br><code>content/accounts/*.ahk</code></td>
+  <td>Your message hotstrings, shared and per-account. Started from the Startup scripts list.</td>
+</tr>
+<tr>
+  <td><code>src/capitalizer.ahk</code></td>
+  <td>Capitalises after Enter and after <code>.!?</code> + space.</td>
+</tr>
+</tbody>
+</table>
+</div>
+
+<h3>Optional background services (all off by default except automation)</h3>
+
+<div class="tablewrap">
+<table>
+<thead><tr><th>Process</th><th>What it does</th></tr></thead>
+<tbody>
+<tr><td><code>screen/model_detector.ahk</code></td><td>Pixel-scans the Infloww tab strip for the lit pill, OCRs its name on change, writes <code>detector_status.ini</code>. <strong>Core to chapter 8.</strong></td></tr>
+<tr><td><code>screen/fansly_detector.ahk</code></td><td>The same job on Fansly's vertical rail. Its own switch and its own status file — two services writing one file would race over <code>active_model</code>, and the loser wins about half the time.</td></tr>
+<tr><td><code>screen/stats_overlay.ahk</code></td><td>OCRs Sales / PPVs / Fans off the Infloww Home window without focusing it.</td></tr>
+<tr><td><code>screen/reply_box.ahk</code></td><td>Boxes conversations that are unread and have waited past a threshold.</td></tr>
+<tr><td><code>activity/tracker.ahk</code></td><td>Counts keys, clicks and active seconds. Built so that it <em>cannot</em> record what you typed.</td></tr>
+<tr><td>four Python services</td><td>automation, pinger, typelog, autoword. Out of scope for this guide.</td></tr>
+</tbody>
+</table>
+</div>
+
+<h3>Opened on a key, then gone</h3>
+<p>The Hotstrings window, the Hotkeys editor, Settings (WebView), the branch builder, the
+activity chart, the recorder, the updater. Each is its own process. The three WebView windows
+each carry an Edge runtime, which is exactly why they must be separate — the main window must
+never block waiting for one to open.</p>
+
+<div class="note">
+<p><b>That last point creates two of the ten window messages.</b> A separate process cannot
+call into the main window's globals, so <code>MMA_MSG_OPEN_SETTINGS</code> and
+<code>MMA_MSG_ADD_HOTKEY</code> exist for a window to <em>ask</em> the window that owns those
+globals to open a dialog on its behalf.</p>
+</div>
+
+<h2>How processes find each other</h2>
+
+<div class="concept">
+<span class="tag">CONCEPT-ENCOUNTERED</span>
+<h3>Identity by window title</h3>
+<p>Every AHK script has a hidden main window titled with its <strong>full file path</strong>.
+MMA uses that as process identity throughout:</p>
+<pre><code>_EngineTitle() {
+    return MMA_SRC "\mass\engine.ahk ahk_class AutoHotkey"
+}
+EngineRunning() {
+    prev := A_DetectHiddenWindows
+    DetectHiddenWindows true
+    up := WinExist(_EngineTitle()) ? true : false
+    DetectHiddenWindows prev
+    return up
+}
+</code></pre>
+<p>"Is the engine running?" is one <code>WinExist</code>. "Stop it" is
+<code>ProcessClose(WinGetPID(title))</code>. "Which windows are ours?" is: enumerate every
+window of class <code>AutoHotkey</code> and keep the ones whose title starts with the repo
+root.</p>
+<p>That last one is <code>HK_Broadcast</code>, and it replaced a hard-coded list of filenames
+that had gone stale in <em>both</em> directions — it still named a deleted script and had never
+gained <code>sequences.ahk</code>, so rebinding the Discord import key did not apply live.</p>
+</div>
+
+<div class="warn">
+<span class="tag">Why <code>MMA.ahk</code> uses <code>Run</code> and not <code>#Include</code></span>
+<p>The launcher at the repo root could simply <code>#Include</code> the GUI. It does not, and
+its header explains why: including would run the GUI under the title <code>MMA.ahk</code>, and
+<em>three</em> mechanisms that address the GUI by its real path would quietly stop matching —
+<code>HK_Broadcast</code>, <code>processes.ahk</code>, and the auto-parse post from
+<code>sequences.ahk</code>. <code>Run</code> keeps one canonical identity.</p>
+</div>
+
+<div class="concept">
+<span class="tag">CONCEPT-ENCOUNTERED</span>
+<h3>Named events — identity for a process with no window</h3>
+<p>The Python services have no AutoHotkey window, so the title trick cannot find them. Each
+signs its presence with a <strong>named kernel event</strong>:</p>
+<pre><code>SVC_OpenEvent(id) {
+    static EVENT_MODIFY_STATE := 0x0002
+    return DllCall("OpenEventW", "UInt", EVENT_MODIFY_STATE, "Int", false,
+                   "Str", SVC_META[id].event, "Ptr")
+}
+</code></pre>
+<p><em>Opening</em> the event answers "is it up?" in one call. <em>Setting</em> it means "please
+exit". The alternative — shelling out to <code>python service.py --status</code> — would spawn
+a whole Python interpreter every watchdog tick, every five seconds.</p>
+<p>This is also why the Python children cannot ride on the startup-scripts list and are not
+closed by <code>KillAllScripts</code>: neither mechanism can see them.</p>
+</div>
+
+<h2>The message bus</h2>
+
+<p>All ten messages live in <code>src/core/messages.ahk</code>. Learn the shape, not the
+numbers.</p>
+
+<div class="tablewrap">
+<table>
+<thead><tr><th>Message</th><th>From → to</th><th>Payload</th><th>Meaning</th></tr></thead>
+<tbody>
+<tr><td><code>MMA_MSG_DOUBLE_MM</code></td><td>GUI → engine</td><td>none</td><td>Toggle double-MM.</td></tr>
+<tr><td><code>MMA_MSG_WALLET_FU3</code></td><td>GUI → engine</td><td>wParam 1/0</td><td>FU3 pastes for review instead of sending.</td></tr>
+<tr><td><code>MMA_MSG_EDITABLE_FU1..3</code></td><td>GUI → engine</td><td>wParam 1/0</td><td>Three <em>contiguous</em> numbers, indexed by <code>MMA_MSG_EditableFu(n)</code>.</td></tr>
+<tr><td><code>MMA_MSG_MASSES_CHANGED</code></td><td>GUI → engine</td><td>none</td><td>"I wrote masses.json." The engine re-reads it.</td></tr>
+<tr><td><code>MMA_MSG_AUTOPARSE</code></td><td>sequences → GUI</td><td>none</td><td>"The clipboard holds a mass. Paste and parse it." The one message that travels <em>toward</em> the window.</td></tr>
+<tr><td><code>MMA_MSG_ADD_HOTKEY</code></td><td>Hotstrings window → GUI</td><td>none</td><td>"Open the Add Hotkey dialog, which is built from your globals."</td></tr>
+<tr><td><code>MMA_MSG_SETTINGS_CHANGED</code></td><td>Settings → everything</td><td>none</td><td>Re-read cached cfg keys (model names, theme) and repaint.</td></tr>
+<tr><td><code>MMA_MSG_OPEN_SETTINGS</code></td><td>WebView Settings → GUI</td><td>none</td><td>"Open the Win32 Settings, which lives inside your process."</td></tr>
+<tr><td><code>HK_MSG_RELOAD</code></td><td>anywhere → all</td><td>none</td><td>Every script re-reads <code>hotkeys.ini</code>.</td></tr>
+<tr><td><code>HK_MSG_SUSPEND</code></td><td>Hotkeys GUI → all</td><td>wParam 1/0</td><td>Hold fire while a key is being captured.</td></tr>
+<tr><td><code>HK_MSG_FIRE</code></td><td>Actions menu → all</td><td>wParam = index</td><td>"Whoever owns action #N, run it."</td></tr>
+</tbody>
+</table>
+</div>
+
+<h3>The <code>HK_MSG_FIRE</code> trick is worth understanding</h3>
+
+<p>A message carries only numbers. So how does the Actions menu, running in the GUI's process,
+fire an action owned by the engine?</p>
+
+<p>It sends an <strong>index into <code>HK_ORDER</code></strong> — the array of declared hotkey
+ids, built by <code>HK_Def</code> calls at load time. Every process loads the same
+<code>hotkeys.ahk</code>, so index 47 means the same action everywhere. The message goes to
+<em>every</em> MMA script; only the one that actually bound that id answers, and the rest
+ignore it.</p>
+
+<p>That works only if every process agrees on the numbering, which is why the dynamically
+declared hotstring ids are appended <em>after</em> every static one, and sorted. A process
+started before you bound a hotstring has a shorter <code>HK_ORDER</code>, but indices
+1..static still mean the same thing in both, and a stale process handed an index in the dynamic
+tail finds it out of range and ignores it.</p>
+
+<div class="concept">
+<span class="tag">CONCEPT-ENCOUNTERED</span>
+<h3>Broadcast with a delivery receipt</h3>
+<p><code>HK_Broadcast</code> counts how many windows it actually reached, and logs a
+<strong>warning when the answer is zero</strong>:</p>
+<pre><code>if sent
+    LOGI("hk.broadcast", "msg " Format("0x{:X}", msg) " → " sent " of " seen ...)
+else
+    LOGW("hk.broadcast", "... reached NOBODY ... Whatever this was meant to apply"
+                       . " live has not applied.")
+</code></pre>
+<p>This is a small thing that pays for itself constantly. "A save that does not apply live", "a
+rebind that does not take", "an Actions-menu entry that fires nothing" all look identical from
+the outside <em>and</em> look identical to a message that was never sent. The recipient count is
+the fastest way to tell them apart.</p>
+</div>
+
+<h2>The state files</h2>
+
+<p>Everything in <code>userdata\</code> is gitignored except <code>hotkeys.default.ini</code>.</p>
+
+<div class="tablewrap">
+<table>
+<thead><tr><th>File</th><th>Written by</th><th>Read by</th><th>Holds</th></tr></thead>
+<tbody>
+<tr><td><code>masses.json</code></td><td>GUI</td><td>engine</td><td><strong>The mass library.</strong> Every message you have written.</td></tr>
+<tr><td><code>mass_gui.cfg</code></td><td>Settings, and several others</td><td>everyone</td><td>Every setting, every feature's on/off key, calibrated rectangles, model names, the last-sent note, the lock.</td></tr>
+<tr><td><code>hotkeys.ini</code></td><td>the hotkey editor</td><td>every process that binds a key</td><td>Every binding in MMA.</td></tr>
+<tr><td><code>hotkeys.default.ini</code></td><td>ships with the repo</td><td><code>HK_MergeDefaults</code></td><td>Seeds a fresh install; new keys are folded in additively on update.</td></tr>
+<tr><td><code>detector_status.ini</code></td><td>model_detector</td><td>active_model.ahk</td><td>The active model name, tab index, pill x.</td></tr>
+<tr><td><code>fansly_status.ini</code></td><td>fansly_detector</td><td>fansly_model.ahk</td><td>The same, for Fansly. <strong>Separate file on purpose.</strong></td></tr>
+<tr><td><code>mass_archive.txt</code></td><td>GUI on parse</td><td>archive window</td><td>Append-only history of every mass you parsed.</td></tr>
+<tr><td><code>debuglogs\mma.log</code></td><td>every process</td><td>you</td><td>The full timeline.</td></tr>
+<tr><td><code>debuglogs\error_log.txt</code></td><td>every process</td><td>you</td><td>Failures only. Short enough to read top to bottom.</td></tr>
+</tbody>
+</table>
+</div>
+
+<div class="note">
+<p><b>Why <code>debuglogs\</code> is not inside <code>userdata\</code>.</b> Diagnostics are
+throwaway — you read one, fix the thing, delete it. Mixing them into <code>userdata\</code> put
+them next to <code>masses.json</code> and <code>hotkeys.ini</code>, the two files you must never
+delete by mistake. That separation is load-bearing.</p>
+</div>
+
+<div class="warn">
+<span class="tag">Gitignore subtlety worth knowing</span>
+<p><code>.gitignore</code> contains <code>userdata/*</code>, not <code>userdata/</code>.
+<strong>Git never descends into an excluded directory</strong>, so excluding the directory and
+then negating one file inside it does nothing — the negation is dead, and
+<code>hotkeys.default.ini</code> would silently stop being tracked. Nobody would notice until a
+fresh clone had no keys to seed from.</p>
+</div>
+
+<h2>The boot sequence, in order</h2>
+
+<p>This is worth tracing once, because "MMA is running but X does not work" is nearly always a
+boot-order question.</p>
+
+<h4>1. <code>MMA.ahk</code> — the launcher, ~20 lines of real work</h4>
+<ul>
+<li>Includes <code>src\core\paths.ahk</code>, which is the whole of its knowledge.</li>
+<li>Checks the Win32 shell file exists; if not, a message box and exit. (That file's absence
+means a broken install; a missing <em>WebView</em> shell only means the preference falls back.)</li>
+<li>Runs a one-time migration that lifts installs from the old <code>legacy</code> default onto
+the WebView shell, guarded by a marker key so it never runs twice.</li>
+<li><code>Run</code>s <code>MMA_ShellPath()</code> and exits. The launcher does not stay
+alive.</li>
+</ul>
+
+<h4>2. The shell starts and immediately calls <code>CORE_BootEarly()</code></h4>
+<pre><code>CORE_BootEarly() {
+    LaunchEngine()
+    LaunchSequences()
+}
+</code></pre>
+<p><strong>Before it builds anything.</strong> The comment above it is one of the more
+instructive in the repo: everything a shell does between here and showing its window is
+construction — tabs, the archive, the settings pages, or, for the WebView, standing up Edge.
+That is hundreds of milliseconds (or a minute) during which MMA is on screen with every hotkey
+it owns dead. Ctrl+clicking a Discord message in that gap does nothing, which is
+indistinguishable from the import being broken — and it is exactly when you would do it.</p>
+
+<h4>3. The shell reads its settings, then calls <code>CORE_BootServices()</code></h4>
+<pre><code>CORE_BootServices() {
+    LaunchStartupScripts()   <span class="c">; general.ahk, the account files</span>
+    SVC_LaunchEnabled()      <span class="c">; every declared service whose FEAT is on</span>
+}
+</code></pre>
+<p>Still before drawing. Same rule: nothing a user reaches for waits on a window.</p>
+
+<h4>4. The shell builds and shows its window</h4>
+
+<h4>5. <code>CORE_BootWindowTasks()</code> — the parts that genuinely need a window</h4>
+<ul>
+<li><code>SetTimer(RefreshToolsLabel, -800)</code> — after Python has had time to claim its
+events.</li>
+<li><code>SetTimer(WatchdogTick, 5000)</code> if auto-restart is on.</li>
+<li><code>SetTimer(CheckUnmappedModel, 4000)</code> if the detector is on — this opens a
+dialog, so it must live in a process that has a window. Note it cannot live in
+<code>ActiveModelStatus</code>, which is read from a hotkey context on every keystroke; a
+dialog there would be one popup per character.</li>
+</ul>
+
+<h4>6. Meanwhile, in the engine's own process</h4>
+<pre><code>#Include "runtime.ahk"          <span class="c">; loads MASS_DOC, reads 8 settings, registers __1mm…</span>
+OnMessage(MMA_MSG_MASSES_CHANGED, ReloadMasses)
+Loop MASS_MODELS
+    MassBindModel(A_Index)      <span class="c">; [mass.1] [mass.2] …</span>
+MassBindActive()                <span class="c">; [mass.active]</span>
+MassBindSelect()                <span class="c">; [mass.select]</span>
+NavBind()                       <span class="c">; [nav] [chat] [util]</span>
+LOCKBADGE_Sync()
+SetTimer(LOCKBADGE_Sync, 700)
+MARKS_Start()
+HK_OnSend(CW_Arm, CW_Release)   <span class="c">; the click wall</span>
+HK_Summary("mass engine")       <span class="c">; ← the line that answers "are the keys alive at all?"</span>
+</code></pre>
+
+<div class="note">
+<p><b>Read that last line's purpose.</b> Every individual bind logs itself, but a hundred
+per-key lines never answer the question a user is actually asking. <code>HK_Summary</code>
+prints <em>"N key(s) live, M bound but unassigned"</em>. If N is 0, the cause is upstream of
+anything in the engine — Easy mode, the Features tab, or a <code>hotkeys.ini</code> that never
+arrived.</p>
+</div>
+
+<h2>The watchdog</h2>
+
+<pre><code>WatchdogTick() {
+    if !FEAT("startupScripts")
+        return                       <span class="c">; Easy mode runs no children</span>
+
+    down := ""
+    if !EngineRunning()    down .= "engine "
+    if !SequencesRunning() down .= "sequences "
+    if (down != "")
+        LOGW("proc.watchdog", "found down, restarting: " Trim(down))
+    else
+        LOG_Heartbeat("proc.watchdog", "alive; engine and sequences both up")
+
+    LaunchEngine()
+    LaunchSequences()
+    LaunchStartupScripts()
+    SVC_LaunchEnabled()
+    RefreshToolsLabel()
+}
+</code></pre>
+
+<p>Every five seconds. The <code>down</code> sampling before the launches exists for one
+reason: <code>LaunchEngine</code> already logs "starting the mass engine", but on the first tick
+that is normal and on the twentieth it means the engine is <strong>crash-looping</strong> and
+every mass key is dying with it every five seconds. Sampling first is what makes those two
+distinguishable in the log.</p>
+
+<div class="concept">
+<span class="tag">CONCEPT-ENCOUNTERED</span>
+<h3>Idempotence — the property that makes a watchdog cheap</h3>
+<p>Every <code>Launch*</code> function checks "is it already running?" and returns if so. That
+makes calling them <em>harmless</em>, which in turn means the watchdog does not need to know
+what changed — it just re-asserts the desired state every five seconds and lets the checks sort
+it out.</p>
+<p>An operation you can safely repeat is called <strong>idempotent</strong>. It is worth
+noticing how much of MMA is built this way: <code>DirCreate</code> on the debuglogs folder,
+<code>HK_MergeDefaults</code> (present keys are never touched), <code>MASS_Normalise</code>
+(run on the way in <em>and</em> the way out), <code>SVC_Sync</code>. Idempotent operations turn
+"did this already happen?" from a question you must track into a question you never have to
+ask.</p>
+</div>
+
+<div class="warn">
+<span class="tag">The two children that are not services</span>
+<p>The mass engine and <code>sequences.ahk</code> are launched by hand-written code, not by the
+service registry, and they have <strong>no feature switch at all</strong>. That is deliberate,
+and both were learned the hard way.</p>
+<p>The engine <em>was</em> a startup script. <code>SaveCfg</code> rebuilds the startup list from
+checkboxes, so one visit to Settings while <code>engine.ahk</code> was missing from that list
+wrote it straight out of the config, and every mass hotkey went dead with no error.</p>
+<p><code>sequences.ahk</code> had it worse: it was reachable <em>only</em> through the startup
+list, so every fresh install had the Discord import dead on arrival (a new cfg has no
+<code>StartupScripts</code> key), and one untick killed it. It also had a
+<code>FEAT_Def</code>, which made Easy mode a silent killer — Easy switches off everything in
+the registry, so the import died there with no box to find.</p>
+<p><strong>The rule that came out of it: a script that owns hotkeys should not be a
+checkbox.</strong></p>
+</div>
+
+<h2>The shape, drawn</h2>
+
+<pre><code>                      ┌──────────────────────────────┐
+   double-click ──▶   │  MMA.ahk  (launcher, exits)  │
+                      └──────────────┬───────────────┘
+                                     │ Run
+                      ┌──────────────▼───────────────────────────┐
+                      │  THE SHELL   webview_main_window.ahk     │
+                      │              or main_window.ahk          │
+                      │  + main_core.ahk   (all the logic)       │
+                      └──┬────────┬──────────┬───────────┬───────┘
+             launches    │        │          │           │  watchdog
+        ┌────────────────┘        │          │           └──────────┐
+        ▼                         ▼          ▼                      ▼
+  ┌───────────┐          ┌─────────────┐  ┌──────────────┐   ┌────────────┐
+  │  ENGINE   │          │  sequences  │  │ general.ahk  │   │  services  │
+  │ engine    │          │   .ahk      │  │ accounts/*   │   │ detector…  │
+  │ + runtime │          └──────┬──────┘  └──────────────┘   └──────┬─────┘
+  │ + utils   │                 │                                   │
+  └─────┬─────┘                 │ MMA_MSG_AUTOPARSE                 │
+        │                       └──────────────▶ (to the shell)     │
+        │ reads                                                     │ writes
+        ▼                                                           ▼
+  ╔═══════════════╗   ╔════════════════╗   ╔═══════════════╗  ╔═══════════════════╗
+  ║  masses.json  ║   ║  hotkeys.ini   ║   ║ mass_gui.cfg  ║  ║ detector_status   ║
+  ╚═══════▲═══════╝   ╚════════════════╝   ╚═══════════════╝  ╚═══════════════════╝
+          │ writes, then posts MMA_MSG_MASSES_CHANGED
+      (the shell)
+</code></pre>
+
+<p>Notice what is <em>not</em> in that picture: any arrow that is a function call between
+boxes. There are none. Every connection is a file or a numbered message.</p>
+
+<h2>What this means when you make a change</h2>
+
+<ul>
+<li><strong>Changing a setting's effect</strong> usually means changing the code that
+<em>reads</em> it, not the code that writes it — because it is read per use.</li>
+<li><strong>Adding cross-process state</strong> means adding a file or an ini key, not a global.
+There is no global that two processes can share.</li>
+<li><strong>"It works when I restart" is a symptom</strong>, not a fix. It means something is
+cached that should be re-read, or a message that should be broadcast is not being.</li>
+<li><strong>A message with no listener is silent.</strong> Check the
+<code>hk.broadcast</code> log line before assuming the receiving code is wrong.</li>
+<li><strong>If you move a file</strong>, three things break silently: the recorder writes code
+into <code>sequences.ahk</code> and <code>hotkeys.ahk</code> by path, the main window scrapes
+<code>utils.ahk</code> as text, and <code>sequences.ahk</code> builds a WinTitle from the main
+window's path. All three path constants sit together at the bottom of
+<code>paths.ahk</code> for exactly that reason.</li>
+</ul>
+
+<div class="pager"></div>
+</main>
+</div>
+</body>
+</html>

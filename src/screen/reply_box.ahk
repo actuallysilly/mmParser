@@ -7,6 +7,12 @@
 #Include "rail_scan.ahk"
 #Include "reply_scan.ahk"
 #Include "ocr_grab.ahk"
+#Include "../core/dpi.ahk"
+
+; This script only reads pixels and draws -DPIScale overlays, so it holds
+; per-monitor awareness for its whole life rather than scoping each call. One
+; top-level statement, and no code path can miss it. See core/dpi.ahk.
+DPI_ScriptWide()
 
 ; ═══════════════════════════════════════════════════════════════════════════════
 ;  reply_box.ahk — a coloured frame round any conversation that has been waiting.

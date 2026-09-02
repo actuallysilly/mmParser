@@ -1,8 +1,39 @@
 #Requires AutoHotkey v2.0
+
+; SILLY
+; ═══════════════════════════════════════════════════════════════════════════════
+;  messages.ahk ~ user defined WindowsMessages, these are used for IPC 
+; ───────────────────────────────────────────────────────────────────────────────
+
+; We need a way to pass flags between processes so MMA GUI can interact with the engine
+; AHK-prefered way to do this are native WindowsMessages
+; ─────────────────
+
+
+
+; Every window in Windows has a message-queue used for IPC with other windows
+
+; It's not technically just for visible GUI
+; it works for GUI, hidden, message windows
+; MessageWindows -> Purpose-made type just for the IPC queue system
+
+; Every AHK autohotkey64 creates a MessageWindow so we can use this
+
+; Ox8000 and up are reserved for custom user messages 
+
+; message structs contain LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) 
+;   hwnd -> target window adress
+;   msg  -> the hex message
+;   2 param args for extra data, backward compatibility wordParam and longParam instea of generic types for efficiency on old machines
+
+;               Why do we use messages instead of something else?
+;       Because that's the AHK way, everything else required elaborate setup
+
+
 ; ═══════════════════════════════════════════════════════════════════════════════
 ;  messages.ahk — every window message MMA's processes send each other.
 ; ───────────────────────────────────────────────────────────────────────────────
-;  MMA is several processes sharing files (see ARCHITECTURE.md §5). A file says
+;  MMA is several processes sharing files (see docs/decisions.md §5). A file says
 ;  WHAT the data is; these messages say "go and re-read it" or "this toggle just
 ;  changed", so a setting applies on the next keypress with no restart.
 ;
@@ -52,6 +83,25 @@ global MMA_MSG_AUTOPARSE      := 0x8010
 ;  cannot simply be called from there. This asks the window that owns it to open
 ;  it. No payload.
 global MMA_MSG_ADD_HOTKEY     := 0x8011
+
+; ─── Settings → everything ────────────────────────────────────────────────────
+;  The WebView Settings window is its own PROCESS (it carries an Edge runtime,
+;  and the main window must never wait on one to open). The Win32 Settings is a
+;  Gui inside the main window and could simply call UpdateModelButtons and
+;  ApplyWindowTheme when it saved; a separate process cannot.
+;
+;  So it broadcasts this instead, and the shells answer by re-reading the cfg
+;  keys they cache — model names and the theme — and repainting. No payload: the
+;  file is the message, exactly as with MMA_MSG_MASSES_CHANGED above.
+global MMA_MSG_SETTINGS_CHANGED := 0x8012
+
+; ─── The WebView Settings → the main window ───────────────────────────────────
+;  The WebView Settings deliberately does not draw the tabs that drive screen
+;  capture — the calibration drags, the region pickers, the detector readouts. Its
+;  button for those asks for the Win32 Settings, which is a Gui built inside the
+;  MAIN window's process out of that window's globals, so it cannot simply be run.
+;  Same shape as MMA_MSG_ADD_HOTKEY above. No payload.
+global MMA_MSG_OPEN_SETTINGS := 0x8013
 
 ; ─── The hotkey registry ──────────────────────────────────────────────────────
 ;  Broadcast by HK_Broadcast to every MMA script (see hotkeys.ahk), which is why

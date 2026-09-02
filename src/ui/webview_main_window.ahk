@@ -1,18 +1,24 @@
-#Requires AutoHotkey v2.0
+﻿#Requires AutoHotkey v2.0
 ; ═══════════════════════════════════════════════════════════════════════════════
 ;  webview_main_window.ahk — MMA's main window, drawn by Edge instead of by Win32.
 ; ───────────────────────────────────────────────────────────────────────────────
-;  A PROTOTYPE, and only of the MAIN window. Everything it opens — Settings,
-;  Tools, Archive, Variants, Add alt-FU — is the existing AHK GUI, unchanged and
-;  #Included from src\. That is the point of it: it proves the main window can be
-;  re-skinned without touching anything behind it, and it can be deleted without
-;  leaving a trace in MMA.
+;  THE DEFAULT front end. MMA.ahk starts this one unless Settings ▸ GUI ▸ Main
+;  window says "Classic (Win32)", and ui\main_window.ahk is the supported
+;  fallback for a machine where WebView2 will not start.
+;
+;  It was a prototype in tools\ until it grew the four things a default has to
+;  do — see the history note at the bottom of this block.
 ;
 ;  ─── WHAT IS ACTUALLY DIFFERENT ──────────────────────────────────────────────
-;  Only the drawing. The window still owns the same fourteen fields per model,
-;  the same paste box, the same Load/Save/Parse/Clear/Export, the same bottom
-;  strip. What used to be sixty Win32 controls laid out by ApplyLayout on every
-;  WM_SIZE is now one WebView2 filling the client area, and CSS does the reflow.
+;  Only the drawing. The window owns the same fourteen fields per model, the same
+;  paste box, the same Load/Save/Parse/Clear/Export, the same bottom strip. What
+;  used to be sixty Win32 controls laid out by ApplyLayout on every WM_SIZE is one
+;  WebView2 filling the client area, and CSS does the reflow.
+;
+;  Everything that is NOT drawing is in ui\main_core.ahk, shared with the Win32
+;  shell — the parser path, the model-name repository, the updater, the Add-hotkey
+;  dialog, the [gui] hotkeys and the boot sequence. Neither shell owns a private
+;  copy of any of it. See that file's header for what that cost to untangle.
 ;
 ;  ─── WHY THE CONTROLS STILL EXIST IN AHK ─────────────────────────────────────
 ;  parser.ahk writes into `edCtrls[...].Value`. So do archive.ahk's ExportMMA and
@@ -34,49 +40,67 @@
 ;  first thing to drift is exactly the thing that matters here (which model's
 ;  text is in the boxes).
 ;
-;  ─── WHAT IT DELIBERATELY DOES NOT DO ───────────────────────────────────────
-;  It does not LaunchEngine(), LaunchSequences() or start any background service,
-;  and it binds no hotkeys. Those are global and single-instance; a prototype
-;  that stole them would take them away from the real MMA the moment you ran
-;  both, which is the whole way you would compare them.
+;  ─── WHAT CHANGED WHEN IT STOPPED BEING A PROTOTYPE ─────────────────────────
+;  It used to start nothing and bind nothing, on purpose: it was built to run
+;  BESIDE the real MMA, and a second process claiming global single-instance keys
+;  would have taken them off the window it was being compared against.
 ;
-;  Run it with the real MMA open. They share masses.json and mass_gui.cfg, so a
-;  save here is a save there.
+;  A default cannot do that. It now calls CORE_BootEarly() before Edge starts,
+;  CORE_BootServices() at the end, and CORE_Arm() for the messages and keys — so
+;  the engine, the sequence watcher, the startup scripts and the services all
+;  come up, and the Discord import and the Hotstrings window's "Add hotkey"
+;  button reach a window that is listening. Run it alongside the Win32 shell now
+;  and both will answer; that is the price of it being real.
 ; ═══════════════════════════════════════════════════════════════════════════════
 
 #SingleInstance Force
 
-#Include "..\src\core\paths.ahk"
-#Include "..\src\core\theme.ahk"
-#Include "..\src\core\crashlog.ahk"
-#Include "..\src\core\hotkeys.ahk"
-#Include "..\src\mass\store.ahk"
-#Include "..\src\core\active_model.ahk"
-#Include "..\src\mass\archive.ahk"
-#Include "..\src\mass\parser.ahk"
-#Include "..\src\core\processes.ahk"
-#Include "..\src\ui\settings_window.ahk"
-#Include "..\src\screen\ocr_grab.ahk"
+#Include "..\core\paths.ahk"
+#Include "..\core\theme.ahk"
+#Include "..\core\crashlog.ahk"
+#Include "..\core\hotkeys.ahk"
+#Include "..\mass\store.ahk"
+#Include "..\core\active_model.ahk"
+#Include "..\mass\archive.ahk"
+#Include "..\mass\parser.ahk"
+#Include "..\core\processes.ahk"
+#Include "settings_window.ahk"
+#Include "..\screen\ocr_grab.ahk"
 ; ui\actions_menu.ahk is NOT included, and that is the whole reason this list
 ; differs from main_window.ahk's. It HK_Binds gui.actions and gui.quickActions at
 ; its top level, so including it would register those keys a second time and the
 ; real MMA would open two menus on one press — while running both is exactly how
 ; you compare them. Nothing else here calls into it.
-#Include "..\src\ui\tools_window.ahk"
-#Include "..\src\ui\alt_fu_window.ahk"
+#Include "tools_window.ahk"
+#Include "alt_fu_window.ahk"
 ; Only for CREDIT_On() and CRED_FindFile() — which file the corner picture comes
 ; from, honouring Settings ▸ GUI ▸ Corner picture. None of the GDI+ half of that
 ; file is used: the page shows her with an <img>, so the frame decoding, the rung
 ; ladder and the animation timer are all Edge's problem now. Settings ▸ GUI also
 ; calls CREDIT_AssetList() to fill its dropdown, so this include is not optional.
-#Include "..\src\ui\credit.ahk"
-#Include "..\src\vendor\json.ahk"
+#Include "credit.ahk"
+#Include "..\vendor\json.ahk"
 ; thqby's WebView2 wrapper. It finds WebView2Loader.dll beside itself (64bit\ or
 ; 32bit\ to match the interpreter) and the Edge runtime from its install root, so
 ; there is nothing to configure — see CreateEnvironmentAsync in that file.
-#Include "..\src\vendor\WebView2\WebView2.ahk"
+#Include "..\vendor\WebView2\WebView2.ahk"
 
 DetectHiddenWindows true
+
+; ─── The two children that own hotkeys, started FIRST ─────────────────────────
+;  The mass engine (every mass hotkey) and sequences.ahk (the Discord Ctrl+click
+;  import and the other seq.* keys). Neither is optional and neither is a startup
+;  script.
+;
+;  The prototype started NEITHER, which is most of what made it a prototype: it
+;  drew the panel while the real MMA behind it owned every key. This shell is the
+;  one MMA starts now, so it has to bring them up itself.
+;
+;  Up here, before Edge, and that matters more in this shell than in the Win32
+;  one: CreateControllerAsync below waits on the WebView2 runtime starting, which
+;  is far slower than laying out sixty controls. Every one of those milliseconds
+;  would be MMA on screen with its hotkeys dead.
+CORE_BootEarly()
 
 ; ─── A control that is not a control ──────────────────────────────────────────
 ;  One box on screen, from the point of view of every file that writes into it.
@@ -179,9 +203,7 @@ _doubleMM      := false
 _codePath         := EnvGet("LOCALAPPDATA") "\Programs\Microsoft VS Code\Code.exe"
 CODE_CMD          := FileExist(_codePath) ? _codePath
                                           : "C:\Program Files\Microsoft VS Code\Code.exe"
-_utilsRaw         := FileExist(MMA_SRC_UTILS) ? FileRead(MMA_SRC_UTILS, "UTF-8") : ""
-waitTime          := RegExMatch(_utilsRaw, "\bwaitTime\b\s*:=\s*(\d+)", &_wm)
-                     ? Integer(_wm[1]) : 350
+waitTime          := LOG_IniInt(CFG_FILE, "Settings", "WaitTime", 1500)
 defaultHotkeyFile := IniRead(CFG_FILE, "Settings", "DefaultHotkeyFile", "TEMP.ahk")
 openTabFu2        := LOG_IniInt(CFG_FILE, "Settings", "OpenTabFu2", 0)
 openTabFu3        := LOG_IniInt(CFG_FILE, "Settings", "OpenTabFu3", 0)
@@ -194,6 +216,19 @@ startupScripts    := []
 for _s in StrSplit(IniRead(CFG_FILE, "Settings", "StartupScripts", "general.ahk"), ",")
     if (Trim(_s) != "")
         startupScripts.Push(Trim(_s))
+
+; ─── Start the rest of MMA, BEFORE Edge ──────────────────────────────────────
+;  Startup scripts (general.ahk and the account files), the automation listener
+;  and whichever background services are switched on.
+;
+;  Here, and not at the end of the file where it used to sit, because the next
+;  thing this shell does is CreateControllerAsync — which blocks until the Edge
+;  runtime is up. Measured at 60.8 seconds from launch to general.ahk starting
+;  when this ran last, and general.ahk is every hotstring MMA has. A minute of
+;  typing that does nothing, once per launch, is not a cosmetic difference.
+;
+;  Everything above this line is settings being read, which is all these need.
+CORE_BootServices()
 
 ; ─── The shim controls ────────────────────────────────────────────────────────
 
@@ -278,8 +313,39 @@ try DllCall("dwmapi\DwmSetWindowAttribute", "ptr", g.Hwnd, "int", 20,
             "int*", THEME_Set().dark ? 1 : 0, "int", 4)
 
 g.OnEvent("Size", WV_OnSize)
-g.OnEvent("Close", (*) => ExitApp())
+; Not `(*) => ExitApp()`, which is what a prototype could afford. This window
+; STARTS the engine, the sequence watcher, the account scripts and the Python
+; services now, so exiting without asking about them orphans all of it: no window
+; left to stop them from, typelog still recording and the automation listener
+; still holding its hotkeys. OnGuiClose asks the Yes/No/Cancel that the Win32
+; shell has always asked, and KillAllScripts is the half that stops the services —
+; they are not AHK windows, so nothing else finds them. Both in core/processes.ahk.
+g.OnEvent("Close", OnGuiClose)
 g.Show("w1500 h700")
+
+; tray: one-click clean shutdown (right-click tray, or double-click the icon),
+; the same entry and the same default item as the Win32 shell.
+try {
+    A_TrayMenu.Insert("1&", "Kill all scripts && Exit", (*) => KillAllAndExit())
+    A_TrayMenu.Insert("2&")
+    A_TrayMenu.Default := "Kill all scripts && Exit"
+}
+
+; ─── Arm the shared behaviour ─────────────────────────────────────────────────
+;  The auto-parse and add-hotkey messages, the webgui clipboard watcher, and the
+;  [gui] hotkeys — OCR grab, Add-hotkey grab, the branch builder and double-MM.
+;
+;  The prototype bound NONE of this, deliberately: it was built to run beside the
+;  real MMA, and a second process claiming the same global keys would have taken
+;  them off the window it was being compared against. That trade is over — this
+;  shell is the one MMA starts, so it owns the keys.
+;
+;  ABOVE the WebView block, not after it, for the same reason the services moved:
+;  CreateControllerAsync blocks for as long as Edge takes to start, and keys armed
+;  after it are keys that do nothing for that whole minute. `g` already exists, so
+;  the clipboard handler has the window it activates; the page does not, and does
+;  not need to — a sync before it is ready is dropped and re-sent on ready.
+CORE_Arm()
 
 ; ─── The WebView ──────────────────────────────────────────────────────────────
 
@@ -331,7 +397,7 @@ wvMsgTok := wv.add_WebMessageReceived(WV_OnMessage)
 ;  ALLOW, not DENY_CORS: same-origin fetches from the page only, which is all
 ;  there is here.
 wv.SetVirtualHostNameToFolderMapping("mma.local", MMA_ROOT, 1)
-wv.Navigate("https://mma.local/tools/webview_ui/main_window.html")
+wv.Navigate("https://mma.local/src/ui/webview/main_window.html")
 
 ; ── fill every model's tab from its live slot, now ────────────────────────────
 ;  Before the page has said "ready", deliberately. The first sync then carries
@@ -350,6 +416,25 @@ try {
                   . " you press load", LOG_Err(e))
 RefreshModelHeader()
 SetTimer(RefreshToolsLabel, -800)
+
+; ─── The app behind the window ────────────────────────────────────────────────
+;  Parse-on-import, the model-name repository and the save-target prompt. Shared
+;  with the Win32 shell rather than reimplemented here — this file used to carry
+;  its own ModelNameForSlot and nothing else of the block, so the Discord import
+;  and the Hotstrings window's "Add hotkey" button reached a window that was not
+;  listening. See ui\main_core.ahk.
+;
+;  Down HERE, after the WebView exists, because the block ARMS things at its top
+;  level: OnMessage for the auto-parse and add-hotkey messages, and the clipboard
+;  watcher behind the webgui's "Send to MMA". Those answer by filling edPaste and
+;  activating `g`, so both must already be built.
+;
+;  The two globals below are the rest of that block's seam. _mFiles is what
+;  ApplyFile and the prompt take as a model identifier; _lastImportModel is how
+;  fast-parse remembers where an untagged import went last time.
+_mFiles          := MMA_ModelNames()
+_lastImportModel := 0
+#Include "main_core.ahk"
 
 ; ═══════════════════════════════════════════════════════════════════════════════
 ;  The bridge
@@ -417,6 +502,7 @@ WV_Sync() {
     gates["hotstrings"] := FEAT("hotstrings")   ? 1 : 0
     gates["variants"]   := FEAT("altFollowups") ? 1 : 0
     gates["tools"]      := MODE_IsEasy()        ? 0 : 1
+    gates["activity"]   := FEAT("activity")     ? 1 : 0
     st["feat"] := gates
 
     try wv.ExecuteScriptAsync("window.mma.sync(" JSON.Stringify(st) ")")
@@ -591,7 +677,9 @@ WV_Dispatch(m) {
             case "archive":     OpenArchive()
             case "load":        LoadCurrentTab()
             case "save":        SaveCurrentTab()
-            case "settings":    OpenSettings()
+            case "settings":    CORE_OpenSettingsPreferred()
+            case "hotkeys":     HWV_Open()
+            case "activity":    CORE_OpenActivity()
             case "hotstrings":  OpenHotstrings()
             case "tools":       OpenToolsWindow(g.Hwnd)
             case "variants":    OpenVariantsWindow()
@@ -625,16 +713,6 @@ WV_OnSize(guiObj, minMax, W, H) {
 ;  the point of the prototype is to find out whether the LOOK can move, and it
 ;  answers nothing if the behaviour moved too.
 ; ═══════════════════════════════════════════════════════════════════════════════
-
-ModelNameForSlot(slot) {
-    global modelNames
-    if (slot < 1 || slot > modelNames.Length) {
-        LOGW("model.name", "slot " slot " is outside the " modelNames.Length
-                         . " model slot(s) that exist — no name for it")
-        return ""
-    }
-    return modelNames[slot]
-}
 
 ; Put the current model's name on Load and Save, so the button you are about to
 ; press says which model it means. Never throws: a mislabelled button is not
@@ -686,268 +764,11 @@ RelayoutNow() {
     WV_Touch()
 }
 
-LoadCurrentTab(*) {
-    global tabs
-    _mNo := tabs.Value
-    LOGD("wv.load", "Load (current tab) clicked while tab " _mNo " is in front")
-    LoadFile(MMA_ModelNames()[_mNo])
-}
-
-SaveCurrentTab(*) {
-    global tabs
-    _mNo := tabs.Value
-    LOGD("wv.save", "Save (current tab) clicked while tab " _mNo " is in front")
-    ApplyFile(MMA_ModelNames()[_mNo])
-}
-
 ; ─── Parse ────────────────────────────────────────────────────────────────────
-
-ParseCurrent(*) {
-    global edPaste, edCtrls, tabs, CFG_FILE
-    LOGD("wv.parse", "Parse fired")
-    raw := StrReplace(StrReplace(edPaste.Value, "`r`n", "`n"), "`r", "`n")
-    mNo := tabs.Value
-    ; Parsing into the WRONG TAB is the classic version of "it did not work": the
-    ; text lands in one model's boxes while you are looking at another's, so the
-    ; fields you can see stay empty and it reads as the parser failing outright.
-    LOGI("wv.parse", "parsing " StrLen(raw) " chars of pasted text into model "
-                   . mNo "'s fields"
-                   . (Trim(raw) = "" ? "  — THE PASTE BOX IS EMPTY, so this will"
-                                     . " clear the fields and fill nothing" : ""))
-    pfx := "m" mNo "_"
-    for k, c in edCtrls
-        if (SubStr(k, 1, StrLen(pfx)) = pfx)
-            c.Value := ""
-    FillTab(StrSplit(raw, "`n"), mNo)
-    VarRefresh()
-
-    if FEAT("archive") && LOG_IniInt(CFG_FILE, "Settings", "ArchiveOnParse", 1)
-                       && Trim(raw) != "" {
-        mName := ModelNameForSlot(mNo)
-        if (Trim(mName) = "")
-            mName := "m" mNo
-        if dup := ArchiveFindDuplicate(mName, raw) {
-            LOGI("wv.parse", "not archiving — this mass is already in the archive"
-                           . " from " dup.ts " [" dup.model "]")
-            ToolTip("Archive: already saved today")
-            SetTimer(ClearArchiveTip, -1500)
-        } else {
-            ts := FormatTime(, "yyyy-MM-dd HH:mm:ss")
-            FileAppend "[" ts "] [" mName "]`n" raw "`n===END===`n`n", ArchiveFile(), "UTF-8"
-        }
-    }
-    WV_Touch()
-}
-
-ClearAll(*) {
-    global edPaste, edCtrls
-    edPaste.Value := ""
-    for _, c in edCtrls
-        c.Value := ""
-    WV_Touch()
-}
 
 ; ─── Load / save the mass library ─────────────────────────────────────────────
 
-; "2_mass.ahk" -> 2. Kept tolerant: a bare number works too.
-ModelNoOf(fname) {
-    n := Integer(RegExReplace(fname, "\D", ""))
-    return (n >= 1 && n <= MASS_MODELS) ? n : 1
-}
-
-LoadFile(fname) {
-    global tabs, lblLoaded
-    modelNo := ModelNoOf(fname)
-    LOGD("wv.load", "Load fired for " fname " → model " modelNo)
-    doc  := MASS_Load()
-    slot := WV_SafeSlot(MASS_MassNo(doc, modelNo))
-    FillTabFromSlot(modelNo, slot, doc)
-    tabs.Value := modelNo                    ; bring the model you loaded to the front
-    RefreshModelHeader()
-    lblLoaded.Text := ModelNameForSlot(modelNo) " loaded (mass " slot ")"
-    LOGI("wv.load", "loaded model " modelNo " (" fname ") mass slot " slot
-                  . " into its tab")
-}
-
-ApplyFile(fname, silent := false) {
-    global edCtrls, massNoCurrent
-    modelNo := ModelNoOf(fname)
-    LOGD("wv.save", "Save fired for " fname " → model " modelNo
-                  . (silent ? " (silent)" : ""))
-    ; Only THIS model's boxes. Scanning every control in the window would call a
-    ; blank model "not empty" because a different model's tab has text — and the
-    ; whole point of the check is to refuse a save that would blank this one.
-    _pfx := "m" modelNo "_"
-    allEmpty := true
-    for k, c in edCtrls {
-        if (SubStr(k, 1, StrLen(_pfx)) = _pfx && Trim(c.Value) != "") {
-            allEmpty := false
-            break
-        }
-    }
-    if allEmpty {
-        if silent {
-            LOG_Bail("wv.save", "silent save of model " modelNo " SKIPPED — every"
-                              . " field on screen is empty, and writing that would"
-                              . " blank this model's masses on disk")
-            return
-        }
-        if MsgBox("All fields are empty. Save anyway?", "Confirm Save", 0x24) != "Yes" {
-            LOG_Bail("wv.save", "save of model " modelNo " cancelled at the"
-                              . " all-fields-empty prompt")
-            return
-        }
-        LOGW("wv.save", "saving model " modelNo " with EVERY FIELD EMPTY —"
-                      . " confirmed at the prompt. This blanks its masses on disk.")
-    }
-
-    ; Read-modify-write the WHOLE library, not just this model: the file holds
-    ; every model and the window only has this one on screen.
-    slot := MassNoForModel(modelNo)
-    doc  := MASS_Load()
-    rec  := MASS_Blank()
-    for field in MASS_Fields() {
-        ck := "m" modelNo "_" field
-        rec[field] := edCtrls.Has(ck) ? edCtrls[ck].Value : ""
-    }
-    MASS_Set(doc, modelNo, slot, rec)
-    ; What you just saved is what the keys should send. Without this you would
-    ; save into mass 2 and go on sending mass 1.
-    MASS_SetMassNo(doc, modelNo, slot)
-    if (modelNo >= 1 && modelNo <= massNoCurrent.Length)
-        massNoCurrent[modelNo] := slot
-    if !MASS_Save(doc)
-        return
-    engineUp := NotifyMassesChanged()
-    LOGI("wv.save", "saved model " modelNo " into mass slot " slot
-                  . " (now the live slot for this model)"
-                  . (engineUp ? "" : "  — but THE ENGINE IS NOT RUNNING, so no"
-                                   . " hotkey can send it"))
-    if silent
-        return
-    if engineUp {
-        MsgBox("Saved model " modelNo ".", "Done", 0x40)
-        return
-    }
-    MsgBox("Saved model " modelNo " — but the mass engine is NOT running, so no "
-         . "hotkey will send it.`n`nTick engine.ahk under Settings → startup "
-         . "scripts, or run src\mass\engine.ahk.", "Saved, but nothing can send it",
-           0x30)
-}
-
-; Tell the engine the library changed. No reload and no restart: the two
-; processes share a FILE, and this is only the nudge to re-read it.
-;
-; Returns whether the engine was there to hear it. "Saved model 2" while nothing
-; on the machine can send model 2 is a lie by omission.
-NotifyMassesChanged() {
-    try HK_Broadcast(MMA_MSG_MASSES_CHANGED)
-    up := EngineRunning()
-    if !up
-        LOGW("wv.save", "the mass engine is not running — masses.json was written"
-                      . " but nothing is listening, so every mass hotkey is dead"
-                      . " until it starts")
-    return up
-}
-
 ; ─── Which mass a model sends ─────────────────────────────────────────────────
-
-; Put one model's mass slot into that model's tab. Every field is written,
-; INCLUDING the empty ones — that is the point of loading a slot you have not
-; written yet: mass 2 of a model that only has a mass 1 must come up blank, not
-; leave mass 1's text sitting in the boxes looking like it belongs to mass 2.
-FillTabFromSlot(modelNo, slot, doc := 0) {
-    global edCtrls, massNoCurrent
-    if !doc
-        doc := MASS_Load()
-    rec := MASS_Get(doc, modelNo, slot)
-    for field in MASS_Fields()
-        if edCtrls.Has("m" modelNo "_" field)
-            edCtrls["m" modelNo "_" field].Value := rec.Has(field) ? rec[field] : ""
-    if (modelNo >= 1 && modelNo <= massNoCurrent.Length)
-        massNoCurrent[modelNo] := slot
-    SetMassNoRadio(modelNo, slot)
-    VarRefresh()
-    WV_Touch()
-}
-
-; Has this tab been edited away from what is stored in the slot it is showing?
-;
-; Compared against the SLOT THE TAB IS SHOWING, not the live one, so it is true
-; only when there is genuinely unsaved text — a switch that would cost you
-; nothing must not put a dialog up.
-TabDiffersFromSlot(modelNo, slot) {
-    global edCtrls
-    doc := MASS_Load()
-    rec := MASS_Get(doc, modelNo, slot)
-    for field in MASS_Fields() {
-        ck := "m" modelNo "_" field
-        if !edCtrls.Has(ck)
-            continue
-        stored := rec.Has(field) ? rec[field] : ""
-        cur    := edCtrls[ck].Value
-        if (cur != stored) {
-            LOGI("wv.massno", "model " modelNo " differs from mass " slot
-                            . " at field '" field "': on screen '"
-                            . SubStr(cur, 1, 40) "' vs stored '"
-                            . SubStr(stored, 1, 40) "'")
-            return true
-        }
-    }
-    LOGV("wv.massno", "model " modelNo " matches mass " slot " — no unsaved changes")
-    return false
-}
-
-; Clicking a "mass #" pill. Loads that slot in place so it can be edited — which
-; necessarily discards what is in the boxes. Unsaved text is the one thing in
-; this window that exists nowhere else, so it asks first, and only when there is
-; something to lose.
-PickMassSlot(modelNo, slot, *) {
-    global massNoCurrent
-    if (slot < 1 || slot > MASS_SLOTS)
-        return
-    prev := (modelNo >= 1 && modelNo <= massNoCurrent.Length) ? massNoCurrent[modelNo] : 1
-    if (slot = prev) {
-        FillTabFromSlot(modelNo, slot)      ; re-click = reload, a free undo
-        return
-    }
-    if TabDiffersFromSlot(modelNo, prev) {
-        if (MsgBox("Mass " prev " has unsaved changes.`n`nSwitch to mass " slot
-                 . " and lose them?", "Unsaved changes", 0x24) != "Yes") {
-            SetMassNoRadio(modelNo, prev)   ; put the pill back where it was
-            LOG_Bail("wv.massno", "switch from mass " prev " to " slot " on model "
-                                . modelNo " cancelled — unsaved edits kept")
-            return
-        }
-        LOGW("wv.massno", "model " modelNo ": unsaved edits to mass " prev
-                        . " discarded, confirmed at the prompt")
-    }
-    doc := MASS_Load()
-    FillTabFromSlot(modelNo, slot, doc)
-    ; One control, one meaning: what you SEE, what a save writes, and what the
-    ; hotkeys SEND.
-    MASS_SetMassNo(doc, modelNo, slot)
-    empty := (Trim(MASS_Get(doc, modelNo, slot)["mass"]) = "")
-    if MASS_Save(doc)
-        NotifyMassesChanged()
-    LOGI("wv.massno", "model " modelNo " is now on mass " slot
-                    . " — shown in its tab, and what the keys send"
-                    . (empty ? ". That slot is EMPTY, so the mass keys will do"
-                             . " nothing for this model until you fill it in" : ""))
-}
-
-; The mass slot picked on a model's tab, or 1 if that row is somehow unanswered.
-MassNoForModel(modelNo) {
-    global massNoRadios
-    if (modelNo < 1 || modelNo > massNoRadios.Length)
-        return 1
-    for i, rb in massNoRadios[modelNo]
-        if rb.Value
-            return (i >= 1 && i <= MASS_SLOTS) ? i : 1
-    LOGW("wv.massno", "model " modelNo " has no mass # selected on its tab —"
-                    . " defaulting to 1")
-    return 1
-}
 
 SetMassNoRadio(modelNo, slot) {
     global massNoRadios
@@ -964,145 +785,16 @@ WV_MassNoOf(modelNo) {
     return MassNoForModel(modelNo)
 }
 
-; ─── The follow-up toggles ────────────────────────────────────────────────────
-
-ToggleFuCell(m, f) {
-    global fuChks, CFG_FILE
-    IniWrite(fuChks[m][f].Value ? "1" : "0", CFG_FILE, "Settings", "FuSingle_" m "_" f)
-    WV_Touch()
-}
-
-ToggleEditFuCell(f, ctrl) {
-    global editFuChks, CFG_FILE
-    val := ctrl.Value ? 1 : 0
-    for _, c in editFuChks[f]   ; "editable" is global — sync the per-model mirrors
-        c.Value := val
-    IniWrite(val, CFG_FILE, "Settings", "EditableFu" f)
-    _BroadcastEditableFu(f, val)
-    WV_Touch()
-}
-
-_BroadcastEditableFu(f, val) {
-    HK_Broadcast(MMA_MSG_EditableFu(f), val)
-}
-
-_BroadcastWallet(val) {
-    global walletCheckFu3
-    walletCheckFu3 := val
-    HK_Broadcast(MMA_MSG_WALLET_FU3, val)
-}
-
-ToggleDoubleMM() {
-    global _doubleMM
-    _doubleMM := !_doubleMM
-    HK_Broadcast(MMA_MSG_DOUBLE_MM)
-    ToolTip("Double MM: " (_doubleMM ? "ON" : "OFF"))
-    SetTimer(() => ToolTip(), -1500)
-}
-
-; ─── The other windows ────────────────────────────────────────────────────────
-;  Every one of these is the EXISTING AHK window, opened unchanged. Settings and
-;  Tools and Add alt-FU are #Included above and need nothing from this file but
-;  `g`, `tabs` and `edCtrls` — which is exactly why the main window could be
-;  re-skinned on its own.
-
-OpenHotstrings(*) {
-    path := MMA_SRC "\ui\hotstrings_window.ahk"
-    if !FileExist(path) {
-        MsgBox "hotstrings_window.ahk isn't in " MMA_SRC "\ui", "Hotstrings", 0x30
-        return
-    }
-    try Run(A_AhkPath ' "' path '"')
-}
-
-OpenGuide(*) {
-    guide := MMA_ROOT "\docs\guide.html"
-    if !FileExist(guide) {
-        MsgBox("The guide is missing:`n`n" guide, "How to Use", 0x30)
-        return
-    }
-    try Run(guide)
-}
-
-WipeTemp(*) {
-    global ACC_DIR
-    path    := ACC_DIR "\TEMP.ahk"
-    headers := "#Requires AutoHotkey v2.0`n#SingleInstance Force`n#Include "
-             . Chr(34) "../../src/core/utils.ahk" Chr(34) "`n"
-    try {
-        f := FileOpen(path, "w", "UTF-8")
-        if !f
-            throw Error("could not open the file for writing")
-        f.Write(headers)
-        f.Close()
-    } catch as e {
-        MsgBox("Could not wipe TEMP.ahk:`n`n" e.Message, "Wipe Temp", 0x10)
-        return
-    }
-    if WinExist(path " ahk_class AutoHotkey") {
-        ; TOCTOU: the script can exit between WinExist and WinGetPID.
-        try ProcessClose(WinGetPID(path " ahk_class AutoHotkey"))
-    }
-    Run path
-}
-
-FetchURL(url) {
-    xhr := ComObject("MSXML2.XMLHTTP.6.0")
-    xhr.Open("GET", url, false)
-    xhr.SetRequestHeader("Cache-Control", "no-cache, no-store")
-    xhr.SetRequestHeader("Pragma", "no-cache")
-    xhr.SetRequestHeader("User-Agent", "mmParser-Updater")
-    xhr.Send()
-    if xhr.Status != 200
-        throw Error("HTTP " xhr.Status)
-    return xhr.ResponseText
-}
-
-CheckUpdate(silent := false, *) {
-    global UPDATE_URL
-    if (UPDATE_URL = "") {
-        if !silent
-            MsgBox "No update URL configured.`nSet [Update] URL= in mass_gui.cfg.",, 0x10
-        return
-    }
-    try
-        remoteVer := Trim(FetchURL(UPDATE_URL "/version.txt"))
-    catch {
-        if !silent
-            MsgBox "Could not reach update server.",, 0x10
-        return
-    }
-    localVer := FileExist(MMA_VERSION) ? Trim(FileRead(MMA_VERSION, "UTF-8")) : "0"
-    ; ORDER, not equality — a remote that is OLDER is not an update. See the long
-    ; note in main_window.ahk about the downgrade this used to offer.
-    cmp := VerCompare(remoteVer, localVer)
-    if (cmp = 0) {
-        if !silent
-            MsgBox "Already up to date (v" localVer ").",, 0x40
-        return
-    }
-    if (cmp < 0) {
-        if !silent
-            MsgBox "You are on v" localVer ", newer than the published v" remoteVer ".",, 0x40
-        return
-    }
-    if MsgBox("Update available!`nInstalled: v" localVer "  →  Latest: v" remoteVer
-            . "`n`nDownload and restart now?", "Update", 0x24) != "Yes"
-        return
-    Run MMA_SRC "\updater.ahk"
-    ExitApp
-}
-
-; mass_gui.cfg is an ini and an ini value is one line, so a multi-line setting is
-; stored with a literal `n per break. Settings reads and writes them through
-; these two.
-_EncodeMultiline(s) {
-    return StrReplace(StrReplace(s, "`r`n", "`n"), "`n", "``n")
-}
-_DecodeMultiline(s) {
-    return StrReplace(s, "``n", "`n")
-}
-
+; ─── The follow-up toggles, the updater, Wipe temp and the rest ───────────────
+;  Twelve functions stood here as this file's own copies of main_window.ahk's.
+;  They are in ui\main_core.ahk now — see that file's header for why, and for
+;  what had already drifted between the two sets.
+;
+;  The only thing the copies did differently was call WV_Touch() at the end of
+;  the two follow-up toggles, because those change an ini key without writing a
+;  cell and so leave the page showing a stale tick. That is not lost: the shared
+;  versions call CORE_Changed(), and the assignment below is what points it here.
+CORE_OnChanged := WV_Touch
 ; ═══════════════════════════════════════════════════════════════════════════════
 ;  The Variants window — old AHK, verbatim
 ; ───────────────────────────────────────────────────────────────────────────────
@@ -1240,3 +932,48 @@ OpenVariantsWindow(*) {
     varTabs.Value := tabs.Value          ; open on the model you are looking at
     gVar.Show("w" VAR_W " h" VAR_H)
 }
+
+
+; ─── The timers that needed the window ───────────────────────────────────────
+;  The Tools button's caption and the unknown-model prompt. Everything else that
+;  starting MMA involves ran before Edge did — see CORE_BootServices, called up
+;  beside the settings block rather than here.
+CORE_BootWindowTasks()
+
+; ─── Settings ─────────────────────────────────────────────────────────────────
+;  The WebView Settings, which is its own PROCESS — it carries an Edge runtime of
+;  its own, and this window must never wait on one starting. Raised rather than
+;  relaunched when it is already up, so a second press does not throw away what
+;  you had typed but not saved.
+;
+;  The Win32 shell keeps calling OpenSettings() for the Gui version. Both write
+;  the same cfg; the WebView one broadcasts MMA_MSG_SETTINGS_CHANGED when it
+;  saves, which is what puts a renamed model on this window's buttons.
+; The hotkey editor. Its own process for the same reason Settings is — it
+; carries a WebView2 — and its own BUTTON rather than a link inside Settings,
+; because "which key does that" is a question people arrive with, not one they
+; go looking through a settings window for.
+;
+; The Win32 editor is the fallback, and hotkeys_webview.ahk falls back to it by
+; itself when the Edge runtime will not start; the only case left for here is
+; the file being absent outright.
+HWV_Open() {
+    ; Settings ▸ Interface ▸ Hotkey editor. Both kinds are runnable scripts here,
+    ; so this is a straight choice of file — and MMA_ShellFor has already dropped
+    ; to legacy if the WebView one is missing.
+    path := (MMA_ShellFor("hotkeys") = "webview") ? MMA_SRC_HOTKEYS_WV
+                                                  : MMA_SRC_HOTKEYS_GUI
+    if !FileExist(path) {
+        LOGE("wv.hotkeys", "no hotkey editor to open", path)
+        return
+    }
+    ; #SingleInstance Force would replace a running one, which throws away any
+    ; unsaved captures. Raise the one that is up instead.
+    if WinExist("MMA Hotkeys ahk_class AutoHotkeyGUI") {
+        WinActivate("MMA Hotkeys ahk_class AutoHotkeyGUI")
+        return
+    }
+    LOGI("wv.hotkeys", "opening the hotkey editor: " path)
+    LOG_Try("wv.hotkeys", "Run the hotkey editor", () => Run(A_AhkPath ' "' path '"'))
+}
+

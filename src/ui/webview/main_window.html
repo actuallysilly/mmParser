@@ -167,8 +167,10 @@ hr{border:0;border-top:1px solid var(--border);margin:14px 0 0}
     <div id="fields"></div>
     <div id="strip">
       <button class="btn" data-cmd="settings">Settings</button>
+      <button class="btn" data-cmd="hotkeys">Hotkeys</button>
       <button class="btn" data-cmd="hotstrings" id="b_hotstrings">Hotstrings</button>
       <button class="btn" data-cmd="tools" id="b_tools">Tools</button>
+      <button class="btn" data-cmd="activity" id="b_activity">Activity</button>
       <button class="btn" data-cmd="variants" id="b_variants">Variants&hellip;</button>
     </div>
   </div>
@@ -268,6 +270,13 @@ const app = $("app");
 // The last state AHK sent. Read by the click handlers so a toggle knows what
 // it is toggling away from without keeping a second copy of the truth.
 let S = null;
+// A separator no model name can contain, so joining the names into one
+// string is a safe way to ask "is this the same list as last time".
+// Written as an escape, NOT as a literal NUL byte in this file: a raw
+// NUL makes the source binary to every text tool and any transfer that
+// normalises text drops it, after which ["ab","c"] and ["a","bc"] look
+// identical and the tab strip stops rebuilding.
+const SEP = "\u0000";
 let built = 0;          // how many tabs the strip was built for
 let tabNames = "";      // and under which names — a rename rebuilds it
 
@@ -307,7 +316,7 @@ function buildTabs(names) {
     strip.appendChild(b);
   });
   built = names.length;
-  tabNames = names.join(" ");
+  tabNames = names.join(SEP);
 }
 
 // ── the field rows ──────────────────────────────────────────────────────────
@@ -403,7 +412,7 @@ window.mma = {
     S = state;
     applyTheme(state.theme);
 
-    if (state.models.length !== built || state.models.join(" ") !== tabNames)
+    if (state.models.length !== built || state.models.join(SEP) !== tabNames)
       buildTabs(state.models);
     if (!$("f_mass")) buildFields(state.slots);
 
@@ -435,6 +444,7 @@ window.mma = {
     $("b_hotstrings").hidden = !state.feat.hotstrings;
     $("b_variants").hidden   = !state.feat.variants;
     $("b_tools").hidden      = !state.feat.tools;
+    $("b_activity").hidden   = !state.feat.activity;
 
     const img = $("credit_img");
     if (state.credit) {

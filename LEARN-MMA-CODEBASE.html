@@ -1,0 +1,396 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>MMA — learning path</title>
+<link rel="stylesheet" href="docs/devguide/guide.css">
+<style>
+  /* No sidebar — this is a plan you work through, like the cover page. */
+  main { max-width: 980px; padding-top: 3.5rem; margin: 0 auto; }
+
+  .hero { border-bottom: 1px solid var(--rule); padding-bottom: 2rem; margin-bottom: 2.4rem; }
+  .hero h1 { font-size: 3rem; margin-bottom: .5rem; }
+  .startbtn {
+    display: inline-block; margin-top: 1.2rem; padding: .7rem 1.5rem;
+    background: var(--accent); color: var(--bg); text-decoration: none;
+    border-radius: 8px; font-weight: 650; font-size: 1.05rem;
+  }
+  .startbtn:hover { opacity: .88; }
+
+  /* ── the budget strip ── */
+  .budget { display: flex; flex-wrap: wrap; border: 1px solid var(--rule); border-radius: 9px; overflow: hidden; margin: 1.8rem 0 0; background: var(--bg-2); }
+  .budget div { flex: 1 1 130px; padding: .7rem 1rem; border-right: 1px solid var(--rule); }
+  .budget div:last-child { border-right: 0; }
+  .budget b { display: block; font-family: var(--serif); font-size: 1.5rem; font-weight: 600; line-height: 1.1; }
+  .budget span { font-family: var(--mono); font-size: 10.5px; letter-spacing: .09em; text-transform: uppercase; color: var(--fg-faint); }
+
+  /* ── a session ── */
+  .session { border: 1px solid var(--rule); border-radius: 10px; margin: 1.6rem 0; overflow: hidden; }
+  .session > header {
+    display: flex; align-items: baseline; gap: .8rem; flex-wrap: wrap;
+    padding: .8rem 1.2rem; background: var(--bg-2); border-bottom: 1px solid var(--rule);
+  }
+  .session > header .n {
+    font-family: var(--mono); font-size: 11px; font-weight: 700; letter-spacing: .1em;
+    color: var(--accent); background: var(--accent-bg); padding: .18rem .5rem; border-radius: 4px;
+  }
+  .session > header h3 { margin: 0; font-size: 1.18rem; font-weight: 650; }
+  .session > header .cost { font-family: var(--mono); font-size: 11.5px; color: var(--fg-faint); margin-left: auto; }
+  .session > .body { padding: .3rem 1.2rem 1.1rem; }
+  .session > .body > :first-child { margin-top: .8rem; }
+
+  .step2 { font-family: var(--mono); font-size: 10.5px; letter-spacing: .12em; text-transform: uppercase; color: var(--fg-faint); margin: 1.3rem 0 .35rem; font-weight: 700; }
+  .session ul { margin: .3rem 0; }
+
+  .check { border-top: 1px dashed var(--rule); margin-top: 1.2rem; padding-top: .8rem; font-size: 14.5px; color: var(--fg-dim); }
+  .check b { font-family: var(--mono); font-size: 10.5px; letter-spacing: .1em; text-transform: uppercase; color: var(--concept); display: block; margin-bottom: .15rem; }
+
+  /* ── the two-lane trace ── */
+  .lanes { display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; margin: 1.4rem 0; }
+  @media (max-width: 780px) { .lanes { grid-template-columns: 1fr; } }
+  .lane { border: 1px solid var(--rule); border-radius: 9px; padding: 1rem 1.1rem; background: var(--bg-2); }
+  .lane > h4 { margin: 0 0 .1rem; font-size: 1rem; color: var(--fg); }
+  .lane > .sub { font-size: 13px; color: var(--fg-faint); margin: 0 0 .7rem; font-style: italic; }
+  .lane .s { display: grid; grid-template-columns: 1.1rem 1fr; gap: .6rem; padding: .45rem 0; border-top: 1px solid var(--rule-soft); }
+  .lane .s:first-of-type { border-top: 0; }
+  .lane .s i { font-style: normal; font-family: var(--mono); font-size: 10.5px; color: var(--fg-faint); padding-top: .25rem; }
+  .lane .s div { font-size: 13.5px; line-height: 1.5; color: var(--fg-dim); }
+  .lane .s div b { display: block; font-family: var(--mono); font-size: 12.5px; color: var(--fg); font-weight: 600; }
+  .lane .s.hot div b { color: var(--accent); }
+
+  /* ── symptom table ── */
+  td.sym { font-weight: 650; color: var(--fg); }
+
+  .stop { font-family: var(--mono); font-size: 11px; letter-spacing: .1em; text-transform: uppercase; color: var(--warn); }
+</style>
+<script src="docs/devguide/nav.js"></script>
+</head>
+<body>
+<main>
+
+<div class="hero">
+  <p class="eyebrow">MMA — Mass Message Automation</p>
+  <h1>Learning path</h1>
+  <p class="lede">The <a href="MMA-DEVGUIDE.html">developer guide</a> is the reference — twelve
+  chapters, every file, every trap. This page is the <strong>schedule</strong>: what to read in
+  what order, what to type while you read it, and how to know a thing has actually landed before
+  you move on. Five sessions, roughly a working week at two hours a day.</p>
+  <div class="budget">
+    <div><b>5</b><span>sessions</span></div>
+    <div><b>~11 hrs</b><span>total</span></div>
+    <div><b>19</b><span>core files</span></div>
+    <div><b>7,600</b><span>lines that matter</span></div>
+    <div><b>35,000</b><span>lines that can wait</span></div>
+  </div>
+</div>
+
+<h2 style="margin-top:0; border-top:0; padding-top:0;">How to use this page</h2>
+
+<p>Each session has four parts, always in the same order: <strong>read</strong> a chapter and the
+files it is about, <strong>do</strong> something at the keyboard, <strong>prove</strong> it with a
+command, and answer one <strong>self-check</strong> question out loud. If you cannot answer the
+question, the session did not land — re-read the one file named in it rather than pushing on. The
+sessions build; session 3 assumes session 2.</p>
+
+<div class="note">
+<p><b>One rule that saves the most time.</b> In this repo the box comment at the top of a file is
+not a summary — it is the record of the failure that produced the code. Read it <em>before</em> the
+code, every time. Most of what you need to know was written down by the person who got it wrong
+first.</p>
+</div>
+
+<h2>Before session 1 — twenty minutes of orientation</h2>
+
+<p>MMA is <strong>not one program</strong>. It is up to a dozen small processes that never call each
+other's functions. They cooperate two ways only: shared files in <code>userdata\</code> say
+<em>what the data is</em>, and window messages declared in <code>src\core\messages.ahk</code> say
+<em>go and re-read it</em>.</p>
+
+<p>Separate processes cannot throw an exception into each other. They can only fall silent, and
+almost every bug this codebase has had is that silence. Hold on to that sentence — it is the reason
+for the logging, the registries, and half the comments you are about to read.</p>
+
+<p class="step2">Do this now</p>
+<p>Launch MMA, then look at what is actually running. Every AHK script titles its main window with
+its own full path; that is how these processes find and close each other.</p>
+
+<pre><code>Get-Process AutoHotkey64 | Select-Object Id, MainWindowTitle
+Get-Process python*, pythonw* | Select-Object Id, Path</code></pre>
+
+<p>Match every line to a file in the tree. The Python ones have no AHK window at all — each signs
+its presence with a named event instead, which is exactly why they cannot ride on the same
+start/stop machinery as the rest.</p>
+
+<!-- ══════════════════════════════════════════════════════════════════ -->
+
+<h2>The five sessions</h2>
+
+<div class="session">
+  <header><span class="n">01</span><h3>The language, and the shape</h3><span class="cost">~2 hrs</span></header>
+  <div class="body">
+    <p>You cannot read this codebase without reading AutoHotkey v2, and v2 is not v1 with tidier
+    syntax — it is a different language with the same file extension. Start there, then get the
+    process picture straight before any product code.</p>
+
+    <p class="step2">Read</p>
+    <ul>
+      <li><a href="docs/devguide/01-ahk-primer.html">Chapter 1 — The AutoHotkey primer</a>, in full. It is the longest chapter and the only one you should not skim.</li>
+      <li><a href="docs/devguide/02-shape.html">Chapter 2 — The shape of MMA</a>.</li>
+      <li>Then <a href="ARCHITECTURE.md">ARCHITECTURE.md</a> §1–§3, which will now read as confirmation rather than information.</li>
+    </ul>
+
+    <p class="step2">Do</p>
+    <p>Open <code>src/chat/nav.ahk</code> — about 75 lines, and the cleanest example of the bind
+    pattern in the repo. Read every line. You should be able to say what each one does before you
+    finish the session.</p>
+
+    <p class="step2">Prove</p>
+    <p>Parse an entry point without running it. <code>/validate</code> exists and is the right
+    tool; validate <strong>entry points only</strong>, because AHK resolves calls at load and a
+    library checked on its own reports errors that are not bugs.</p>
+<pre><code>$psi = New-Object System.Diagnostics.ProcessStartInfo
+$psi.FileName  = <span class="k">"C:\Program Files\AutoHotkey\v2\AutoHotkey64.exe"</span>
+$psi.Arguments = <span class="k">'/ErrorStdOut /validate "D:\Software\Dev\Chatting\MMA\MMA.ahk"'</span>
+$psi.UseShellExecute = $false; $psi.RedirectStandardOutput = $true
+$p = [System.Diagnostics.Process]::Start($psi)
+$out = $p.StandardOutput.ReadToEnd(); $p.WaitForExit()
+$p.ExitCode        <span class="c"># 0 = parses · 2 = error, text is in $out</span></code></pre>
+    <p>Now break it on purpose — put <code>if (1 {</code> in a scratch copy and run the same
+    command. <strong>Always prove a check can fail before you trust it passing.</strong> Every
+    trap in this area produces a uniform "everything passes", which a pass-only test cannot tell
+    from a real result.</p>
+
+    <div class="check">
+      <b>Self-check</b>
+      Why does <code>() =&gt;</code> inside a <code>for</code> loop fail to see the loop's
+      variable, and what do you do instead? (Chapter 1, closures.)
+    </div>
+  </div>
+</div>
+
+<div class="session">
+  <header><span class="n">02</span><h3>The spine and the registries</h3><span class="cost">~2 hrs</span></header>
+  <div class="body">
+    <p>Six files establish everything else. Read them bottom-up so you are never holding an
+    unknown: nothing in a layer depends on anything above it.</p>
+
+    <p class="step2">Read</p>
+    <ul>
+      <li><a href="docs/devguide/03-spine.html">Chapter 3 — The spine</a> with <code>src/core/paths.ahk</code> and <code>src/core/log.ahk</code> open beside it.</li>
+      <li><a href="docs/devguide/04-registries.html">Chapter 4 — The registries</a> with <code>modes.ahk</code>, <code>hotkeys.ahk</code>, <code>messages.ahk</code>, <code>processes.ahk</code>.</li>
+    </ul>
+
+    <div class="concept">
+      <span class="tag">The idea to take away</span>
+      <p>Everything declarative lives in exactly one file. Features in <code>modes.ahk</code>,
+      keys in <code>hotkeys.ahk</code>, messages in <code>messages.ahk</code>, services in
+      <code>processes.ahk</code>, paths in <code>paths.ahk</code>. If you are about to hand-write
+      a list of anything, you are about to grow a sixth registry — and the last time four
+      hand-kept lists decided when services ran, they had drifted apart silently: three services
+      started five seconds late, and two kept running after you unticked them.</p>
+    </div>
+
+    <p class="step2">Do</p>
+    <p>Add a feature, watch it appear, then delete it. One line in <code>core/modes.ahk</code>:</p>
+<pre><code><span class="c">; delete this again in five minutes</span>
+FEAT_Def(<span class="k">"scratch"</span>, <span class="k">"ScratchFeature"</span>, <span class="k">"Scratch (delete me)"</span>, <span class="k">"1"</span>, <span class="k">"Tools"</span>)</code></pre>
+    <p>Restart MMA, open <strong>Settings ▸ Features</strong>, and watch the checkbox draw itself.
+    You wrote no UI. Untick it, find the <code>feat.set</code> line in
+    <code>debuglogs\mma.log</code>, then remove the line again. That round trip is the whole
+    architecture in ninety seconds.</p>
+
+    <p class="step2">Prove</p>
+    <p>Run <code>tools/test/services_test.ahk</code>. It exists specifically to stop a fifth
+    hand-kept list growing back.</p>
+
+    <div class="check">
+      <b>Self-check</b>
+      A key is bound, its feature is on, and pressing it does nothing. Name three places that
+      could have swallowed it, and the log line each one leaves behind.
+    </div>
+  </div>
+</div>
+
+<div class="session">
+  <header><span class="n">03</span><h3>One keypress, traced twice</h3><span class="cost">~2.5 hrs · the centrepiece</span></header>
+  <div class="body">
+    <p>This is the session that teaches the codebase. Follow one follow-up from the key to the
+    paste — first on a <strong>numbered</strong> key, then on a <strong>shared</strong> one. Same
+    destination; the difference between the two lanes is most of MMA's design.</p>
+
+    <p class="step2">Read</p>
+    <ul>
+      <li><a href="docs/devguide/05-what-a-mass-is.html">Chapter 5 — What a mass IS</a> and <a href="docs/devguide/06-parser.html">Chapter 6 — The parser</a>, quickly. You need the record shape, not the details.</li>
+      <li><a href="docs/devguide/07-send-path.html">Chapter 7 — The send path</a>, slowly, with <code>src/mass/runtime.ahk</code> open.</li>
+    </ul>
+
+    <div class="lanes">
+      <div class="lane">
+        <h4><kbd>F1</kbd> — the numbered key</h4>
+        <p class="sub">Model 1's follow-up 1. Nothing is read off the screen.</p>
+        <div class="s"><i>1</i><div><b>MassBindModel(1)</b>binds <code>mass.1.fu1</code> — but only if <code>FEAT_HotkeyAllowed</code> says the owning feature is on. Off means never registered at all.</div></div>
+        <div class="s hot"><i>2</i><div><b>_ModelFire(1, fn)</b>the wrapper that makes this key mean model 1. <em>The key you press IS the model selector.</em></div></div>
+        <div class="s"><i>3</i><div><b>_SetCurModel(1)</b>one global, set for the length of the send.</div></div>
+        <div class="s"><i>4</i><div><b>DoFu1() → _DoFuGroup(1, …)</b>branch chooser, then editable paste, then the plain send — in that order.</div></div>
+        <div class="s"><i>5</i><div><b>CurMassSlot(slot)</b>reads <code>MASS_DOC</code>, the library loaded from <code>masses.json</code>.</div></div>
+        <div class="s"><i>6</i><div><b>Snd / Sendt</b>clipboard paste and Enter, from <code>core/utils.ahk</code>.</div></div>
+      </div>
+      <div class="lane">
+        <h4><kbd>shared</kbd> — the <code>[mass.active]</code> key</h4>
+        <p class="sub">One key for every model. Something has to decide which.</p>
+        <div class="s"><i>1</i><div><b>MassBindActive()</b>binds <code>mass.active.fu1</code> — same gate.</div></div>
+        <div class="s hot"><i>2</i><div><b>_ActiveFire → _RunOnActiveModel</b>every shared key funnels through here. <em>No answer means the key does nothing</em> — the correct choice, and the most confusing thing MMA does.</div></div>
+        <div class="s"><i>3</i><div><b>SharedKeysOn()</b>off in Settings ▸ Models means <code>LOG_Bail</code>, and the numbered keys carry on working from the same keypress.</div></div>
+        <div class="s"><i>4</i><div><b>LockedModelNo()</b>a lock wins over everything — no mode check, no pixels. The badge on screen is the condition on which this branch is allowed to exist.</div></div>
+        <div class="s"><i>5</i><div><b>ModelMatchMode()</b><code>manual</code> opens the picker window; <code>name</code>/<code>position</code> call <code>ActiveModelStatus()</code>, which reads an ini written by a different process entirely.</div></div>
+        <div class="s"><i>6</i><div><b>_SetCurModel(n) → fn()</b>and from here it is the left-hand lane, step 4 onward.</div></div>
+      </div>
+    </div>
+
+    <p class="step2">Do</p>
+    <p>Turn logging up in <code>userdata\mass_gui.cfg</code> under <code>[Debug]</code>, press one
+    follow-up key, and read the timeline back in <code>debuglogs\mma.log</code>. Find the
+    <code>LOG_Bail</code> lines — each is a gate that closed. "The feature is off" is the correct
+    answer to a startling number of <em>why did nothing happen</em> reports, and this is where it
+    is written down.</p>
+
+    <p class="step2">Then read the reasoning</p>
+    <p><a href="docs/decisions.md">docs/decisions.md</a> §5 and §5.1. Three model scripts used to
+    exist; all three bound the same keys, and five separate mechanisms existed purely to decide who
+    answered. The data moved into <code>masses.json</code>, the behaviour was already shared, and
+    what was left was three processes fighting each other. None of those five mechanisms survive.
+    The left-hand lane above is what replaced them.</p>
+
+    <div class="check">
+      <b>Self-check</b>
+      Why does the shared key refuse to send when it cannot resolve a model, rather than falling
+      back to the last one it knew? Answer in terms of what the failure would look like to a fan.
+    </div>
+  </div>
+</div>
+
+<div class="session">
+  <header><span class="n">04</span><h3>Pixels, and the discipline they need</h3><span class="cost">~2 hrs</span></header>
+  <div class="body">
+    <p>Everything that reads the screen lives in <code>src/screen/</code>, split deliberately in
+    two: <strong>pure scanners</strong> with no side effects (<code>pill_scan</code>,
+    <code>rail_scan</code>, <code>reply_scan</code>) and <strong>services</strong> built on them
+    (<code>model_detector</code>, <code>fansly_detector</code>, <code>reply_box</code>,
+    <code>stats_overlay</code>). The split exists so a service and its Settings calibrator cannot
+    disagree about geometry.</p>
+
+    <p class="step2">Read</p>
+    <ul>
+      <li><a href="docs/devguide/08-detection.html">Chapter 8 — Detection</a>, with <code>core/active_model.ahk</code> open.</li>
+      <li><code>src/core/dpi.ahk</code> — short, and the file that stops you losing a day.</li>
+    </ul>
+
+    <div class="warn">
+      <span class="tag">The rule</span>
+      <p><strong>Never calibrate a coordinate off a screenshot.</strong> This desk is mixed-DPI —
+      primary at 125%, second monitor at 150% — and AutoHotkey ships a <em>system</em>-DPI-aware
+      manifest. On the second monitor three processes report three different rects for the same
+      window, and none converts to another by one clean factor. Worse, the wrong numbers stay
+      self-consistent inside the process: the mouse, the overlay and the capture rect all agree
+      with each other and disagree only with the screen. Take every measurement from inside a
+      throwaway AHK script and write those numbers into the config.</p>
+    </div>
+
+    <p class="step2">Do</p>
+    <p>Run a probe, not a test. <code>tools/*_probe.ahk</code> binds a key, stays resident, and
+    exists so you can look at your own screen through it — <code>detector_probe.ahk</code> first.
+    Note the difference from <code>tools/test/</code>, where every file asserts, prints
+    <code>N passed, M failed</code>, exits, binds no keys and leaves no window. That contract is
+    what lets <strong>Settings ▸ Debug ▸ Run all</strong> run the lot mid-shift.</p>
+
+    <div class="check">
+      <b>Self-check</b>
+      When would you call <code>DPI_ScriptWide()</code>, and in what kind of process must you never
+      call it?
+    </div>
+  </div>
+</div>
+
+<div class="session">
+  <header><span class="n">05</span><h3>Changing it without breaking three other things</h3><span class="cost">~2.5 hrs</span></header>
+  <div class="body">
+    <p class="step2">Read</p>
+    <ul>
+      <li><a href="docs/devguide/09-gui.html">Chapter 9 — The GUI</a> and <a href="docs/devguide/10-import.html">Chapter 10 — Auto import</a>, skimming.</li>
+      <li><a href="docs/devguide/11-recipes.html">Chapter 11 — Recipes and debugging</a>, closely.</li>
+      <li><a href="docs/devguide/12-traps.html">Chapter 12 — The trap museum</a>. Read it once now; come back to it every time something makes no sense.</li>
+    </ul>
+
+    <p class="step2">Do — your first five changes, in this order</p>
+    <ol>
+      <li><strong>Change a log line's wording</strong> in <code>mass/runtime.ahk</code>, press the key, find it in <code>mma.log</code>. You have now proved your edit reaches the running app.</li>
+      <li><strong>Add a feature and delete it</strong> — session 2's exercise, from memory this time.</li>
+      <li><strong>Add a hotkey end to end</strong>: <code>HK_Def</code> in <code>hotkeys.ahk</code>, <code>HK_Bind(id, fn)</code> in the process that owns it, a default in <code>hotkeys.default.ini</code>. Not a bare F-key — those are reserved. Use a <kbd>Ctrl</kbd>+<kbd>Alt</kbd> variant.</li>
+      <li><strong>Add a field to a mass</strong> via <code>MASS_Fields()</code> in <code>store.ahk</code>, and watch the loader, the writer, the blank-record builder and the migration all follow it. Run <code>tools/test/store_test.ahk</code>.</li>
+      <li><strong>Add a background service</strong>: a <code>FEAT_Def</code>, an <code>SVC_Def</code>, and the file. Boot, the Features tab, the Tools window, its count and the watchdog all walk <code>SVC_ORDER</code> and pick it up for free.</li>
+    </ol>
+
+    <p class="step2">Prove</p>
+    <p>Your loop from here on is <strong>validate → test → look</strong>. For a GUI change, run the
+    entry point and photograph the window with <code>PrintWindow(h, dc, 2)</code> — it does not
+    steal focus, and you are usually live in Infloww. Call <code>SetProcessDPIAware()</code> in the
+    capturing process first, or the capture is offset by a few hundred pixels and you photograph
+    half the desktop.</p>
+
+    <div class="check">
+      <b>Self-check</b>
+      You add a test file to <code>tools/test/</code> and it never runs from Settings ▸ Debug ▸ Run
+      all. Why not?
+    </div>
+  </div>
+</div>
+
+<!-- ══════════════════════════════════════════════════════════════════ -->
+
+<h2>When you get stuck</h2>
+
+<p>Look the symptom up rather than reasoning from first principles — nearly every one of these has
+already cost somebody a day here, and the answer is written down.</p>
+
+<div class="tablewrap">
+<table>
+<thead><tr><th>What you see</th><th>Where to look first</th></tr></thead>
+<tbody>
+<tr><td class="sym">The key does nothing at all</td><td><code>debuglogs\mma.log</code> for a <code>LOG_Bail</code> line. A closed feature gate, a shared key with no resolved model, or a mass slot nobody filled in.</td></tr>
+<tr><td class="sym">The script exits 0 and nothing happened</td><td><a href="docs/devguide/12-traps.html">Chapter 12</a>. A reserved name such as <code>base</code>, or a name collision — AHK is case-insensitive, so a variable and a function sharing a name fail to load.</td></tr>
+<tr><td class="sym">Two <kbd>Continue</kbd>/<kbd>Abort</kbd> dialogs for one mistake</td><td>That is one bug, not two. Read the pair in the crash log as a single event.</td></tr>
+<tr><td class="sym">A window opens in the wrong place</td><td>Coordinates. <code>Gui.Show</code> scales <em>w</em> and <em>h</em> by the display scaling but passes <em>x</em> and <em>y</em> straight through, and a <code>CoordMode</code> set at the top of any included file becomes the default for every thread in that process.</td></tr>
+<tr><td class="sym">A scan reads the pixels next to the thing it was calibrated on</td><td><code>core/dpi.ahk</code>, and session 4's rule.</td></tr>
+<tr><td class="sym">A setting is on in the config and dead on the keyboard</td><td>A hand-kept list somewhere that the registry should own. That is the failure mode the five registries exist to remove.</td></tr>
+</tbody>
+</table>
+</div>
+
+<h2>What not to read yet</h2>
+
+<p>About 35,000 lines can wait, and knowing which is part of learning the tree.
+<code>src/ui/</code> is a third of the codebase and almost nothing includes it — windows are the
+outermost layer, not the centre, which is why a UI bug is almost never a UI bug.
+<code>src/vendor/</code> is thqby's WebView2 wrapper, the OCR library and a JSON parser: not yours,
+and not to be read. The optional services in <code>src/services/</code> are each self-contained
+with their own README.</p>
+
+<div class="note">
+<p><b>Where everything lives.</b>
+<a href="MMA-DEVGUIDE.html">MMA-DEVGUIDE.html</a> is the twelve-chapter reference ·
+<a href="ARCHITECTURE.md">ARCHITECTURE.md</a> is what the tree <em>is</em> ·
+<a href="docs/decisions.md">docs/decisions.md</a> is <em>why</em> ·
+<a href="docs/mass-format.md">docs/mass-format.md</a> is the paste format ·
+<a href="tools/test/README.md">tools/test/README.md</a> is the self-tests ·
+<a href="CHANGELOG.md">CHANGELOG.md</a> is release by release.
+If any page disagrees with the tree, the tree is right.</p>
+</div>
+
+<p style="margin-top:2.6rem">
+  <a class="startbtn" href="docs/devguide/01-ahk-primer.html">Start session 1 →</a>
+</p>
+
+</main>
+</body>
+</html>

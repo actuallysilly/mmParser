@@ -1,7 +1,10 @@
-#Requires AutoHotkey v2.0
+﻿#Requires AutoHotkey v2.0
 #Include "hotkeys_panel.ahk"
 #Include "features_panel.ahk"
 #Include "debug_panel.ahk"
+; SETTINGS_Fields / SETTINGS_Int — the field table both Settings front ends are
+; built from, so a setting is described once.
+#Include "settings_core.ahk"
 ; Its own include, not its host's. This file used THEME_WindowBg() while relying on
 ; main_window.ahk having included theme.ahk first — which worked in the app and
 ; broke settings_build_test.ahk, the one thing that builds this window on its own.
@@ -131,11 +134,11 @@ OpenSettings(*) {
     y += 30
     sg.SetFont("s8")
     sg.Add("Text", "x" CX " y" y " w" CW " cGray",
-           "The one setting in MMA stored as SOURCE CODE rather than as config:"
-         . " saving it rewrites the `waitTime` line in core\utils.ahk, which every"
-         . " message script and the mass engine #Include — so the scripts restart"
-         . " when you change it. Too low and Infloww misses keystrokes; too high"
-         . " and every send drags.")
+           "[Settings] WaitTime in mass_gui.cfg. The message scripts and the mass"
+         . " engine read it once, at load, so they restart when you change it."
+         . " Too low and Infloww misses keystrokes; too high and every send"
+         . " drags. (It was a literal inside core\utils.ahk until this release — the"
+         . " one setting saving which rewrote a source file.)")
     sg.SetFont("s9")
     y += 56
 
@@ -368,44 +371,18 @@ OpenSettings(*) {
     sg.SetFont("s9")
     y += 26
 
-    ; ── manual, or automatic ──────────────────────────────────────────────────
+    ; ── how each site decides, and they do NOT have to agree ──────────────────
+    ; Two sites, two detectors, two answers — and they are NOT one setting. The
+    ; Infloww tab strip and the Fansly rail share no scan, no config and no
+    ; failure mode (core/fansly_model.ahk says why the defaults are opposite), and
+    ; a mixed setup is the normal case here.
+    ;
     ; MANUAL reads no pixels at all. The shared follow-up and PPV keys open the
     ; picker window and the send happens on your answer — so the model is never
     ; assumed, it is stated, once per send, in front of you. It exists because the
     ; automatic modes fail the same way: not by going quiet, but by reporting the
     ; wrong tab with total confidence, at which point a shared key sends one
     ; model's message to another model's fan.
-    ;
-    ; It used to be called "I pick", and it meant something narrower: a
-    ; [mass.select] key named the model and MMA remembered it until you said
-    ; otherwise — silent and blind, since nothing on screen said which model was
-    ; remembered. The window replaced that (mass/model_picker.ahk). The remembered
-    ; model still exists underneath, for the two shared keys that do not ask, and
-    ; the picker and the select keys both write it — which is why there is no
-    ; dropdown for it here any more. It is not a setting; it is a consequence.
-    sg.Add("Text", "x" CX " y" (y + 2) " w96", "Strategy:")
-    ; Consecutive, with Group on the first — see the theme radios on the GUI tab
-    ; for what happens when a Text control is interleaved: Windows ends a radio
-    ; group at the first control that is not a radio, so each one becomes a group
-    ; of one and nothing ever unchecks anything.
-    rdMan  := sg.Add("Radio", "x" (CX + 100) " y" y " Group",
-                     "Manual — pick with the GUI")
-    rdAuto := sg.Add("Radio", "x" (CX + 290) " y" y,
-                     "Automatic — read the screen")
-    _mm := StrLower(Trim(IniRead(CFG_FILE, "Settings", "ModelMatch", "name")))
-    if (_mm = "manual")
-        rdMan.Value := true
-    else
-        rdAuto.Value := true
-    y += 26
-
-    ; ── automatic, per site ───────────────────────────────────────────────────
-    ; Two sites, two detectors, two answers — and they are NOT one setting. The
-    ; Infloww tab strip and the Fansly rail share no scan, no config and no
-    ; failure mode (core/fansly_model.ahk says why the defaults are opposite), and
-    ; a mixed setup is the normal case here. The [Fansly] Match key has existed
-    ; since the rail detector went in and this is the first control that writes
-    ; it; before this it was a hand edit in mass_gui.cfg.
     ;
     ; BY NAME OCRs the label and matches it against the maps. Survives you
     ; reordering, but the names are the fragile part — MMA, Infloww and Discord
@@ -414,24 +391,53 @@ OpenSettings(*) {
     ; BY POSITION uses where the lit tab or card SITS. No OCR, no names. The cost
     ; is that it trusts the order staying put: reorder, and you re-teach it by
     ; pointing (click the tab, press that model's key).
+    ;
+    ; ─── MANUAL USED TO BE A ROW OF ITS OWN, ABOVE THESE ──────────────────────
+    ; A "Strategy: Manual / Automatic" pair, global, greying out everything below
+    ; it. One switch for both sites — so the only way to stop MMA trusting the
+    ; Fansly rail was to stop it reading the Infloww tab strip as well, and
+    ; "automatic on OnlyFans, manual on Fansly" could not be said in this window
+    ; or in the cfg. It is one radio row per site now, three choices each, one key
+    ; each: [Settings] ModelMatch and [Fansly] Match.
+    ;
+    ; The remembered model that manual mode sends to is NOT a control here. The
+    ; picker and the [mass.select] keys both write it, so it is not a setting; it
+    ; is a consequence.
     sg.SetFont("s8 Bold")
     _lblAutoHdr := sg.Add("Text", "x" CX " y" y " w" CW,
-                          "AUTOMATIC — HOW EACH SITE IS READ")
+                          "HOW EACH SITE DECIDES WHICH MODEL IS ON SCREEN")
     sg.SetFont("s9 Norm")
     y += 20
 
-    _autoCtrls := [_lblAutoHdr]              ; everything greyed out in manual mode
+    ; THREE lists, not one, because the greying is per site now. _modeCtrls is
+    ; everything that dies with the shared-keys checkbox; the two order lists each
+    ; die with their OWN site's mode, since OnlyFans on automatic and Fansly on
+    ; manual has to leave one order row live and grey the other. One flat list of
+    ; "automatic controls" could not express that, which is what it was.
+    _modeCtrls     := [_lblAutoHdr]
+    _ofOrderCtrls  := []
+    _fanOrderCtrls := []
 
     ; OnlyFans, worked through Infloww — which is the window MMA actually reads,
     ; hence both names on the label.
+    ; Consecutive, with Group on the FIRST of each site's three — see the theme
+    ; radios on the GUI tab for what happens when a Text control is interleaved:
+    ; Windows ends a radio group at the first control that is not a radio, so each
+    ; one becomes a group of one and nothing ever unchecks anything. Each site
+    ; beginning with Group is also what keeps clicking Manual on Fansly from
+    ; clearing the OnlyFans choice: they are two groups, not six loose radios.
     _lblOf := sg.Add("Text", "x" CX " y" (y + 2) " w130", "OnlyFans (Infloww):")
-    rdOfName := sg.Add("Radio", "x" (CX + 136) " y" y " Group w110", "by name (OCR)")
-    rdOfPos  := sg.Add("Radio", "x" (CX + 252) " y" y " w130", "by tab position")
-    if (_mm = "position")
+    rdOfMan  := sg.Add("Radio", "x" (CX + 136) " y" y " Group w118", "Manual — I pick")
+    rdOfName := sg.Add("Radio", "x" (CX + 258) " y" y " w118", "by name (OCR)")
+    rdOfPos  := sg.Add("Radio", "x" (CX + 380) " y" y " w130", "by tab position")
+    _mm := StrLower(Trim(IniRead(CFG_FILE, "Settings", "ModelMatch", "name")))
+    if (_mm = "manual")
+        rdOfMan.Value := true
+    else if (_mm = "position")
         rdOfPos.Value := true
     else
         rdOfName.Value := true
-    _autoCtrls.Push(_lblOf, rdOfName, rdOfPos)
+    _modeCtrls.Push(_lblOf, rdOfMan, rdOfName, rdOfPos)
     y += 26
 
     ; Tab order, left to right: which model each tab index IS. The screen answers
@@ -452,7 +458,7 @@ OpenSettings(*) {
     ; only tells the truth after a save-and-reopen is how the old version could be
     ; read as correct.
     _lblOfOrd := sg.Add("Text", "x" (CX + 18) " y" (y + 4) " w118", "Tab order (left→right):")
-    _autoCtrls.Push(_lblOfOrd)
+    _ofOrderCtrls.Push(_lblOfOrd)
     ddlPos := []
     ; Built at the widest they can ever need to be — one per model — and then hidden
     ; down to the count that is actually on this site. Creating them once means a
@@ -461,23 +467,27 @@ OpenSettings(*) {
         _p  := A_Index
         _dd := sg.Add("DropDownList", "x" (CX + 136 + (_p - 1) * 110) " y" y " w104")
         ddlPos.Push(_dd)
-        _autoCtrls.Push(_dd)
+        _ofOrderCtrls.Push(_dd)
     }
     _lblOfNone := sg.Add("Text", "x" (CX + 136) " y" (y + 4) " w300 cGray",
                          "no models are set to Infloww")
-    _autoCtrls.Push(_lblOfNone)
+    _ofOrderCtrls.Push(_lblOfNone)
     y += 30
 
     _lblFan := sg.Add("Text", "x" CX " y" (y + 2) " w130", "Fansly:")
-    rdFanName := sg.Add("Radio", "x" (CX + 136) " y" y " Group w110", "by name (OCR)")
-    rdFanPos  := sg.Add("Radio", "x" (CX + 252) " y" y " w130", "by rail position")
+    rdFanMan  := sg.Add("Radio", "x" (CX + 136) " y" y " Group w118", "Manual — I pick")
+    rdFanName := sg.Add("Radio", "x" (CX + 258) " y" y " w118", "by name (OCR)")
+    rdFanPos  := sg.Add("Radio", "x" (CX + 380) " y" y " w130", "by rail position")
     ; Position is the default on this platform, not name — the rail truncates its
     ; labels, so there is often no full name on screen to read at any OCR quality.
-    if (FanslyMatchMode() = "name")
+    _fm := FanslyMatchMode()
+    if (_fm = "manual")
+        rdFanMan.Value := true
+    else if (_fm = "name")
         rdFanName.Value := true
     else
         rdFanPos.Value := true
-    _autoCtrls.Push(_lblFan, rdFanName, rdFanPos)
+    _modeCtrls.Push(_lblFan, rdFanMan, rdFanName, rdFanPos)
     y += 26
 
     ; [FanslyPos], not [Positional]. The rail's top-to-bottom order and the tab
@@ -487,17 +497,17 @@ OpenSettings(*) {
     ; Filtered the same way, in the other direction: an Infloww model has no card on
     ; the Fansly rail, so it is not one of the answers here either.
     _lblFanOrd := sg.Add("Text", "x" (CX + 18) " y" (y + 4) " w118", "Rail order (top→bottom):")
-    _autoCtrls.Push(_lblFanOrd)
+    _fanOrderCtrls.Push(_lblFanOrd)
     ddlFPos := []
     Loop modelCount {
         _p  := A_Index
         _dd := sg.Add("DropDownList", "x" (CX + 136 + (_p - 1) * 110) " y" y " w104")
         ddlFPos.Push(_dd)
-        _autoCtrls.Push(_dd)
+        _fanOrderCtrls.Push(_dd)
     }
     _lblFanNone := sg.Add("Text", "x" (CX + 136) " y" (y + 4) " w300 cGray",
                           "no models are set to Fansly")
-    _autoCtrls.Push(_lblFanNone)
+    _fanOrderCtrls.Push(_lblFanNone)
 
     ; Which model slots each row is offering, in the order the dropdowns show them.
     ; The save maps a dropdown's INDEX back through these — with a filtered list the
@@ -517,9 +527,11 @@ OpenSettings(*) {
     ; the feature is off, the fallback text that is never sent. Manual mode reads
     ; no pixels, so every dropdown and radio above is inert; switching the section
     ; off makes even the strategy inert.
+    ; The site radios re-sync too, because the order row under each one is greyed
+    ; by that site's own mode now — not by one global switch over both.
     chkShared.OnEvent("Click", (*) => _SyncModelCtrls())
-    rdMan.OnEvent("Click",    (*) => _SyncModelCtrls())
-    rdAuto.OnEvent("Click",   (*) => _SyncModelCtrls())
+    for _rd in [rdOfMan, rdOfName, rdOfPos, rdFanMan, rdFanName, rdFanPos]
+        _rd.OnEvent("Click", (*) => _SyncModelCtrls())
     _SyncModelCtrls()
 
     ; ── the live readout ──────────────────────────────────────────────────────
@@ -622,8 +634,9 @@ OpenSettings(*) {
     sg.SetFont("s9 Bold")
     sg.Add("Text", "x" CX " y" y " w150", "Default FU3")
     sg.SetFont("s9 Norm")
-    ; The SWITCH stays in Features — that tab is the only writer of a feature key
-    ; (see this file's header). But with no sign of it here, the field was
+    ; The SWITCH stays in Features — that tab is the only place a feature key is
+    ; offered as a setting (see ui/features_panel.ahk's header). But with no sign of
+    ; it here, the field was
     ; indistinguishable from broken: you type a fallback, press Save, press f3 on
     ; a mass with no f3, and nothing goes out with nothing on screen to say why.
     ; So the state is echoed read-only, next to the thing it governs.
@@ -988,24 +1001,55 @@ OpenSettings(*) {
     sg.SetFont("s9 Bold")
     sg.Add("Text", "x" CX " y" y " w" _colW, "Main window")
     sg.SetFont("s9 Norm")
-    _shellCur := Trim(IniRead(CFG_FILE, "Settings", "MainWindowShell", "legacy"))
-    rdShellWin := sg.Add("Radio", "x" CX " y" (y + 22) " w150 Group"
-                       . (_shellCur = "webview" ? "" : " Checked"), "Classic (Win32)")
-    rdShellWeb := sg.Add("Radio", "x" (CX + 156) " y" (y + 22) " w150"
+    _shellCur := Trim(IniRead(CFG_FILE, "Settings", "MainWindowShell", "webview"))
+    rdShellWeb := sg.Add("Radio", "x" CX " y" (y + 22) " w150 Group"
                        . (_shellCur = "webview" ? " Checked" : ""), "WebView (Edge)")
-    chkLegacyLS := sg.Add("Checkbox", "x" CX " y" (y + 46) " w" _colW
+    rdShellWin := sg.Add("Radio", "x" (CX + 156) " y" (y + 22) " w150"
+                       . (_shellCur = "webview" ? "" : " Checked"), "Classic (Win32)")
+    ; ── the other two windows that come in both kinds ─────────────────────────
+    ;  Settings and the hotkey editor each have a WebView version and a Win32 one,
+    ;  and the choice is per window rather than one switch for the lot: WebView2
+    ;  can be fine for one and not another. All three read through MMA_ShellFor in
+    ;  core\paths.ahk, so every launcher gets the same answer.
+    ;
+    ;  Offered HERE as well as in the WebView Settings on purpose. This is the
+    ;  window you are in when the other one will not open, so it has to be the one
+    ;  that can send you back — a preference reachable only from the thing it
+    ;  might switch off is not a preference.
+    ;
+    ;  Two more Group-led radio pairs; see the note above on why they are added
+    ;  consecutively.
+    sg.Add("Text", "x" CX " y" (y + 46) " w150", "Settings window")
+    _setCur := StrLower(Trim(IniRead(CFG_FILE, "Settings", "SettingsShell", "webview")))
+    rdSetWeb := sg.Add("Radio", "x" (CX + 156) " y" (y + 46) " w110 Group"
+                     . (_setCur = "legacy" ? "" : " Checked"), "WebView")
+    rdSetWin := sg.Add("Radio", "x" (CX + 272) " y" (y + 46) " w110"
+                     . (_setCur = "legacy" ? " Checked" : ""), "Classic")
+
+    sg.Add("Text", "x" CX " y" (y + 70) " w150", "Hotkey editor")
+    _hkCur := StrLower(Trim(IniRead(CFG_FILE, "Settings", "HotkeysShell", "webview")))
+    rdHkWeb := sg.Add("Radio", "x" (CX + 156) " y" (y + 70) " w110 Group"
+                    . (_hkCur = "legacy" ? "" : " Checked"), "WebView")
+    rdHkWin := sg.Add("Radio", "x" (CX + 272) " y" (y + 70) " w110"
+                    . (_hkCur = "legacy" ? " Checked" : ""), "Classic")
+
+    chkLegacyLS := sg.Add("Checkbox", "x" CX " y" (y + 96) " w" _colW
                         . (_IniInt(CFG_FILE, "Settings", "LegacyLoadSaveUI", 0)
                               ? " Checked" : ""),
                           "Use the legacy Load/Save grid")
     sg.SetFont("s8")
-    sg.Add("Text", "x" (CX + 18) " y" (y + 68) " w" (_colW - 18) " cGray",
-           "WebView draws the same window with Edge and CSS instead of sixty Win32"
-         . " controls. It is still a PROTOTYPE: it does not start the mass engine,"
-         . " the sequence watcher or your startup scripts, and it binds no hotkeys —"
-         . " so pick Classic unless you are looking at the new one on purpose."
-         . "  •  Legacy Load/Save: off gives ONE Load and ONE Save for the tab in"
-         . " front of you; on gives the per-model grid, the only way to load a model"
-         . " you are not looking at. Both settings restart MMA.")
+    sg.Add("Text", "x" (CX + 18) " y" (y + 118) " w" (_colW - 18) " cGray",
+           "WebView draws each window with Edge and CSS instead of Win32 controls."
+         . " It runs the mass engine, the sequence watcher, your startup scripts"
+         . " and every hotkey exactly as Classic does — one copy of all of it,"
+         . " shared. Classic is fully supported: pick it if WebView2 will not"
+         . " start here, or if you prefer the Win32 window."
+         . "  •  Only the MAIN window restarts MMA. Settings and the hotkey editor"
+         . " are read when you press the button."
+         . "  •  Calibration, the region pickers and the detector probes are here"
+         . " in Classic Settings whichever you pick."
+         . "  •  Legacy Load/Save: off gives ONE Load and Save for the tab in front"
+         . " of you; on gives the per-model grid. Restarts MMA.")
     sg.SetFont("s9")
 
     ; ── right column: the archive's on/off switch ─────────────────────────────
@@ -1031,7 +1075,12 @@ OpenSettings(*) {
                             : "   The Archive feature itself is switched OFF under"
                             . " Features, so nothing is archived either way."))
     sg.SetFont("s9")
-    y := _rowTop + 132
+    ; 132 while the left column ended at the Legacy Load/Save box and one grey
+    ; paragraph. It now carries two more radio pairs (Settings window, Hotkey
+    ; editor) and a longer paragraph, and a Text control given a width auto-sizes
+    ; DOWNWARDS — so the old figure put the corner-picture section on top of it.
+    ; Nothing errors when that happens; the controls simply draw over each other.
+    y := _rowTop + 232
 
     ; ── the picture in the main window's corner ───────────────────────────────
     ;  Both settings apply LIVE — see CREDIT_Refresh in credit.ahk. Nothing here
@@ -1453,20 +1502,21 @@ OpenSettings(*) {
             return
         }
         try {
-            up := Map("automation",    AutomationListenerRunning(),
-                      "pinger",        PingerRunning(),
-                      "modelDetector", DetectorRunning(),
-                      "fanslyDetector", FanslyDetectorRunning(),
-                      "statsOverlay",  StatsOverlayRunning())
+            ; Asked per label rather than built as a Map of all five up front:
+            ; svcLbls holds whichever services this tab drew, and the old Map was a
+            ; second hand-kept list that had to contain every one of them or throw
+            ; a key error on a service somebody added to the tab.
             for _id, _lbl in svcLbls {
-                _lbl.SetFont(up[_id] ? "cGreen" : "cGray")
-                _lbl.Text := up[_id] ? "● running" : "○ not running"
+                _up := SVC_Running(_id)
+                _lbl.SetFont(_up ? "cGreen" : "cGray")
+                _lbl.Text := _up ? "● running" : "○ not running"
             }
             ; The detector's light lives on the Models tab too, beside the settings
             ; that decide what it reads — that is where you are standing when it is
             ; wrong.
-            lblDetector.SetFont(up["modelDetector"] ? "cGreen" : "cGray")
-            lblDetector.Text := up["modelDetector"]
+            _det := SVC_Running("modelDetector")
+            lblDetector.SetFont(_det ? "cGreen" : "cGray")
+            lblDetector.Text := _det
                 ? "● Model detector is running."
                 : "○ Model detector is not running — switch it on in Features, or"
                 . " set the strategy above to Manual and pick the model in the"
@@ -1477,20 +1527,34 @@ OpenSettings(*) {
     }
 
     ; ── which of the Models tab's controls are live right now ─────────────────
-    ; Called on every click of the three controls that decide it, and once while
-    ; the window is being built. Enabled is the outer switch: with the shared keys
-    ; off, the strategy is a choice about nothing. Manual is the inner one: it
-    ; reads no pixels, so every automatic control below it is inert.
+    ; Called on every click of the controls that decide it, and once while the
+    ; window is being built. The shared-keys checkbox is the outer switch: with it
+    ; off, every question below is a choice about nothing.
+    ;
+    ; Inside that, greying is PER SITE. It used to be one flag — the global
+    ; Strategy pair greyed both sites' controls together — which is exactly the
+    ; conflation this tab was splitting up: with OnlyFans on automatic and Fansly
+    ; on manual, the Infloww tab order must stay live while the Fansly rail order
+    ; goes inert, and one flag cannot say that.
+    ;
+    ; The MODE radios stay enabled whenever the shared keys are on: greying the
+    ; control you would use to leave manual mode is how a window traps you in it.
+    ; Only the order rows under them follow the mode.
     ;
     ; Nothing here writes. The greying describes what Save will mean, and the user
     ; can still change their mind before pressing it.
     _SyncModelCtrls(*) {
-        on   := chkShared.Value ? true : false
-        auto := on && rdAuto.Value
-        rdMan.Enabled  := on
-        rdAuto.Enabled := on
-        for _c in _autoCtrls
-            _c.Enabled := auto
+        on := chkShared.Value ? true : false
+        for _c in _modeCtrls
+            _c.Enabled := on
+
+        ; Manual reads no pixels on that site, so its order row is inert.
+        ofLive  := on && !rdOfMan.Value
+        fanLive := on && !rdFanMan.Value
+        for _c in _ofOrderCtrls
+            _c.Enabled := ofLive
+        for _c in _fanOrderCtrls
+            _c.Enabled := fanLive
     }
 
     ; ── the two order rows, filtered by platform ──────────────────────────────
@@ -1518,7 +1582,7 @@ OpenSettings(*) {
     ; not left alone: PositionalSlot reads 0 as "no answer" and the shared keys then
     ; do nothing, while a stale `Pos3=3` from before a model moved to Fansly would
     ; keep claiming that a third lit tab is model 3 — a confident wrong answer, which
-    ; is the expensive kind here (ARCHITECTURE.md §4.8).
+    ; is the expensive kind here (docs/decisions.md §4.8).
     _SaveOrderRow(dds, slots, section) {
         for _i, _dd in dds {
             if (_i > slots.Length) {
@@ -1626,31 +1690,21 @@ OpenSettings(*) {
         for _i, _dp in ddlPlat
             SetModelPlatform(_i, _dp.Value = 2 ? "fansly" : "infloww")
 
-        ; waitTime lives in utils.ahk as a literal, so saving it rewrites that file.
-        ; The mass engine reads it at load, which is why this one needs a restart —
-        ; handled at the end, together with every other reason to restart.
+        ; The mass engine and every message script read WaitTime once, at load,
+        ; which is why this one needs a restart — handled at the end, together
+        ; with every other reason to restart.
         _newWait  := SW_Num(edWT, waitTime, 50)
         waitChanged := (_newWait != waitTime)
         waitTime  := _newWait
-        ; ── the riskiest write in the app, now guarded ────────────────────────
-        ; This REWRITES core/utils.ahk, a source file every message script and the
-        ; engine #Include. It was unguarded, and failed two ways:
-        ;
-        ;   1. FileRead throws (file missing, locked by antivirus, permissions) →
-        ;      the throw escapes the Save handler, so EVERY SETTING BELOW THIS
-        ;      LINE never saves. ModelMatch, the tab order, the open-in-new-tab
-        ;      boxes, the wallet check — silently discarded, while the settings
-        ;      above this line did save. Half-saved is worse than not saved.
-        ;   2. FileOpen(…, "w") TRUNCATES FIRST. A failure between the truncate
-        ;      and the write leaves utils.ahk empty, which breaks every message
-        ;      script and the engine at once.
-        ;
-        ; Both are contained here: the write goes to a temp file and is MOVED into
-        ; place (the pattern store.ahk and archive.ahk already use for exactly this
-        ; reason), and the whole thing is scoped so a failure costs you the wait
-        ; time and nothing else.
+        ; An ordinary IniWrite, and it is worth saying what it replaced: this
+        ; was a REWRITE OF core\utils.ahk — read the whole source file, regex
+        ; the number out of it, write a temp file, FileMove it into place. It
+        ; needed all three guards, because FileOpen(…, "w") truncates first and
+        ; a failure halfway left every message script and the engine including
+        ; an EMPTY utils.ahk, and because a throw here skipped every setting
+        ; below this line. Both failure modes are gone with the source write.
         if waitChanged
-            SW_SaveWaitTime(waitTime)
+            IniWrite(waitTime, CFG_FILE, "Settings", "WaitTime")
         UpdateModelButtons()
 
         ; ── the reply-timer tiers ─────────────────────────────────────────────
@@ -1707,15 +1761,18 @@ OpenSettings(*) {
         ; you press with no restart and no broadcast.
         IniWrite(chkShared.Value ? 1 : 0, CFG_FILE, "Settings", "SharedKeys")
 
-        ; Two controls, one key — and the key keeps the three values it has always
-        ; had, so nothing downstream changes. Manual is still "manual"; automatic
-        ; is whichever of name/position the OnlyFans radios say, because that key
-        ; has only ever described the Infloww side. Fansly's equivalent is its own
-        ; key in its own section, which is what lets a mixed setup read each site
-        ; the way that site can actually be read.
-        IniWrite(rdMan.Value ? "manual" : rdOfPos.Value ? "position" : "name",
+        ; One radio row per site, one key per site, and the keys keep the three
+        ; values they have always had, so nothing downstream changes shape.
+        ;
+        ; [Settings] ModelMatch has only ever described the Infloww side; what is
+        ; new is that its "manual" is no longer read as a statement about Fansly
+        ; too. Fansly's equivalent is its own key in its own section, which is
+        ; what lets a mixed desk read each site the way that site can actually be
+        ; read — or not read one of them at all.
+        IniWrite(rdOfMan.Value ? "manual" : rdOfPos.Value ? "position" : "name",
                  CFG_FILE, "Settings", "ModelMatch")
-        IniWrite(rdFanName.Value ? "name" : "position", CFG_FILE, "Fansly", "Match")
+        IniWrite(rdFanMan.Value ? "manual" : rdFanName.Value ? "name" : "position",
+                 CFG_FILE, "Fansly", "Match")
         ; The dropdowns list only the models on that site, so the selected INDEX is
         ; not the model number any more — it is a position in _ordOf / _ordFan. The
         ; save has to go back through the same list the row was built from, or "tab 1
@@ -1788,8 +1845,14 @@ OpenSettings(*) {
         ; the comparison is against what was just saved.
         _shellPick := rdShellWeb.Value ? "webview" : "legacy"
         _shellChg  := (_shellPick != Trim(IniRead(CFG_FILE, "Settings",
-                                                  "MainWindowShell", "legacy")))
+                                                  "MainWindowShell", "webview")))
         IniWrite(_shellPick, CFG_FILE, "Settings", "MainWindowShell")
+        ; No restart and no broadcast: MMA_ShellFor reads these at the moment a
+        ; button is pressed, so the next press already obeys them.
+        IniWrite(rdSetWeb.Value ? "webview" : "legacy",
+                 CFG_FILE, "Settings", "SettingsShell")
+        IniWrite(rdHkWeb.Value ? "webview" : "legacy",
+                 CFG_FILE, "Settings", "HotkeysShell")
 
         ; No reload and no global to keep in step: ParseCurrent reads this key at
         ; the moment it parses, so the next Parse already obeys it.
@@ -1922,67 +1985,6 @@ SW_Num(ctrl, fallback, min := 0) {
         return Max(min, Integer(Trim(ctrl.Value)))
     catch
         return fallback
-}
-
-; Write the new waitTime into core/utils.ahk, where it lives as a literal.
-;
-; The only setting in MMA that is stored as SOURCE CODE rather than as config, so
-; it is the only save that can break the app by succeeding partially. Three things
-; keep that contained:
-;
-;   • temp file + FileMove, so utils.ahk is either the old version or the new one
-;     and never a truncated one. FileOpen(…, "w") on the real path truncates
-;     before writing, which is how an interrupted save empties a file that every
-;     message script and the engine #Include.
-;   • the replacement is verified to have actually matched before anything is
-;     written. RegExReplace returns the input UNCHANGED when the pattern misses,
-;     so renaming or reformatting that line in utils.ahk would otherwise make this
-;     silently write the file back identical and report success, and the wait time
-;     would just never change — with the Settings field showing the new value.
-;   • it returns false rather than throwing, so a failure costs the wait time and
-;     leaves the rest of Save to finish.
-SW_SaveWaitTime(ms) {
-    path := MMA_SRC_UTILS
-    LOGD("settings.wait", "writing waitTime=" ms " into " _LOG_BaseName(path))
-
-    body := ""
-    try {
-        body := FileRead(path, "UTF-8")
-    } catch as e {
-        LOGE("settings.wait", "could not read utils.ahk — the wait time was NOT"
-                            . " saved. Every other setting still was.", LOG_Err(e))
-        return false
-    }
-
-    ; `hits`, not `n` — some script in the tree has a global by that name, and a
-    ; local shadowing a global is a #Warn warning in every file that includes both.
-    updated := RegExReplace(body, "\bwaitTime\b\s*:=\s*\d+", "waitTime     := " ms, &hits)
-    if (!hits) {
-        LOGE("settings.wait", "could not find the `waitTime := <number>` line in"
-                            . " utils.ahk — the wait time was NOT saved and the file"
-                            . " was left alone",
-                            "has that line been renamed or reformatted? " path)
-        return false
-    }
-
-    tmp := path ".tmp"
-    try {
-        f := FileOpen(tmp, "w", "UTF-8")
-        if !f
-            throw Error("could not open " tmp " for writing")
-        f.Write(updated)
-        f.Close()
-        FileMove(tmp, path, true)
-    } catch as e {
-        try FileDelete(tmp)
-        LOGE("settings.wait", "could not write utils.ahk — the wait time was NOT"
-                            . " saved. utils.ahk is untouched.", LOG_Err(e))
-        return false
-    }
-    LOG_Ok("settings.wait", "utils.ahk now has waitTime := " ms
-                          . " (" hits " occurrence(s) replaced); the engine picks it"
-                          . " up on its next restart")
-    return true
 }
 
 ; The probe is a tool, not a feature: it binds Ctrl+Alt+F10, reports, and exits. Run it

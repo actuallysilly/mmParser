@@ -1,0 +1,496 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>6 — The parser</title>
+<link rel="stylesheet" href="guide.css">
+<script src="nav.js"></script>
+</head>
+<body>
+<div class="shell">
+<nav class="side"></nav>
+<main>
+
+<p class="eyebrow">Chapter 6</p>
+<h1>The parser</h1>
+
+<p class="lede"><code>src/mass/parser.ahk</code>, 764 lines. It turns text somebody wrote in
+Discord into 45 fields, and it has to do that without ever being told which format the text is
+in. This is the least defensive code in the core and the place where a wrong guess sends a
+message no one wrote.</p>
+
+<h2>The problem it solves</h2>
+
+<p>Someone in a Discord channel posts a mass. It might look like any of these:</p>
+
+<pre><code><span class="c">--- positional ---</span>          <span class="c">--- prefixed ---</span>        <span class="c">--- keyword ---</span>
+!mma hey babe                 !mma hey babe             mma hey babe
+                              f1 did you see it?        f1 did you see it?
+did you see it?               f1.5 still up?            f1.5 still up?
+still up?                     f2 hellooo?               f2 hellooo?
+                              ppv unlock this           ppv unlock this
+hellooo?                                                ppvfu1 like it?
+
+ppv unlock this
+</code></pre>
+
+<p>All three mean the same thing. Nobody is going to be told which mode to use, and if the parser
+picks wrong the text lands in the wrong fields and gets sent to real people. <strong>MMA picks
+the mode automatically by looking at the text.</strong></p>
+
+<div class="note">
+<p><b>Read <a href="../mass-format.md">docs/mass-format.md</a> alongside this chapter.</b> That
+file is the user-facing spec — what the format <em>is</em>. This chapter is how the code
+implements it and why it is shaped the way it is.</p>
+</div>
+
+<h2>The unusual thing about this file</h2>
+
+<div class="concept">
+<span class="tag">CONCEPT-ENCOUNTERED</span>
+<h3>A parser that writes into GUI controls</h3>
+<p>Every other file in the core takes data in and returns data out. This one does not. It writes
+its results <strong>directly into the edit boxes on screen</strong>:</p>
+<pre><code>ck := "m" mNo "_" slot                  <span class="c">; e.g. "m2_fu1_5"</span>
+if edCtrls.Has(ck)
+    edCtrls[ck].Value := StripPrefix(t)
+</code></pre>
+<p><code>edCtrls</code> is a global <code>Map</code> owned by the GUI: control key → control
+object. <code>FillTab</code> is declared <code>global</code> in bulk so it can reach it.</p>
+<p>That is a real coupling and it is worth understanding why it is tolerable here. The parse
+result <em>is</em> "the boxes are now filled in" — parsing is an editing operation, and the
+boxes are the editing surface. Returning a record would mean the GUI immediately copying it into
+the boxes anyway, and the intermediate object would be a shape that exists nowhere else.</p>
+<p>The cost is that <strong>the parser cannot be unit-tested without a GUI</strong> and cannot be
+reused by anything headless. If you ever need that, the refactor is: make
+<code>edCtrls[ck].Value := v</code> into a call to a <code>_Put(ck, v)</code> function, and let
+the caller supply it. Note the shape of the seam — a minimal duck type — because chapter 9 shows
+the same trick being used deliberately.</p>
+</div>
+
+<h3>Three globals it borrows from the GUI</h3>
+
+<div class="tablewrap">
+<table>
+<thead><tr><th>Global</th><th>Defined in</th><th>Holds</th></tr></thead>
+<tbody>
+<tr><td><code>edCtrls</code></td><td>each shell</td><td>Map <code>"m&lt;model&gt;_&lt;field&gt;"</code> → a control (or a WebView shim).</td></tr>
+<tr><td><code>keyMap</code></td><td><code>main_window.ahk:69</code></td><td>Keyword → field name. <code>"f1.5"</code> → <code>"fu1_5"</code>, <code>"ppvfu2"</code> → <code>"ppv_f2"</code>.</td></tr>
+<tr><td><code>PREFIX_EXCEPTIONS</code></td><td><code>main_window.ahk:209</code></td><td><code>http</code>, <code>https</code>, <code>ftp</code>, <code>mailto</code>… so a URL is not read as a label.</td></tr>
+</tbody>
+</table>
+</div>
+
+<h2><code>FillTab(lines, mNo)</code> — the entry point</h2>
+
+<p>Everything happens in one function, in five stages.</p>
+
+<h3>Stage 1 — strip comments</h3>
+
+<pre><code>cleaned := []
+for _, rawLn in lines {
+    if RegExMatch(Trim(rawLn), "^--(\s|$)")
+        continue
+    cleaned.Push(rawLn)
+}
+lines := cleaned
+</code></pre>
+
+<p>A line that is <code>--</code> alone, or begins with <code>--</code> <em>followed by
+whitespace</em>, is a comment.</p>
+
+<p>Two subtleties in that one regex:</p>
+<ul>
+<li><code>---</code> (a multiline fence) is <strong>not</strong> a comment — its third character
+is not whitespace, so <code>^--(\s|$)</code> does not match.</li>
+<li><code>--word</code> is <strong>not</strong> a comment either. It used to be a branch marker;
+it is not any more (<code>::word</code> is), but it is still left alone rather than swallowed,
+because <em>"masses in the wild contain lines like '--sale ends tonight', and eating those would
+delete message text on a rule the person pasting never agreed to."</em></li>
+</ul>
+
+<h3>Stage 2 — the bare <code>!mma</code> header block</h3>
+
+<p>This runs <strong>first, before the mode is chosen</strong>, and the reason is a good lesson
+in parser design.</p>
+
+<pre><code>!mma:
+
+If you were my artist, how would you picture me? 🎨
+
+Would my curves take over the entire canvas...
+Or would you only sketch the parts you couldn't stop thinking about? :3
+
+Would your artwork be bold enough to leave people speechless? ♡
+</code></pre>
+
+<p>That is <strong>one message</strong> — paragraph breaks and all. Every other form puts the
+mass <em>on</em> the marker line, so a marker with nothing after it set the mass to <code>""</code>
+and left the paragraphs to positional mode, which read them as f1, f2 and f3 and dropped the
+fourth. <em>The mass went out in pieces, as follow-ups, or not at all.</em></p>
+
+<p><code>MassHeaderBlock(lines)</code> finds a line matching
+<code>i)^!?mm[a]?\s*:?\s*$</code> — a marker with nothing after it — and takes everything below
+it until the first of:</p>
+
+<div class="tablewrap">
+<table>
+<tbody>
+<tr><td>a <code>---</code> fence</td><td>eaten <em>with</em> the block. Write one when follow-ups come after, since positional follow-ups have no label to stop the block themselves.</td></tr>
+<tr><td>a <strong>labelled line</strong></td><td>a field name, an f-prefix, <code>ppv</code>, or a <code>::branch</code>. That line names its own field and is left for the rest of the parse.</td></tr>
+<tr><td>the end of the paste</td><td></td></tr>
+</tbody>
+</table>
+</div>
+
+<p>It returns <code>{text, rest}</code> — the block, and the paste with the header and block
+<em>removed</em>, for the ordinary modes to carry on with.</p>
+
+<div class="concept">
+<span class="tag">CONCEPT-ENCOUNTERED</span>
+<h3>Take prose out of the way before you classify</h3>
+<p>The comment explains the ordering:</p>
+<blockquote><p>"Done FIRST, before the mode is chosen, because the mass body is <strong>prose</strong>:
+a paragraph of it that happens to open with a word the keyword mode knows would otherwise pick
+the mode for the whole paste."</p></blockquote>
+<p>A mass that opened <em>"f2 or f3 of these outfits, which would you pick?"</em> would trip the
+keyword detector and change how the entire rest of the paste was read. Removing the free-text
+region first means the mode detectors only see text that <em>is</em> structural.</p>
+<p>This is a general parsing principle: <strong>lex the unambiguous regions out first, then
+classify what remains.</strong></p>
+</div>
+
+<h3>Stage 3 — reset the branch registry</h3>
+
+<pre><code>NewBranchReg(mNo) {
+    Loop MASS_BRANCH_MAX
+        for _, f in MASS_BranchFields(A_Index)
+            if edCtrls.Has("m" mNo "_" f)
+                edCtrls["m" mNo "_" f].Value := ""
+    return {order: [], idx: Map()}
+}
+</code></pre>
+
+<div class="warn">
+<span class="tag">The clear is not optional</span>
+<p>Parsing writes into boxes that are already on screen. A mass with no <code>::mexican</code> in
+it must not inherit the <em>last</em> mass's mexican branch — <em>"which is precisely how a
+wording gets sent for a model it was never written for."</em></p>
+</div>
+
+<p>The registry is <code>{order: [name, …], idx: Map(lowername → slot)}</code>. It assigns branch
+names to slots 1–6 <strong>on first sight</strong>, and matches case-insensitively — because
+<code>::Mexican</code> and <code>::mexican</code> in one mass are a typo, not two branches, and
+two branches is the answer that costs a slot and splits one wording across two rows of the
+picker.</p>
+
+<h3>Stage 4 — choose the mode</h3>
+
+<pre><code>hasKw := false
+for _, rawLn in lines {
+    t := Trim(rawLn)
+    if RegExMatch(t, "^(\S+)\s", &amp;m) &amp;&amp; keyMap.Has(StrLower(m[1]))
+                                    &amp;&amp; !RegExMatch(m[1], "i)^!?mm[a]?$") {
+        hasKw := true
+        break
+    }
+}
+if hasKw { … keyword mode …; return }
+
+<span class="c">; …extract the mass line, build `filtered`…</span>
+
+hasFPrefix := false
+for _, t in filtered
+    if t != "" &amp;&amp; RegExMatch(t, "i)^[Ff][Uu]?\s?\d+") {
+        hasFPrefix := true
+        break
+    }
+if hasFPrefix { … prefix mode …; return }
+
+<span class="c">; …otherwise, positional mode…</span>
+</code></pre>
+
+<p>Note the <code>!RegExMatch(m[1], "i)^!?mm[a]?$")</code>: the mass markers are <em>in</em>
+<code>keyMap</code>, so without that exclusion every paste starting <code>!mma something</code>
+would be classified as keyword mode.</p>
+
+<h3>Stage 5 — parse in that mode</h3>
+
+<h4>Keyword mode</h4>
+<p>Simplest. Each line's first word is looked up in <code>keyMap</code>; the rest of the line is
+the value.</p>
+<pre><code>isLab := RegExMatch(t, "^(\S+)\s*(.*)", &amp;m) &amp;&amp; keyMap.Has(StrLower(m[1]))
+if BranchLine(brReg, t, curGrp, mNo, &amp;curBr, isLab)
+    continue
+if isLab {
+    kw  := StrLower(m[1])
+    ck  := "m" mNo "_" keyMap[kw]
+    if edCtrls.Has(ck)
+        edCtrls[ck].Value := Trim(m[2])
+    curGrp := BranchGroupOf(keyMap[kw])
+}
+</code></pre>
+
+<h4>Prefix mode</h4>
+<p>Each line's <code>f</code>/<code>fu</code> + number routes it to an exact slot.
+<code>FPrefixToSlot</code> does the mapping and is worth reading for what it <em>rejects</em>:</p>
+<pre><code>FPrefixToSlot(s) {
+    if !RegExMatch(s, "i)^[Ff][Uu]?\s?(\d+)(?:\.(\d+))?[:\s]", &amp;m)
+        return ""
+    n := m[1], d := m[2]
+    if d = ""                       return "fu" n
+    if SubStr(d, 1, 1) = "5"        return "fu" n "_5"
+    if SubStr(d, 1, 1) = "7"        return "fu" n "_7"
+    return ""                       <span class="c">; f1.2 → nothing. Silently dropped.</span>
+}
+</code></pre>
+<p>Blank-group boundaries are irrelevant in this mode, which is why it is the format to reach for
+when a mass is complicated.</p>
+
+<h4>Positional mode</h4>
+<p>The default, and the most work. Blank lines separate groups; groups are taken in order.</p>
+
+<h2><code>PositionalGroups</code> — splitting on blank lines, with fences</h2>
+
+<p>Returns <code>{groups, fenced}</code>: an array of line-arrays, plus a Map marking which
+groups came from a <code>---</code> fence.</p>
+
+<p>The fence logic is the fiddly part. When a <code>---</code> is found, the code walks
+<em>backwards</em> to the most recent line starting with <code>ppv</code> (or to the start of the
+positional content), pops any groups it had already emitted from that point, and re-emits the
+whole span as <strong>one group with its internal blank lines preserved</strong>. That group is
+routed to <code>ppv_base</code> and never spills a line into a ppv follow-up — a multiline PPV,
+not a PPV plus a follow-up.</p>
+
+<h2>The <code>::name</code> marker — one syntax for every alternative</h2>
+
+<pre><code>follow up 1
+::alt folow up 1 alternative
+::mexican mehico
+::german germaniaaaaa
+::german gernabiaaa22222
+</code></pre>
+
+<p>Four rules, and each one has a story:</p>
+
+<h4>1. A branch keeps its identity by NAME across the whole mass</h4>
+<p>The <code>::mexican</code> under follow-up 2 is <em>the same branch</em> as the one under
+follow-up 1. That is what makes picking it at f1 commit you to it at f2 and f3.</p>
+
+<h4>2. Repeating a name inside one group adds the next PART, not another choice</h4>
+<p><code>::german</code> twice is one branch answering f1 with two messages (f1 then f1.5),
+exactly as two unmarked lines are the trunk's f1 and f1.5. Capped at
+<code>MASS_FU_PARTS</code>, since there are only three sub-slots to send them into.</p>
+
+<h4>3. A marker ALONE on its line owns the lines under it</h4>
+
+<pre><code>::tits Would you mind if I smothered you with them?
+
+<span class="c">; …means the same as…</span>
+
+::tits
+Would you mind if I smothered you with them?
+</code></pre>
+
+<div class="warn">
+<span class="tag">The bug this fixed</span>
+<p>The second form <strong>did not parse</strong>. <code>::tits</code> with nothing after it was
+read as "this branch has nothing to say here" — a no-op — and the sentence under it fell through
+to the <em>trunk</em>. So the branch was empty and the trunk's follow-up silently became one
+branch's wording.</p>
+<p><em>Sent to a real fan, that is the wrong message with no error anywhere.</em></p>
+<p>And it matters because the second form is <strong>how a person actually writes a mass</strong>:
+the wording is a sentence, not a label's argument.</p>
+</div>
+
+<h4>4. A group that OPENS with a marker is not a new follow-up</h4>
+
+<pre><code>And tell me.. which curve entices you the most      <span class="c">&lt;- f2</span>
+
+::tits                                             <span class="c">&lt;- f3, if tits</span>
+would you mind if I smothered you with them?
+
+::ass                                              <span class="c">&lt;- f3, if ass</span>
+I want to make you my personal throne
+</code></pre>
+
+<p>Counted as ordinary groups, those are follow-ups 3 and 4 — and there is no fourth, so the
+whole <code>::ass</code> block was <strong>dropped</strong> with only a line in the log to show
+for it.</p>
+
+<pre><code>isBrLed := BranchMarker(firstLine) ? true : false
+if !(isBrLed &amp;&amp; prevBrLed)
+    fIdx++
+prevBrLed := isBrLed
+</code></pre>
+
+<p>Consecutive branch-led groups share one index: they are choices at the <em>same step</em>, not
+successive messages. The first one still advances the index, because it <em>is</em> the next
+follow-up — one the trunk has no wording for, which is normal and already supported.</p>
+
+<h2><code>BranchLine</code> — the one rule, shared by all three modes</h2>
+
+<pre><code>BranchLine(reg, t, grp, mNo, &amp;curBr, labelled := false) {
+    mk := BranchMarker(t)
+    if mk {
+        if (grp = "") {
+            LOGW("gui.parse", "model " mNo ": '::" mk.name "' appears before any"
+                            . " follow-up or ppv line, so there is nothing for it to"
+                            . " be an alternative TO — dropped")
+            curBr := ""
+            return true
+        }
+        if (mk.body != "") {
+            AddBranchPart(reg, mk.name, grp, mk.body, mNo)
+            curBr := ""              <span class="c">; wording was on the line; owns nothing below</span>
+        } else {
+            curBr := mk.name         <span class="c">; the lines under it are its answer</span>
+        }
+        return true
+    }
+    if labelled {
+        curBr := ""                  <span class="c">; a labelled line ENDS a capture</span>
+        return false
+    }
+    if (curBr != "" &amp;&amp; grp != "") {
+        AddBranchPart(reg, curBr, grp, t, mNo)
+        return true
+    }
+    return false                     <span class="c">; the trunk's — caller places it</span>
+}
+</code></pre>
+
+<p>Three things to take from this function:</p>
+
+<p><strong><code>curBr</code> is passed by reference</strong> so all three parse modes share one
+rule instead of three copies of it. This is the shape to reach for when several call sites need
+to advance the same piece of state.</p>
+
+<p><strong>The return value is "did I consume this line?"</strong> — <code>true</code> means the
+caller skips it, <code>false</code> means it is the trunk's and the caller should place it in the
+next sub-slot. Clean separation: this function knows about branches, the callers know about
+slots.</p>
+
+<p><strong><code>labelled</code> ends a capture.</strong> Without it, one <code>::tits</code>
+above an <code>f2</code> line ate the rest of the paste — every following line, labels and all,
+went into the branch and every field below it came out empty. So a line carrying its own
+<code>f2</code> or <code>ppv</code> label belongs to that label, never to a capture.</p>
+
+<h2>Limits are reported, never silently truncated</h2>
+
+<p>Four places in this file hit a ceiling, and all four log a <code>LOGW</code> that names what
+was dropped and why:</p>
+
+<div class="tablewrap">
+<table>
+<thead><tr><th>Limit</th><th>Message</th></tr></thead>
+<tbody>
+<tr><td>7th branch name</td><td>"…names more than 6 branches — 'x' was DROPPED. Everything it said is missing from this mass."</td></tr>
+<tr><td>4th part in a branch group</td><td>"…already has 3 parts for fu2 — 'text' was dropped, there is no fourth sub-slot to send it in"</td></tr>
+<tr><td>4th follow-up group</td><td>"…more than three follow-up groups — group 4 was dropped, MMA sends f1, f2 and f3 only"</td></tr>
+<tr><td>4th line in a group</td><td>"…follow-up 2 has more than 3 lines — 'text' was dropped. There are three sub-slots (f2, f2.5, f2.7) and no fourth."</td></tr>
+</tbody>
+</table>
+</div>
+
+<p>Every message names the <strong>limit</strong>, the <strong>thing dropped</strong> (truncated
+to 30 characters so the line stays readable) and the <strong>reason the limit exists</strong>.
+That is the standard to hold new code to: a limit that silently truncates is a limit that
+produces a mass nobody wrote.</p>
+
+<h2><code>StripPrefix</code>, and the URL exception</h2>
+
+<pre><code>StripPrefix(s) {
+    if RegExMatch(s, "i)^[Ff][Uu]?\s?\d+(?:\.\d+)?[:\s]+", &amp;m)
+        return SubStr(s, m.Len + 1)
+    if RegExMatch(s, "^\S+:(?![)(])\s*", &amp;m) {
+        scheme := SubStr(s, 1, InStr(s, ":") - 1)
+        if PREFIX_EXCEPTIONS.Has(StrLower(scheme))
+            return s                        <span class="c">; leave the URL intact</span>
+        return SubStr(s, m.Len + 1)
+    }
+    return s
+}
+</code></pre>
+
+<p>The second branch removes any <code>word:</code> prefix — people write <code>Opener:</code>,
+<code>Follow up:</code> and so on. Two guards keep it from eating real text:</p>
+<ul>
+<li><code>PREFIX_EXCEPTIONS</code> — <code>https://…</code> would otherwise become
+<code>//…</code>.</li>
+<li><code>(?![)(])</code> — a negative lookahead so that an emoticon like <code>:3</code> or
+<code>:)</code> at the start of a line is not read as a prefix terminator.</li>
+</ul>
+
+<h2>The serialiser half</h2>
+
+<pre><code>EscQ(s) {
+    for _, ch in AHK_CHARS          <span class="c">; ["``", Chr(34), ";"] — backtick FIRST</span>
+        s := StrReplace(s, ch, "``" ch)
+    return s
+}
+</code></pre>
+
+<p><strong>Backtick must be first</strong> in that list, or escaping a quote would then have its
+own escape backtick escaped again. Classic escaping-order bug.</p>
+
+<p>These are vestigial: they exist because masses used to be AHK source (chapter 5). Nothing on
+the save path needs them any more — <code>MASS_Save</code> writes JSON — but the export button
+still produces text a human pastes back, so they stay.</p>
+
+<h2>What was deleted, and why the note remains</h2>
+
+<p>At the bottom of the file:</p>
+
+<blockquote><p><code>SplitAltLines()</code> stood here: it pulled <code>alt:</code> /
+<code>alt0:</code> lines out of a follow-up group and returned <code>{baseParts, alts}</code>,
+with an insertion sort to compact a stray <code>alt5:</code> down to a dense list. All of it
+existed to reconcile a second syntax for a thing that is now spelled one way. The group loop
+reads marked and unmarked lines in a single pass, so there is nothing to split.</p></blockquote>
+
+<div class="concept">
+<span class="tag">CONCEPT-ENCOUNTERED</span>
+<h3>Tombstone comments</h3>
+<p>MMA leaves a note where a deleted thing used to be, several times over — here, in
+<code>hotkeys.ahk</code> where <code>HK_ModelSendIds</code> was, in <code>active_model.ahk</code>
+where <code>UniversalSendActive</code> was, in <code>utils.ahk</code> where
+<code>AltChooseGui</code> was.</p>
+<p>The value is specific: when you are reading code and something you expected is absent, the
+question "where did this go, and was it deleted on purpose?" costs real time to answer from git
+history — and git history does not tell you <em>why</em>. A three-line note at the site is
+cheaper than the archaeology.</p>
+<p>The discipline is to delete them once nobody would look. In practice, keep one where the
+removed thing was documented elsewhere or named in a test.</p>
+</div>
+
+<h2>Working on this file</h2>
+
+<div class="warn">
+<span class="tag">Before you change anything here</span>
+<p>This is the one file in the core where a bug produces a <em>plausible</em> wrong result rather
+than nothing at all. A parse that puts f2's text into f3 does not look broken — it looks like a
+mass. It goes out.</p>
+<p>Test with <code>tools/test/branch_parse_test.ahk</code> (512 lines of assertions) before and
+after. If you change a mode-detection heuristic, hand-check at least one real mass in each of the
+three modes, plus one with a bare <code>!mma</code> header, plus one with branches.</p>
+</div>
+
+<div class="tablewrap">
+<table>
+<thead><tr><th>Task</th><th>Where</th></tr></thead>
+<tbody>
+<tr><td>Accept a new keyword (e.g. <code>opener</code>)</td><td><code>keyMap</code> in <em>both</em> shells — <code>main_window.ahk:69</code> and <code>webview_main_window.ahk</code>.</td></tr>
+<tr><td>Accept <code>f1.3</code> as a fourth sub-slot</td><td><code>FPrefixToSlot</code>, plus a new field in <code>MASS_Fields()</code>, plus <code>_FuParts</code>, plus the GUI boxes.</td></tr>
+<tr><td>Change the branch marker</td><td><code>BranchMarker</code> only. Everything else calls it.</td></tr>
+<tr><td>Add a new comment syntax</td><td>Stage 1 of <code>FillTab</code>. Consider what real message text it would eat.</td></tr>
+<tr><td>Diagnose a bad parse</td><td>Grep <code>gui.parse</code> in <code>mma.log</code>. Every drop is logged with the text it dropped.</td></tr>
+</tbody>
+</table>
+</div>
+
+<div class="pager"></div>
+</main>
+</div>
+</body>
+</html>

@@ -2,6 +2,7 @@
 #Include "../core/paths.ahk"
 #Include "../core/modes.ahk"
 #Include "pill_scan.ahk"
+#Include "../core/dpi.ahk"
 ; ═══════════════════════════════════════════════════════════════════════════════
 ;  click_wall.ahk — an invisible wall over the chat list while a send is running.
 ; ───────────────────────────────────────────────────────────────────────────────
@@ -225,6 +226,11 @@ CW_ParseRegion(raw, who) {
 ; everywhere else in the app behave exactly as they did — which they could not if
 ; the handler swallowed every click and tried to play the innocent ones back.
 CW_InZone(*) {
+    ; Per-monitor DPI for the length of this call — see core/dpi.ahk. Without
+    ; it every coordinate below is virtualised on any monitor whose scaling
+    ; differs from the primary's, and the wrong numbers stay self-consistent
+    ; while disagreeing with the screen.
+    _dpi := DpiScope()
     global CW_ARMED
     if !CW_ARMED
         return false
@@ -320,6 +326,11 @@ CW_Watchdog() {
 
 ; ── swallowing ────────────────────────────────────────────────────────────────
 CW_Swallow(*) {
+    ; Per-monitor DPI for the length of this call — see core/dpi.ahk. Without
+    ; it every coordinate below is virtualised on any monitor whose scaling
+    ; differs from the primary's, and the wrong numbers stay self-consistent
+    ; while disagreeing with the screen.
+    _dpi := DpiScope()
     global CW_HELD
     CoordMode "Mouse", "Screen"
     MouseGetPos(&mx, &my)
@@ -336,6 +347,11 @@ CW_Swallow(*) {
 
 ; ── playing it back ───────────────────────────────────────────────────────────
 CW_Replay(held) {
+    ; Per-monitor DPI for the length of this call — see core/dpi.ahk. Without
+    ; it every coordinate below is virtualised on any monitor whose scaling
+    ; differs from the primary's, and the wrong numbers stay self-consistent
+    ; while disagreeing with the screen.
+    _dpi := DpiScope()
     c   := CW_Cfg()
     age := A_TickCount - held.at
     if (c.holdMax > 0 && age > c.holdMax) {
@@ -377,6 +393,11 @@ CW_Replay(held) {
 ; landscape patch stays inside one row while sampling enough of its text to tell
 ; it from the row that might replace it.
 CW_Patch(x, y) {
+    ; Per-monitor DPI for the length of this call — see core/dpi.ahk. Without
+    ; it every coordinate below is virtualised on any monitor whose scaling
+    ; differs from the primary's, and the wrong numbers stay self-consistent
+    ; while disagreeing with the screen.
+    _dpi := DpiScope()
     c := CW_Cfg()
     if !c.verify
         return 0

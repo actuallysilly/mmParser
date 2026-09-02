@@ -1,5 +1,454 @@
 ﻿# Changelog
 
+## Unreleased
+
+### A chat simulator: write a mass as the conversation it becomes
+
+The GUI edits a mass as a grid of boxes — `mass`, `fu1`, `fu1_5`, `fu1_7`, `fu2` … Every
+box is correct, and between them they hide the only thing you actually need to know:
+what the fan sees.
+
+**Ctrl+Alt+C** opens a mock chat. Your messages are the bubbles, his replies sit in
+between, and a composer at the bottom sends the next one — straight into the next empty
+slot, in send order, the way you would actually write the conversation. Click any bubble
+to reword it. Switch the composer to **Him** to write what he says back, so f2 is written
+against something rather than into the air.
+
+Four things it shows that a grid of boxes cannot:
+
+- **How many messages this is.** Three boxes under F1 are three separate messages, about
+  1.5s apart — the gap is drawn between them — unless `FuSingle` is on for that model and
+  group, in which case they are one message with line breaks, and it says so.
+- **What pastes and what sends.** The opener and the PPV blurb land in the chat box
+  without an Enter. They are drawn as dashed drafts, not as sent messages, because the
+  difference is the whole reason you get to read them first.
+- **Where the f3 fallback comes from.** A mass with no f3 does not send silence, it sends
+  the `DefaultFu3` text from Settings. That bubble now says where it came from.
+- **What a branch actually changes.** Pick one in the header and the conversation redraws
+  on it — including the groups the branch has no wording for, where the trunk's goes out.
+
+His replies are kept in `userdata\chat_sim.json`, never in `masses.json`. Everything in
+that file goes out to somebody, and a line that exists so you can read your own follow-up
+in context must never be one keystroke from being sent.
+
+### One answer to "what does this mass send"
+
+The simulator could not have been trusted otherwise. The rules — which fields make up a
+follow-up, when `DefaultFu3` applies, what `FuSingle` joins, what a branch contributes —
+were spread across `core\utils.ahk` and `mass\runtime.ahk`, and **no window can include
+either**: the first registers hotstrings and binds keys the moment it loads, the second
+binds the follow-up keys.
+
+So a second copy in the new window was the obvious route, and it would have agreed with
+the engine until the week somebody changed one of them. Instead the rules moved to
+**`mass\shape.ahk`** — unchanged, and already pure: the comment above `BranchList` had
+said *"these helpers are pure (take the mass object)"* for as long as they had been
+there. The engine and the simulator now read one copy, and `tools\test\mass_shape_test.ahk`
+pins every rule.
+
+**Two bugs this turned up, both silent.**
+
+`MASS_AsObject` converts a stored mass (a Map) into the property form every send helper
+is written against. Nothing had ever needed the way back, because the engine reads and
+never writes — and a window that edits a record does. Handing the object form to
+`MASS_Set` throws nothing and logs nothing: `MASS_Normalise` keeps a record only if it
+`is Map`, so it is quietly swapped for a blank one on the way to disk. **The mass looks
+saved until you reopen it and find it empty.** `MASS_AsMap` is the missing inverse, and
+the test asserts both directions — including that the wrong one loses the record, so the
+trap stays written down.
+
+The second was the first one's disguise: the window came up correct, silent and
+completely blank, because a bare `try` around "build the state and send it to the page"
+ate the exception from building it. Both ends of that bridge now report — the AHK side
+logs what it could not build, and the page reports its own script errors into `mma.log`
+rather than into a console nobody is looking at.
+
+### The hotstrings you actually use, on one key
+
+The message library is 134 triggers. Two of them are most of a shift and you know those
+by heart; the rest you half-remember. Until now the ways in were: type an abbreviation you
+have to recall exactly, bind a key to one hotstring (which runs out of chords after five),
+or open the manager and search.
+
+**Ctrl+Alt+H** now opens a popup at the cursor with your **pinned** hotstrings on top and
+the **recently used** ones under them. Click one and it sends exactly as its trigger
+would — including the overload picker, if it has one. Press **1**-**9** for the first nine
+rows. **Shift-click** a row to pin or unpin it.
+
+Pins are manual on purpose. Recency alone gets the ordering wrong for the message you send
+twice a day: it is exactly the one that falls off a most-recent list, and exactly the one
+worth a menu for.
+
+Two things this needed, both new:
+
+- **`userdata\hotstring_usage.ini`** — the store. Every message file is a separate
+  process, so "what did I use recently" has to cross a process boundary, and MMA's answer
+  to that everywhere else is a file in `userdata\`.
+- **A way to know which hotstring is firing.** A hotstring body is `snd("…")` and nothing
+  else — there is no trigger in scope, and adding one to 134 hand-written blocks would be
+  a line you have to remember to write. `A_ThisHotkey` answers it, and
+  `A_TimeSinceThisHotkey` is what separates *the three sends of one hotstring* from *three
+  hotstrings*: within one fire it only ever goes up, and a new fire resets it to zero.
+  (Measured: 0, 406, 812 across three steps.)
+
+The key is bound by **exactly one** message script — the first file `content\` lists,
+which is `general.ahk` — because every script includes the same file and binding it in
+each would open three identical popups on top of one another. The menu still covers the
+whole library whichever script owns it.
+
+### Hotstrings are editable in the GUI now — all of it
+
+The Hotstrings manager listed, searched, overloaded and deleted. Changing what a hotstring
+*said* meant leaving it: VS Code, the right line, and getting AHK's string escapes right
+by hand.
+
+**Edit…** (or double-click a row) opens the lot: the trigger, `::` vs `:*:`, the message
+text, which function sends each line, the wait after a `Sendt()`, and which message file
+the whole thing lives in. Save writes the block back where it stands and restarts the
+owning script, because a message script binds its hotstrings at load.
+
+**Two ways to edit the body, and both are necessary.** *Steps* is a row per message with a
+box for the words — no AHK, no quotes to escape. *Source* is the body as written in the
+file, and it is not a flourish: `content\accounts\BRI.ahk` has blocks that open with
+`t := 500` and pass `t` to every `sendt()` below. Rebuild one of those from its steps and
+the line those steps depend on is gone, leaving a script that no longer loads. A body that
+is not send-calls-and-nothing-else opens on Source with the reason on screen, and switching
+to Steps asks first.
+
+**A rename is a migration, not a string change.** Three files key off a trigger — the key
+bound to it in `hotkeys.ini`, its variants in `hotstring_overloads.ini`, and its pin and
+use count in `hotstring_usage.ini`. All three move with it. Without that, renaming a
+hotstring silently broke its key, stopped its overload firing and reset its history.
+
+Also here: a **✦ column** and a **Pin** button, a **Used** count, and two more sort
+orders — *Pinned first* and *Most used*.
+
+**One bug this shipped with, and how it was caught.** `HSI_Escape` wrote the replacement
+for a double quote as a *single*-quoted AHK string containing one backtick and one quote.
+The backtick is AHK's escape character inside single-quoted strings too, so that
+expression is a one-character string holding a plain quote — and the replacement was a
+no-op that compiled and ran. Every quote in a message would have been written out
+unescaped, ending the block at the first `"` in your own words. `hotstring_edit_test.ahk`
+asserts the round trip character by character, which is why this is a paragraph in a
+changelog rather than a message that came out wrong in a real chat.
+
+### The wait time is a setting now, like everything else
+
+`waitTime` — the pause between the parts of a send — was the only setting in MMA stored as
+**source code**: a literal inside `core\utils.ahk`, the file every message script and the
+mass engine `#Include`.
+
+That one difference cost a lot. Saving it had to **rewrite a source file**, through a
+regex, a temp file and a `FileMove`, guarded three ways because `FileOpen(…, "w")`
+truncates before it writes and a failure halfway leaves every script including an empty
+`utils.ahk`. Two more files then read the value by scraping the same regex back out, so
+renaming that one line broke reading *and* writing in four files that had no other reason
+to know how `utils.ahk` is worded.
+
+It is `[Settings] WaitTime` in `mass_gui.cfg` now. `SW_SaveWaitTime` and its three call
+sites are gone, the settings-parity test checks it like every other row, and it still asks
+for a restart — the scripts read it once, at load, exactly as they read the literal.
+
+The default is **1500**, which is what that line shipped with. The `350` that used to sit
+in the callers was never a default anybody ran with: it was the answer when the regex
+*missed*.
+
+### The README was describing a version of MMA that stopped existing
+
+Nothing here changes what MMA does. It changes what MMA *says* it does, which had drifted
+far enough to be misleading on first read.
+
+- **"Three model slots."** It has been three to twelve since 2.0.2. The README still
+  promised three.
+- **"Python — optional, and only for two things."** Four: the automation listener, the
+  pinger, typelog and autoword. The installer's own header said "exactly two" as well,
+  and its package note claimed `pynput` was for typelog only — autoword needs it too, at
+  a higher version floor.
+- **"Auto-updater — checks for updates silently on startup."** That check is **off by
+  default**, and has been since it was given a switch: it prompts in front of whatever
+  you were doing, on somebody else's release schedule. **Settings ▸ Models ▸ Check for
+  updates** works whatever it is set to.
+- **The Settings table listed four options** — model names, hotkeys, wipe temp, check
+  update. Settings is eight tabs. The table is now the tabs, with a line saying the thing
+  that is easy to get wrong: Features is the only tab that offers a feature's on/off box,
+  and no key has a checkbox in two places.
+- **The file tree was missing `activity/` and `branch/`**, still listed a `modes` window
+  that was deleted, and described `vendor/` as "OCR.ahk" when it also carries WebView2
+  and the JSON parser.
+
+A sweep of every comment in the source turned up eleven more of the same kind, all now
+corrected: a header claiming "Five children" for what is nine services plus two, three
+files asserting the Features tab is the *only writer* of a feature key when four places
+write one, a logging header listing six levels when `LOGD`/`DEVL` made seven, and several
+pointers to functions deleted in earlier releases. Comments that say *"X stood here"* were
+left exactly as they are — those explain where something went, and they are the reason
+this sweep was possible at all.
+
+
+### Two background tools were lying to you, and the reason was a list
+
+Switching **Activity tracker** off in Settings ▸ Features wrote the setting and left the
+process running. The checkbox said off; it went on counting your keystrokes until you
+restarted MMA. **Autoword** did the same thing. Neither ever appeared in the code that
+stops a service when you untick it — that code was a hand-written if/else chain covering
+seven of the nine, and those two were the two it missed.
+
+For features whose entire defence is *you switched this on deliberately*, that was the
+wrong bug to have.
+
+The same chain existed three more times, and it had drifted three different ways:
+
+- **At startup**, the list was missing the Fansly detector, the activity tracker and
+  autoword — so all three started five seconds late, on the first watchdog tick, and with
+  **Auto-start scripts** off (which is what Easy mode does) they never started at all.
+- **The Tools window** kept its own copy of the nine ids, retyped, with a comment
+  explaining that it had to be kept in step by hand.
+- **The Tools button's count** kept a fourth copy, with a comment saying that getting out
+  of step cost a wrong number on the button.
+
+Four lists of the same nine things, none of them checked against the others.
+
+**There is one list now.** Every background service is declared once, beside the feature it
+belongs to, and everything that acts on services walks that declaration: startup, the
+Features tab, the Tools window, the button's count and the watchdog. A service cannot be
+missing from a list, because there are no lists.
+
+Nothing about how MMA behaves for you changes, except that the two bugs above are gone and
+three services now start when MMA starts rather than five seconds later. Every switch,
+label and setting is exactly where it was — the registry reads them from the same place
+Settings always did.
+
+For anyone reading the code: eleven near-identical `Launch*`/`Stop*`/`*Running` triples in
+`core/processes.ahk` became one declaration table and nine generic functions — the file is
+864 lines down to 747, and most of what replaced the triples is the comment explaining why
+they went. Adding a background service is now one line there, one line in `core/modes.ahk`,
+and the file itself. `tools/test/services_test.ahk` is what stops a fifth list growing
+back; it runs from Settings ▸ Debug with the rest.
+
+
+### The window Edge draws is the one MMA opens
+
+The WebView main window has been selectable in **Settings ▸ GUI ▸ Main window** for a while,
+under a label that told you not to pick it. It was honest: it drew the panel beautifully and
+did none of the work behind it. Choosing it launched MMA with **no mass engine, no sequence
+watcher, no startup scripts, no background services and not one hotkey bound** — a control
+panel for a program that was not running.
+
+It is the default now, and Classic (Win32) is the supported fallback rather than the starting
+point. Picking Classic is still a one-click, fully-working choice; take it if WebView2 will not
+start on a machine, or if you prefer the Win32 window.
+
+**What it had to grow to get here:**
+
+- **It starts MMA.** The engine and the sequence watcher come up *before* Edge does, which
+  matters more here than it did in the Win32 window: standing up the WebView2 runtime is far
+  slower than laying out sixty controls, and every one of those milliseconds used to be MMA on
+  screen with its hotkeys dead. Startup scripts, the automation listener, the pinger, the model
+  detector, the stats overlay, typelog, the reply box and the watchdog all follow at the end.
+- **It answers the messages other processes send it.** Ctrl+clicking a Discord message posts an
+  auto-parse to "the MMA window", and the Hotstrings manager's **Add hotkey…** button asks the
+  main window to open a dialog built out of the main window's own globals. Both addressed that
+  window by the Win32 shell's file path — an AHK script's window title *is* its full path — so
+  under the WebView shell both would have found nothing and reported MMA as not running while
+  MMA was plainly open. They now ask which shell is actually up.
+- **It has the keys.** OCR grab, Add-hotkey grab, the branch builder and double-MM were bound
+  only by the Win32 window.
+- **Closing it closes MMA.** Its X was a bare `ExitApp` — fine for a window that started
+  nothing, orphaning for one that starts nine scripts and three Python services. It asks the
+  same Yes/No/Cancel the Win32 window has always asked, and "Yes" stops the services too:
+  they are not AHK windows, so nothing else goes looking for them. There is a **Kill all
+  scripts & Exit** entry on the tray icon as well.
+
+### Starting MMA no longer waits for Edge
+
+Found by timing the first real launch: **60.8 seconds** from double-clicking MMA to
+`general.ahk` starting. That file is every hotstring MMA has, so for a minute after launch
+typing did nothing, once per launch, with the window sitting there looking ready.
+
+Nothing was wrong with the startup itself — it was in the wrong place. Both shells started
+their scripts and services as the last thing they did, which costs nothing in the Win32 window
+(its controls exist in milliseconds) and costs a minute in this one, because
+`CreateControllerAsync` blocks until the Edge runtime is up.
+
+Startup is in three phases now, and the rule is that **nothing you reach for waits on a window
+being drawn**: the engine and sequence watcher first, then the startup scripts, the automation
+listener and the background services, and only then — after Edge — the two timers that
+genuinely need a window (the Tools button's caption and the unknown-model prompt). The `[gui]`
+hotkeys moved ahead of Edge for the same reason.
+
+Measured again after: **0.11 seconds**.
+
+### One copy of what the window does
+
+The two front ends had each grown their own implementation of the same logic — **thirty-four
+functions written twice**, and they had already drifted apart: `ApplyFile` differed by 56
+lines, `PickMassSlot` by 28, and the WebView's `LoadFile` refreshed the model header where the
+Win32 one did not.
+
+That is the exact shape of the mass-# bug in 2.0.3, where what you *saw* and what the keys
+*sent* disagreed. Two copies of one truth are one copy plus a lie waiting to be found.
+
+Everything that is not *drawing* now lives in one file that both shells share — the parser and
+import path, the model-name repository, the mass slots, the updater, the Add-hotkey dialog,
+Wipe temp, the collision check and the boot sequence. The rule is: if it does not touch a
+control's position, size or creation, it is not the window's business.
+
+Reconciling the two copies turned up a bug that had been sitting in the Win32 window: Parse
+cleared a model's boxes by matching the key prefix `"m" mNo "_"` against the **first three
+characters**, which is only the right length while the model number is a single digit. At ten
+models or more it matched nothing, so Parse filled the boxes without clearing them first and
+the old text stayed underneath. The WebView copy had it right; the shared one takes that.
+
+**Nothing about either window changed on screen.** This is the plumbing underneath, and the
+point of it is that the next fix lands in both windows instead of one.
+
+### Settings is a page now
+
+Eight tabs of pixel-positioned controls, and the reason it was eight tabs is that a Tab3 page
+cannot scroll — so every setting had to *fit*, and where it went was decided by where there was
+room. Nothing has to fit on a page. So the shape is the one the settings actually have: a list
+of sections down the side, one scrolling column, and a search box over the whole lot.
+
+The **Models** section is a straight port of the Win32 Models tab rather than a rewrite of it:
+same rows, same order, same wording, the same NAME/PLATFORM table, the same greying (manual
+strategy greys the automatic block; the shared keys off greys the strategy too), the same live
+"Detector sees" readout, the same "Reset model fields". It is the section most visited and the
+one where a wrong answer is expensive — a shared key that resolves to the wrong model sends one
+model's message into another model's chat — so nobody who knows that tab should have to re-learn
+it here. What it drops is the constraint that shaped it: a Tab3 page cannot scroll, so everything
+had to *fit*.
+
+- **Search across every setting**, including the feature switches, by name or by the help text.
+- **A line under each setting saying what it does**, instead of a label and a guess.
+- **A `restart` badge** on the handful that do not take effect until MMA is restarted.
+- **The theme previews live** as you pick it, before you save.
+- **Nothing is written until Save.** Close really does discard — the window edits a copy.
+
+**It holds no list of settings.** The feature switches are drawn from the registry in
+`core/modes.ahk`, so a new `FEAT_Def` line appears here with no edit; everything else comes
+from one declarative table that travels to the page *with* the values.
+
+Two bugs fell out of writing that table down and checking it against the code that reads the
+keys: `CreditPicture` is a **boolean** — `CREDIT_On()` reads it as one — and was being offered
+as a text box you could type a filename into, which would have left it reading a filename as a
+number; the picture's name is a separate key and is now a dropdown of what
+`assets/decoration/` actually holds. And the model-count default here was 2 where
+`MMA_ModelNames()`, the function that decides how many slots exist, says 3.
+
+**Hotkeys, calibration and the probes are not in it** — they are buttons that open the real
+windows. Those drive screen capture, drag-to-measure overlays and colour pickers, and neither
+is a stub.
+
+The Win32 Settings window is unchanged and still there under Classic.
+
+### The hotkey editor is a page too, and it can still read a Scimitar button
+
+Ninety-nine actions across seventeen features. The Win32 editor lists them well — the previous
+release is most of why — but a ListView cell that says `^!F1` is a cell you *decode*, and a
+"Clashes with" column that names ids is a column you cross-reference.
+
+- **Every key is drawn as keycaps.** `Ctrl` `+` `Alt` `+` `F1`. The keycap is the button —
+  click the key you want to change, not a row and then a *Set key…* button.
+- **Clashes are on the row, in words and in colour.** "⚠ same key as Follow-up 1 — active
+  model", against a tinted row, instead of an id in a column at the far right.
+- **Filter chips with live counts** — All, Changed, Clashes, Unassigned — so "is anything
+  double-bound" is answered before you click anything. On this install: **18 keys clash**, all
+  of them a per-model key and the shared active-model key holding the same F-key.
+- **A section rail with a count per feature**, and a dot on any feature holding an unsaved edit.
+- **Search across the action, the feature, the key and the id.**
+- **Reset one, unbind one, reset everything, or discard the lot** without closing the window.
+
+**The page never reads the keyboard, and that is why this works.** The capture is the same
+`InputHook` the Win32 editor has always used, unchanged and now shared between them. It is a
+system-wide hook, so it does not care which window has focus, and it runs without the `V`
+option, so the keystroke is *swallowed* before the page sees it. `Alt`, `F10`, `Ctrl+W`, `F12`
+and the Windows key record like any other chord — which a page listening for `keydown` could
+never manage — and `XButton1`, the wheel and the Scimitar side buttons record too, because
+those are AHK hotkeys rather than anything a browser has a name for.
+
+What the page draws is the overlay: which action, what it is bound to now, and the chord as you
+hold it. While it is up the mouse is being watched as well, so **there is no Cancel to click** —
+clicking would *be* the new binding. Escape cancels and Backspace unbinds, and the overlay says
+so in letters you can read across a desk.
+
+**Both editors now share every rule that is not drawing** — the capture, the key names, the
+clash test, and the write to `hotkeys.ini`. Not tidiness: they report on the same keys and
+write the same file, and a disagreement between them about what counts as a clash is a bug you
+could only find by having both windows open at once and noticing they said different things.
+Open them side by side and they say `99 keys · 18 clashing · 13 off` in both.
+
+**Where to find it:** a **Hotkeys** button on the main window, and **Hotkeys editor…** in
+Settings. The Win32 editor is still there, still runnable on its own when the main GUI will
+not start — and if the Edge runtime will not start, this window opens it for you rather than
+leaving you with no way to fix a key.
+
+### The activity chart has a button
+
+It has existed for a while and had exactly one door: the `gui.activity` key. That is a door you
+have to already know about, and the log settles it — `act.boot` every session since the tracker
+went in, `act.chart` **not once**. A feature nobody can find is a feature nobody has.
+
+So there is an **Activity** button on the main window now, in both shells, hidden with its
+feature like Hotstrings and Variants are.
+
+It does not open the chart itself. The tracker owns the minute in progress and flushes it before
+opening — without that the chart comes up showing everything *except* the minute you pressed the
+button about. So the button fires `gui.activity` through the hotkey registry and the tracker
+answers, exactly as the Actions menu runs a key that lives in another process. One
+implementation; the button and the key cannot drift.
+
+Every branch that cannot do that says so out loud rather than doing nothing: the feature switched
+off gets a dialog saying where to switch it on, and a tracker that is not running still opens the
+chart directly — everything already on disk is worth looking at, only the current minute is
+missing.
+
+### Every window that comes in two kinds now lets you pick
+
+The main window has been WebView-or-Classic for a release. Settings and the hotkey editor now
+are too, each with its own choice in **Settings ▸ GUI**, because WebView2 being fine for one of
+them says nothing about the others and the Win32 versions are not going anywhere.
+
+- Only the **main window** restarts MMA. The other two are read when you press the button.
+- All three go through one function — `MMA_ShellFor` in `core/paths.ahk` — so every launcher
+  gets the same answer, and any of them falls back to Classic on its own if the WebView file is
+  missing. A preference must never be able to leave you with no window at all.
+- The choice is offered in **both** Settings windows on purpose. The Win32 one is where you are
+  when the other will not open, so it has to be the one that can send you back.
+
+That last point fixed a half-truth: the Classic main window's Settings button could only ever
+open its own Win32 tabs. Pick "WebView Settings", run the Classic main window, and you got the
+Win32 tabs anyway with nothing saying why. Both windows' Settings buttons now go through the
+same opener.
+
+### Importing a new model and telling MMA her name now names her
+
+Ctrl+click a mass in Discord, type the model's name, tick **Remember this name for the model** —
+and the tab still said "Model 3". You went to Settings and typed the same name a second time.
+
+That checkbox means two different facts and only wrote the first:
+
+- the **alias** (`[ModelAliases]`) — what this model is called *somewhere else*: Infloww's tab,
+  the Discord channel the import came from. A slot can carry any number of these.
+- the **name** (`[Settings] Model<n>`) — what MMA itself calls the slot, on its tab and its Load
+  and Save buttons. There is exactly one.
+
+The name is now **adopted when the slot has never been named** — blank, or still the "Model 3"
+placeholder. A slot that already has a real name keeps it, because that is precisely the case
+where the two differ on purpose: MMA calls her Dessy, Infloww's tab says "Dessy 🌸", and
+overwriting the first with the second puts an emoji on the tab.
+
+### Saving Settings from the WebView window now reaches the main window
+
+The Win32 Settings is a Gui built inside the main window's own process and calls
+`UpdateModelButtons()` directly when you save. The WebView Settings is its own script and cannot
+— it broadcast a message saying "I saved", and **nothing was listening**. A rename or a theme
+change made there landed in `mass_gui.cfg` and nowhere on screen until MMA was restarted, which
+reads exactly like the setting did not save.
+
+Both shells now handle that broadcast, and re-read the model names before repainting — the
+Win32 `UpdateModelButtons` redraws from the in-memory array, so without the re-read it would
+have repainted the names it already had, which looks identical to the message never arriving.
+
 ## 2.0.4 — 2026-08-23
 
 ### Clicking the next chat while f1.7 is still going out no longer splits the follow-up
@@ -1047,7 +1496,7 @@ saying where they went; their assertions in `active_model_test.ahk` and `positio
 go with them. Nothing replaces those assertions, deliberately: the thing worth testing is
 that `__<n>mm` aims model *n* and not the last one, and firing that handler ends in
 `DoMass()`, which puts text on the clipboard and presses Ctrl+V into whatever window is in
-front. See `ARCHITECTURE.md` §5.2.
+front. See `docs/decisions.md` §5.2.
 
 ## 2.0.2 — 2026-08-01
 
@@ -1403,7 +1852,7 @@ Migration was verified field by field before the old files were deleted.
 ### Knowing which model is on screen
 
 Three ways, chosen per install, plus a platform flag chosen **per model** so an Infloww
-model and a Fansly model can coexist. See ARCHITECTURE.md §5.1.
+model and a Fansly model can coexist. See docs/decisions.md §5.1.
 
 The detector itself was rebuilt around one measurement: **`PixelGetColor` costs ~30ms a
 call on a composited desktop.** Sampling three tab slots took 4632ms; a full band sweep

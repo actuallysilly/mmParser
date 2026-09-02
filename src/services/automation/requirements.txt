@@ -1,0 +1,13 @@
+# MMA automation-listener dependencies.
+# Install with:  pip install -r requirements.txt
+#   (or `pip install -r requirements.txt` from the repo root, which pulls in
+#    this file along with every other service's.)
+
+# Imported at MODULE level by automation.py, so without it the listener does not
+# start at all and every [automation] hotkey is dead — not just the ones that
+# do arithmetic on pixels.
+numpy>=1.24
+
+# automation.py's ocr_read(), i.e. the ^!s count-sales hotkey only. The listener
+# still starts without it; that one key is what stops working.
+pillow>=10.0

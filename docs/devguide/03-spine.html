@@ -1,0 +1,548 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>3 — The spine: paths and log</title>
+<link rel="stylesheet" href="guide.css">
+<script src="nav.js"></script>
+</head>
+<body>
+<div class="shell">
+<nav class="side"></nav>
+<main>
+
+<p class="eyebrow">Chapter 3</p>
+<h1>The spine: <code>paths.ahk</code> and <code>log.ahk</code></h1>
+
+<p class="lede">Two files that every other file includes. One decides where everything is; the
+other decides whether you will ever find out what went wrong. Together they are about a
+thousand lines and they set the standard the rest of the codebase is written to.</p>
+
+<h2>Part one — <code>src/core/paths.ahk</code></h2>
+
+<p>276 lines. Included, directly or transitively, by <strong>47 files</strong> — more than any
+other file in the repo. Its job sounds trivial: hold some path constants. Its actual job is to
+prevent an entire category of silent failure.</p>
+
+<h3>The bug this file exists to kill</h3>
+
+<div class="concept">
+<span class="tag">CONCEPT-ENCOUNTERED</span>
+<h3><code>A_ScriptDir</code> versus <code>A_LineFile</code></h3>
+<p><code>A_ScriptDir</code> is the folder of the <strong>main script</strong> — the one you
+double-clicked or that <code>Run</code> launched. It is <em>not</em> the folder of the file the
+code is written in.</p>
+<p>While every entry point in MMA lived in the repo root, those were the same folder, so 37 uses
+of <code>A_ScriptDir "\something"</code> happened to work <strong>by coincidence</strong>.</p>
+<p>The moment a script runs from a subfolder — which is now every script — the coincidence is
+gone. And the failure is silent:</p>
+<pre><code>v := IniRead(A_ScriptDir "\mass_gui.cfg", "Settings", "Key", "default")
+</code></pre>
+<p>The file does not exist. <code>IniRead</code> returns the default. The setting quietly
+reverts, and <em>nothing says why</em>.</p>
+<p><code>A_LineFile</code> is the file <strong>this line of code</strong> is written in. It is
+immune to which script is the main one, which makes it the only correct anchor.</p>
+</div>
+
+<pre><code><span class="c">; Strip the last "\segment" off a path. Defined before first use: AHK parses every
+; function at load time, so calling this from the top-level initialisers below is
+; safe regardless of which script #Included us.</span>
+MMA_ParentDir(p) {
+    cut := InStr(p, "\", , -1)
+    return cut ? SubStr(p, 1, cut - 1) : p
+}
+
+<span class="c">; This file is  &lt;root&gt;\src\core\paths.ahk  → three levels up is &lt;root&gt;.</span>
+global MMA_ROOT := MMA_ParentDir(MMA_ParentDir(MMA_ParentDir(A_LineFile)))
+</code></pre>
+
+<p>That is the entire mechanism. Three <code>MMA_ParentDir</code> calls climb from
+<code>…\src\core\paths.ahk</code> to <code>…\MMA</code>. Every other path in the repo is derived
+from <code>MMA_ROOT</code>, so <strong>moving this file means editing one line and nothing
+else</strong>.</p>
+
+<div class="note">
+<p>Note the comment on <code>MMA_ParentDir</code>: it is defined before it is used because AHK
+parses function definitions at load time, so a top-level statement can call a function declared
+later. But this file may be included by anything, in any order, so it puts the definition first
+anyway. That is a defensive habit worth copying.</p>
+</div>
+
+<h3>What it declares</h3>
+
+<div class="tablewrap">
+<table>
+<thead><tr><th>Group</th><th>Constants</th></tr></thead>
+<tbody>
+<tr><td>Folders</td><td><code>MMA_SRC</code> <code>MMA_CONTENT</code> <code>MMA_ACC_DIR</code> <code>MMA_USERDATA</code> <code>MMA_ASSETS</code> <code>MMA_DECOR</code> <code>MMA_DEBUGLOGS</code></td></tr>
+<tr><td>User data</td><td><code>MMA_CFG</code> <code>MMA_HK_INI</code> <code>MMA_HK_DEFAULT</code> <code>MMA_MASSES</code> <code>MMA_ARCHIVE</code> <code>MMA_DETECTOR</code> <code>MMA_FANSLY</code> <code>MMA_OVERLOADS</code> <code>MMA_VERSION</code></td></tr>
+<tr><td>Diagnostics</td><td><code>MMA_ERRLOG</code> <code>MMA_LOGFILE</code> <code>MMA_PROBE_*</code></td></tr>
+<tr><td>Source-as-path</td><td><code>MMA_SRC_UTILS</code> <code>MMA_SRC_HOTKEYS</code> <code>MMA_SRC_SEQUENCES</code> <code>MMA_SRC_GUI</code> <code>MMA_SRC_WEBVIEW</code> <code>MMA_SRC_COORDS</code> and the three shell paths</td></tr>
+</tbody>
+</table>
+</div>
+
+<h4>The source-as-path group deserves attention</h4>
+
+<p>Three things in MMA reference source files as <em>paths</em> rather than
+<code>#Include</code>ing them, and all three break silently when files move:</p>
+<ul>
+<li><code>recorder.ahk</code> <strong>writes new code into</strong> <code>sequences.ahk</code>
+and <code>hotkeys.ahk</code>.</li>
+<li><code>main_window.ahk</code> <strong>scrapes</strong> <code>utils.ahk</code> as text to read
+its <code>waitTime</code> value.</li>
+<li><code>sequences.ahk</code> builds a <strong>WinTitle</strong> from the main window's path,
+because an AHK script's window title <em>is</em> its full path.</li>
+</ul>
+<p>Their constants sit together at the bottom of the file with a header saying exactly this. If
+you move a file, that block is the first thing to check.</p>
+
+<h3>Three functions worth reading closely</h3>
+
+<h4><code>MMA_ScriptPath(name)</code> — resolving a bare filename</h4>
+
+<p>The config stores <em>bare filenames</em>:
+<code>StartupScripts=engine.ahk,ALIW.ahk,general.ahk</code>. That was unambiguous while every
+script sat in one folder; those three now live in three different ones. Rather than change the
+config format and break everyone's settings, this function searches a folder list:</p>
+
+<pre><code>for dir in [MMA_ACC_DIR, MMA_CONTENT,
+            MMA_SRC "\mass", MMA_SRC "\chat", MMA_SRC "\sequences",
+            MMA_SRC "\screen", MMA_SRC "\ui", MMA_SRC] {
+    p := dir "\" name
+    if FileExist(p)
+        return p
+}
+</code></pre>
+
+<div class="warn">
+<span class="tag">The failure this function had</span>
+<p>A folder missing from that list fails <strong>the worst possible way</strong>:
+<code>ResolveScriptPath</code> returns "", <code>LaunchStartupScripts</code> skips the entry,
+and the script simply never starts. No error, no dialog, nothing in the log. That is how
+<code>engine.ahk</code> silently stopped running after it moved to <code>src\mass\</code> — and
+"engine not running" means <em>every mass hotkey in MMA is dead</em>.</p>
+<p>The fix was not just adding the folder. It was adding the <code>LOGW</code> at the bottom
+that names the file and says, in words, that anything launching it will do nothing, silently.
+That is the pattern: <em>make the silence audible</em>.</p>
+</div>
+
+<h4><code>MMA_ShellFor(which)</code> — one question, asked once</h4>
+
+<p>MMA has three windows that come in both WebView and Win32 flavours. Rather than three
+launchers each reading their own key their own way, there is one function:</p>
+
+<pre><code>MMA_ShellFor(which) {
+    if (which = "settings")   { key := "SettingsShell",   wv := MMA_SRC_SETTINGS_WV }
+    else if (which = "hotkeys"){ key := "HotkeysShell",    wv := MMA_SRC_HOTKEYS_WV  }
+    else                       { key := "MainWindowShell", wv := MMA_SRC_WEBVIEW     }
+    v := StrLower(Trim(IniRead(MMA_CFG, "Settings", key, "webview")))
+    return (v = "webview" &amp;&amp; FileExist(wv)) ? "webview" : "legacy"
+}
+</code></pre>
+
+<p>Two design points in five lines. First, <strong>the default lives in the read</strong>, not
+in a written key — so an install that has never touched the radio has no key at all and takes
+the new default, which is the entire mechanism by which WebView became the front end. Second,
+it <strong>falls back when the file is missing</strong> rather than failing: this is a
+preference, and a preference must never be able to leave you with no window at all.</p>
+
+<p>Note also: <code>IniRead</code> and nothing else. No <code>LOG_IniInt</code>, no logging.
+<code>paths.ahk</code> is included by scripts that include nothing else, so it cannot call into
+<code>log.ahk</code> from a function that might run before the logger exists.</p>
+
+<h4><code>MMA_GuiWin()</code> — addressing a window that might be either shell</h4>
+
+<pre><code>MMA_GuiWin() {
+    prev := A_DetectHiddenWindows
+    DetectHiddenWindows true
+    try {
+        for _, path in [MMA_ShellPath(), MMA_SRC_GUI, MMA_SRC_WEBVIEW] {
+            title := path " ahk_class AutoHotkey"
+            if WinExist(title)
+                return title
+        }
+        return MMA_ShellPath() " ahk_class AutoHotkey"
+    }
+    finally
+        DetectHiddenWindows prev
+}
+</code></pre>
+
+<p>Asks the preference first, then tries the other shell, so it is right whichever is up even if
+the setting changed without a restart. <strong>If neither is running it still returns a
+title</strong>, so the caller's "not running" branch and its log line can say something
+meaningful.</p>
+
+<p>The bug this replaced: two files hard-coded <code>MMA_SRC_GUI</code>, which was correct while
+<code>main_window.ahk</code> was the only front end and silently wrong the moment WebView could
+be the window MMA started. The Discord import would report "MMA is not open" while MMA was
+plainly open.</p>
+
+<h3>The last line</h3>
+
+<pre><code>#Include "log.ahk"
+</code></pre>
+
+<p>At the <em>end</em>, deliberately. <code>log.ahk</code>'s own load-time code writes a boot
+line, and it needs <code>MMA_LOGFILE</code> and <code>MMA_DEBUGLOGS</code> to exist first.</p>
+
+<p>And it is here at all because <strong>this is the one file every entry point already
+includes</strong>. Putting the logger include here means every process in the tree — including
+the ones nobody remembers exist — gets a boot line, an exit line and an uncaught-error hook with
+no wiring of its own and no way to drift out of step.</p>
+
+<hr>
+
+<h2>Part two — <code>src/core/log.ahk</code></h2>
+
+<p>728 lines for a logger is a lot. Read its header and it stops being a lot, because it is not
+really a logging library — it is a <strong>theory of why this application fails</strong>, made
+executable.</p>
+
+<h3>The observation the whole file is built on</h3>
+
+<p>Quoting the header, because it is the clearest statement of the problem in the repo:</p>
+
+<div class="note">
+<p>"MMA is not one program. It is up to eight processes that talk to each other through ini
+files and PostMessage. <strong>Nothing in that arrangement produces a stack trace when it goes
+wrong. It produces NOTHING</strong>, which is the actual complaint: <em>it silently failed to do
+something on my friend's machine.</em>"</p>
+<p>"Every failure this repo has fixed has the same shape: a folder missing from a list so a
+script never runs; an <code>IniRead</code> with a default so a setting silently reverts; a key
+absent from <code>hotkeys.ini</code> so an action is unbound; a feature switched off so its
+hotkey never registers; the engine dropped out of the startup list so every mass key went
+dead."</p>
+<p>"<strong>Not one of those throws.</strong> Every one of them is a branch that returned early,
+and the only way to see a branch that returned early is to have written it down on the way
+past."</p>
+</div>
+
+<div class="concept">
+<span class="tag">CONCEPT-ENCOUNTERED</span>
+<h3>Silent failure, and instrumenting the negative path</h3>
+<p>Most logging you have seen records what <em>happened</em>. The insight here is that in a
+system like this, the interesting event is what <em>did not</em> happen, and why.</p>
+<p>So MMA has a log level for it. <code>LOG_Bail(tag, why)</code> means: <em>this returned early
+on purpose, and here is the condition that made it.</em></p>
+<p>A feature that is off, a key that is unbound, a mass slot that is empty, a window that is not
+in front — all four are <strong>correct behaviour</strong>, all four look identical to the user
+(nothing happened), and all four are what "why did it silently do nothing?" is actually asking
+about.</p>
+<p>Take this pattern with you. It applies to any system where an early return is a legitimate
+outcome — which is most of them.</p>
+</div>
+
+<h3>The seven levels</h3>
+
+<div class="tablewrap">
+<table>
+<thead><tr><th>Call</th><th>Level</th><th>Means</th></tr></thead>
+<tbody>
+<tr><td><code>LOGI(tag, msg)</code></td><td><code>INFO</code></td><td>Something happened that you would want in a timeline.</td></tr>
+<tr><td><code>LOGV(tag, msg)</code></td><td><code>VERB</code></td><td>Something happened, and there are thousands of them. Only written when max logging is on.</td></tr>
+<tr><td><code>LOGW(tag, msg)</code></td><td><code>WARN</code></td><td>Wrong, but survivable, and nobody is going to notice.</td></tr>
+<tr><td><code>LOGE(tag, msg, detail)</code></td><td><code>FAIL</code></td><td>It did not work. <strong>The only level that can raise a dialog</strong>, and the only one written even when logging is switched off.</td></tr>
+<tr><td><code>LOG_Bail(tag, why)</code></td><td><code>BAIL</code></td><td>It deliberately did nothing, and here is why.</td></tr>
+<tr><td><code>LOG_Ok(tag, msg)</code></td><td><code>DONE</code></td><td>A thing that can fail finished. Pairs with the FAIL above it.</td></tr>
+<tr><td><code>LOGD(tag, msg)</code></td><td><code>DEVL</code></td><td>A breadcrumb: <em>this handler was entered</em>.</td></tr>
+</tbody>
+</table>
+</div>
+
+<h4>Why <code>LOGD</code> is a separate level from <code>LOGI</code></h4>
+
+<p>This is the subtlest and most useful idea in the file. Every other level describes an
+<em>outcome</em>. <code>LOGD</code> describes an <em>arrival</em> — "control reached here" —
+because that is a different question and it is the first one you actually ask:</p>
+
+<pre><code>the code ran and decided to do nothing   →  there is a BAIL line
+the code never ran at all                →  there is no line at all
+</code></pre>
+
+<p>Without an arrival marker those two are indistinguishable, and you cannot tell which half of
+the app to go and look at. So the three functions a user means when they say "I pressed f2 and
+nothing happened" each open with one:</p>
+
+<pre><code>DoFu2() {
+    global editableFu2, openTabFu2
+    LOGD("mass.fu2", "DoFu2 entered")
+    _DoFuGroup(2, editableFu2, openTabFu2)
+}
+</code></pre>
+
+<p>If there is no <code>devlog: DoFu2 entered</code> line, the problem is <em>upstream of that
+file entirely</em> — the key never bound, the feature is off, the engine is not running, the
+press was debounced — and the <code>hk.*</code> lines above say which. If there <em>is</em> one,
+the cause is below it.</p>
+
+<p><code>LOGD</code> writes at the normal level, not behind max logging, "because a breadcrumb
+nobody can see by default is not a breadcrumb."</p>
+
+<h4><code>LOG_Heartbeat</code> — the timer version</h4>
+
+<pre><code>LOG_Heartbeat(tag, msg, everyMs := 60000)
+</code></pre>
+
+<p>The background services poll every 500 ms. A devlog per tick would be 7,000 lines an hour
+each. But "is the detector still alive?" is a real question with no other answer: it has no
+window, no tray icon and no output, so a dead one and an idle one look identical. A heartbeat
+every minute costs 60 lines an hour — <strong>and its absence from a stretch of the log is what
+tells you when the service died.</strong></p>
+
+<div class="warn">
+<span class="tag">Why <code>LOGI</code> and not <code>LOG</code></span>
+<p><code>Log()</code> is an <strong>AutoHotkey built-in</strong> — the base-10 logarithm. A
+user-defined <code>LOG()</code> shadows it, so every file that includes the logger works
+perfectly; every file that does <em>not</em> silently binds to the built-in instead, and
+<code>LOG("tag", "msg")</code> fails at load with "Too many parameters passed to function". The
+failure lands in a file that never mentioned the logger, blaming a function nobody wrote, and it
+only appears once some unrelated include order changes.</p>
+<p>Naming the info level <code>LOGI</code> removes the collision outright.</p>
+</div>
+
+<h3>The three switches</h3>
+
+<p>In <code>mass_gui.cfg</code> under <code>[Debug]</code>, owned by Settings ▸ Debug:</p>
+
+<div class="tablewrap">
+<table>
+<thead><tr><th>Key</th><th>Default</th><th>Effect</th></tr></thead>
+<tbody>
+<tr><td><code>Logging</code></td><td><strong>on</strong></td><td>Write to <code>debuglogs\mma.log</code> at all.</td></tr>
+<tr><td><code>Popups</code></td><td>off</td><td>A <code>FAIL</code> also raises a dialog carrying the last 20 log lines.</td></tr>
+<tr><td><code>MaxLogging</code></td><td>off</td><td>Also write the <code>VERB</code> firehose.</td></tr>
+</tbody>
+</table>
+</div>
+
+<p>Logging defaults <em>on</em> because "a log nobody switched on is a log that is empty on the
+morning you need it." Popups is the debug-on-someone-else's-machine switch: off, a failure is a
+line in a file they would have to find, open and send you; on, it is a dialog in front of them
+they can screenshot. Same information, and only one of those two actually arrives.</p>
+
+<h4>The environment override</h4>
+
+<pre><code>MMA_DEBUG=max      <span class="c">; logging + verbose + popups</span>
+MMA_DEBUG=popups   <span class="c">; logging + popups</span>
+MMA_DEBUG=off      <span class="c">; nothing</span>
+</code></pre>
+
+<p>Beats all three cfg keys, read once per process. This exists for the machine you cannot open
+Settings on, and for a failure during startup <em>before anything has read the cfg</em>.
+<strong>This is the single most useful thing in this chapter for you personally:</strong> set
+<code>MMA_DEBUG=max</code>, launch MMA, do the broken thing, read the log.</p>
+
+<h3>The rules the file obeys, and why each one matters</h3>
+
+<ol>
+<li><strong>A logger must never crash the thing it is logging for.</strong> Every path is inside
+a <code>try</code>, including the ones that look incapable of throwing.</li>
+<li><strong>A logger must never lose the last line before a crash.</strong> Nothing is buffered
+— the tail of the file is what you are reading it for.</li>
+<li><strong>The switches are cached</strong> for 1500 ms. Reading three ini keys per event would
+put a file read in the send path. A toggle taking a second and a half to apply costs nothing;
+an <code>IniRead</code> per keystroke is "MMA feels laggy".</li>
+</ol>
+
+<div class="concept">
+<span class="tag">CONCEPT-ENCOUNTERED</span>
+<h3>Cache with a TTL</h3>
+<p>The pattern appears three times in the core and is worth recognising:</p>
+<pre><code>global LOG_SETTINGS_TTL := 1500
+global _LOG_T := 0
+
+_LOG_Settings() {
+    now := A_TickCount
+    if (_LOG_T &amp;&amp; now - _LOG_T &lt; LOG_SETTINGS_TTL)
+        return                     <span class="c">; still fresh</span>
+    _LOG_T := now
+    try { ... re-read the ini ... }
+}
+</code></pre>
+<p>Store a timestamp, compare against <code>A_TickCount</code>, refresh when stale. The TTL is
+chosen against a <em>human</em> timescale: 1500 ms for a settings toggle, 250 ms for the
+positional model scan — "far below the time it takes a human to click a tab and press a key, so
+nothing observable is ever stale."</p>
+<p>Note the <code>try</code> with the comment: an unreadable cfg leaves the previous values in
+place. <em>A logger that switches itself off because it could not read its own settings is the
+exact silent failure this file exists to stop.</em></p>
+</div>
+
+<h3>The line format</h3>
+
+<pre><code>2026-08-28 14:03:11.482  INFO  engine.ahk           18432   mass.fu             group=2  model=1  massNo=1  branch=0  editable=n
+</code></pre>
+
+<p>Timestamp, level, script name, PID, tag, message. Fixed-width columns, padded by hand rather
+than through <code>Format</code>, because "the columns are the whole point of the format — you
+read this file by scanning down the tag column — and a helper that cannot throw is worth four
+lines."</p>
+
+<p>Every message is flattened to one line (<code>_LOG_Flat</code> replaces newlines with
+<code>¶</code>), because a message carrying a newline would split into two records and break
+every grep in the file's own documentation.</p>
+
+<p><strong>Tags are dotted scopes:</strong> <code>mass.fu2</code>, <code>hk.bind</code>,
+<code>proc.engine</code>, <code>model.resolve</code>, <code>send.snd</code>. Keep them short,
+keep them stable — it is the column you grep.</p>
+
+<h3>Eight processes, one file</h3>
+
+<pre><code>_LOG_Append(line) {
+    loop 3 {
+        try {
+            FileAppend(line "`n", MMA_LOGFILE, "UTF-8")
+            return true
+        }
+        Sleep 8
+    }
+    return false
+}
+</code></pre>
+
+<p><code>FileAppend</code> opens, writes and closes, so a collision between processes is a
+<em>sharing violation</em> rather than corruption — it throws, and the retry catches the
+overwhelming majority. A line lost after three attempts is preferable to a logger that blocks
+the send path.</p>
+
+<p>Rotation is checked every 250 writes rather than every write, because
+<code>FileGetSize</code> is a filesystem call and this is on the send path. Eight processes race
+to rotate; the loser's <code>FileMove</code> throws and is swallowed, which is the correct
+outcome.</p>
+
+<h3>The helpers that make instrumenting one line</h3>
+
+<p>These are the functions you will actually call. Learn them; they are how you write code in
+this repo.</p>
+
+<h4><code>LOG_IniInt(file, section, key, default, tag)</code></h4>
+
+<p>An ini value as a number, or the default when it is not one. <strong>Never throws.</strong>
+Use this <em>instead of</em> <code>Integer(IniRead(...))</code>, always.</p>
+
+<div class="warn">
+<span class="tag">Why this exists</span>
+<p><code>Integer()</code> throws on anything non-numeric. Where those reads sit at a script's
+top level, that is not a degraded setting — it is a script that <strong>does not load</strong>:</p>
+<ul>
+<li><code>mass/runtime.ahk</code> reads nine of them → the engine dies → every mass hotkey in
+MMA is dead, silently.</li>
+<li><code>core/hotkeys.ahk</code> reads one → <em>every script that binds a key</em> dies.</li>
+<li><code>screen/model_detector.ahk</code> reads ten → the detector dies, and it has no window,
+so there is nothing at all to notice.</li>
+</ul>
+<p>All it takes is one hand-edited <code>MouseControl=yes</code> in a file MMA itself invites
+you to edit.</p>
+</div>
+
+<h4>The rest</h4>
+
+<div class="tablewrap">
+<table>
+<thead><tr><th>Helper</th><th>Use</th></tr></thead>
+<tbody>
+<tr><td><code>LOG_Int(v, default, what)</code></td><td>The same guard for a value that did not come from an ini — a ListView cell, a regex capture, a GUI field.</td></tr>
+<tr><td><code>LOG_IniNum(...)</code></td><td>For genuinely fractional settings. <code>IsInteger("0.30")</code> is false, so using <code>LOG_IniInt</code> on a threshold would "work" and silently snap every value to its fallback.</td></tr>
+<tr><td><code>LOG_IniRead(...)</code></td><td>An <code>IniRead</code> that says at VERB level when it fell back to the default. This is the single most common silent failure in the tree.</td></tr>
+<tr><td><code>LOG_Try(tag, what, fn, &amp;ok)</code></td><td>Run something that might throw; turn the throw into a FAIL line instead of a dialog nobody reads or a bare <code>try</code> that swallows it.</td></tr>
+<tr><td><code>LOG_Err(e)</code></td><td>An Error object as one readable string. Every property access individually guarded, because not everything thrown is an Error.</td></tr>
+<tr><td><code>LOG_Kv(tag, map, level)</code></td><td>Dump a block of related values as one line — what a script resolved at boot, what a scan measured.</td></tr>
+<tr><td><code>LOG_Marker(text)</code></td><td>A findable line. The Debug tab's "Mark log" button writes one, so a user can bracket a reproduction.</td></tr>
+<tr><td><code>LOG_On()</code> / <code>LOG_Max()</code></td><td>Test before <em>building</em> an expensive message — AHK evaluates arguments before the call, so <code>LOGV(t, Expensive())</code> pays for <code>Expensive()</code> either way.</td></tr>
+</tbody>
+</table>
+</div>
+
+<h3>The two files, deliberately</h3>
+
+<p><code>LOGE</code> writes to <strong>both</strong> <code>mma.log</code> and
+<code>error_log.txt</code>:</p>
+
+<ul>
+<li><code>mma.log</code> is the <strong>timeline</strong> — everything, from every process,
+interleaved. It answers "what was happening when it broke".</li>
+<li><code>error_log.txt</code> is the <strong>list</strong> — failures only, short enough to
+open and read top to bottom. It answers "what broke".</li>
+</ul>
+
+<p>Those are different questions and they want different files. <code>LOGE</code> also writes
+even when <code>Logging</code> is switched off, because "a failure is never noise, and a user who
+turned logging off to keep the file small still wants the file to contain the reason MMA stopped
+working."</p>
+
+<h3>The popup budget</h3>
+
+<p>Two limits, both per process:</p>
+<ul>
+<li>The same tag + message pops <strong>once, ever</strong>.</li>
+<li>No more than <strong>15 dialogs</strong> in total.</li>
+</ul>
+<p>Because a failure inside a timer is not one failure — it is one every 500 ms, and 200 modal
+dialogs is not a debugging aid, it is a machine you have to reboot. Everything suppressed is
+still in the file, and the suppression itself is logged.</p>
+
+<h3>The ring buffer</h3>
+
+<p>The last 40 lines this process wrote are held in memory, so a failure dialog can show what
+led up to it. The reasoning: <em>"OCR returned nothing" is a fact you cannot act on; the same
+message under the twelve lines that preceded it usually names the cause.</em></p>
+
+<h2>How to read a log</h2>
+
+<p>Set <code>MMA_DEBUG=max</code>, reproduce, then open <code>debuglogs\mma.log</code>. A
+successful follow-up press looks roughly like this (columns trimmed):</p>
+
+<pre><code>DEVL  hk.fire      <span class="c">(nothing — hk.fire logs at INFO)</span>
+INFO  hk.fire      mass.1.fu1 → running  (send)
+DEVL  mass.fu1     devlog: DoFu1 entered
+VERB  feat         editableFu on  ([Settings] EditableFuAny)
+INFO  mass.fu      group=1  model=1  massNo=1  branch=0  editable=n  openTab=n  doubleMM=n
+BAIL  alt.intercept  follow-up 1 has 1 variant(s) — nothing to choose between,
+                     so it sends directly with no picker
+INFO  send.fu      model 1 follow-up 1: 2 part(s), sent as separate messages
+INFO  send.snd     sending 118 chars: Want me to strip away the facade of…
+INFO  send.snd     sending 64 chars: and then strip for real x?
+VERB  hk.fire      mass.1.fu1 finished in 912ms
+</code></pre>
+
+<p>Read it top to bottom and you have the entire decision chain. Now the diagnostic questions
+become mechanical:</p>
+
+<div class="tablewrap">
+<table>
+<thead><tr><th>Symptom</th><th>What to look for</th></tr></thead>
+<tbody>
+<tr><td>Key does nothing</td><td>Is there a <code>hk.fire … → running</code> line? No → the key is not bound, or a guard dropped it (there will be a <code>BAIL hk.fire</code> saying which of the three).</td></tr>
+<tr><td>Key fires, nothing sends</td><td>Look for the <code>BAIL</code> after the <code>DEVL … entered</code>. It names the reason: empty slot, feature off, no model resolved.</td></tr>
+<tr><td>Wrong model</td><td><code>mass.fu</code> logs <code>model=</code> and <code>massNo=</code>. Compare with <code>model.resolve</code> above it.</td></tr>
+<tr><td>Wrong text</td><td><code>mass.load</code> at engine start prints, per model, which slot is live and which slots have text.</td></tr>
+<tr><td>Setting appears to do nothing</td><td>Grep <code>cfg</code> at VERB — every defaulted read is written down.</td></tr>
+<tr><td>A service died</td><td>Its <code>LOG_Heartbeat</code> line stops. The gap is the time of death.</td></tr>
+<tr><td>A save did not apply</td><td><code>hk.broadcast</code> — did it reach anybody?</td></tr>
+</tbody>
+</table>
+</div>
+
+<h2>The takeaway for your own code</h2>
+
+<p>When you add a function to this repo, ask three questions:</p>
+<ol>
+<li><strong>Can this return early?</strong> If yes, every early return gets a
+<code>LOG_Bail</code> naming the condition — including the cfg key you would have to change.</li>
+<li><strong>Can this be reached without running?</strong> If it is a handler, open it with a
+<code>LOGD</code>.</li>
+<li><strong>Does it read a number from a file?</strong> Then <code>LOG_IniInt</code>, never
+<code>Integer(IniRead(...))</code>.</li>
+</ol>
+
+<p>That is most of what separates code that fits this codebase from code that will produce the
+next silent bug.</p>
+
+<div class="pager"></div>
+</main>
+</div>
+</body>
+</html>

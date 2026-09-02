@@ -1,0 +1,773 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>MMA Settings</title>
+<!--
+  ═══════════════════════════════════════════════════════════════════════════
+   settings.html — the WebView2 face of MMA's Settings.
+  ───────────────────────────────────────────────────────────────────────────
+   Not a copy of the Win32 window's layout. That window is eight tabs of
+   pixel-positioned controls, and the reason it is eight tabs is that a Tab3
+   page cannot scroll — so everything had to fit. Nothing here has to fit, so
+   the shape is the one the settings actually have: a list of sections down
+   the side, one scrolling column of rows, and a search box over the top.
+
+   This file owns NO list of settings. Every row on screen is described by the
+   sync message AHK pushes — id, type, label, help, value — and those come
+   from SWV_Fields() and the feature registry in core/modes.ahk. Adding a
+   setting means adding it there; this page needs no edit. That is deliberate:
+   a hard-coded list here would be a third description of the same settings,
+   after the cfg and the AHK table, and it would go stale first.
+
+   Nothing is written until Save. Every edit posts {cmd:"set"} and AHK holds it
+   in memory, which is what makes Close a real discard rather than a promise.
+
+   The palette comes over the wire from core/theme.ahk, same as the main
+   window's page, because a theme is a name in mass_gui.cfg that every MMA
+   process reads for itself.
+  ═══════════════════════════════════════════════════════════════════════════
+-->
+<style>
+:root{
+  --bg:#FEF7F9; --card:#FFFFFF; --text:#241E29; --dim:#8C7B86;
+  --input-bg:#FFFFFF; --input-text:#241E29;
+  --border:#EEDFE6; --border-strong:#DFCAD6;
+  --accent:#6D28D9; --accent-ink:#FFFFFF; --accent-soft:rgba(109,40,217,.13);
+  --hover:#F8EDF3; --radius:7px;
+}
+*{box-sizing:border-box}
+html,body{height:100%;margin:0;overflow:hidden}
+body{
+  background:var(--bg); color:var(--text);
+  font:13px/1.4 "Segoe UI Variable Text","Segoe UI",system-ui,sans-serif;
+  -webkit-user-select:none;user-select:none;cursor:default;
+}
+input,textarea,select{-webkit-user-select:text;user-select:text;font:inherit}
+::-webkit-scrollbar{width:11px;height:11px}
+::-webkit-scrollbar-thumb{background:var(--border-strong);border-radius:6px;border:3px solid transparent;background-clip:content-box}
+::-webkit-scrollbar-thumb:hover{background:var(--dim);background-clip:content-box;border:3px solid transparent}
+::-webkit-scrollbar-track{background:transparent}
+
+#app{display:flex;height:100vh}
+
+/* ── the section rail ──────────────────────────────────────────────────────
+   A list, not a tab strip. Sections can be added without anything having to
+   still fit across a fixed width, which is the constraint that made the AHK
+   window eight tabs in the first place. */
+#rail{
+  flex:0 0 190px;display:flex;flex-direction:column;
+  background:var(--card);border-right:1px solid var(--border);padding:14px 0;
+}
+#rail h1{
+  font-size:12px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;
+  color:var(--dim);margin:0 0 10px 18px;
+}
+.nav{
+  padding:8px 18px;cursor:pointer;border-left:3px solid transparent;
+  color:var(--text);font-size:13.5px;
+}
+.nav:hover{background:var(--hover)}
+.nav.on{border-left-color:var(--accent);background:var(--accent-soft);font-weight:600;color:var(--accent)}
+#railfoot{margin-top:auto;padding:0 18px}
+#railfoot .lnk{
+  display:block;width:100%;text-align:left;padding:7px 0;color:var(--dim);
+  background:none;border:0;cursor:pointer;font:inherit;
+}
+#railfoot .lnk:hover{color:var(--accent);text-decoration:underline}
+
+/* ── the pane ──────────────────────────────────────────────────────────── */
+#pane{flex:1 1 auto;min-width:0;display:flex;flex-direction:column}
+#top{
+  padding:14px 22px 10px;border-bottom:1px solid var(--border);
+  display:flex;align-items:center;gap:12px;
+}
+#search{
+  flex:1 1 auto;min-width:0;background:var(--input-bg);color:var(--input-text);
+  border:1px solid var(--border-strong);border-radius:var(--radius);
+  padding:7px 11px;outline:none;
+}
+#search:focus{border-color:var(--accent);box-shadow:0 0 0 3px var(--accent-soft)}
+#body{flex:1 1 auto;overflow-y:auto;padding:6px 22px 24px}
+
+h2.sect{
+  font-size:12px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;
+  color:var(--dim);margin:22px 0 4px;
+}
+h2.sect:first-child{margin-top:12px}
+
+.row{
+  display:flex;align-items:flex-start;gap:14px;
+  padding:11px 2px;border-bottom:1px solid var(--border);
+}
+.row:last-child{border-bottom:0}
+.rowtext{flex:1 1 auto;min-width:0}
+.rowlabel{font-size:13.5px}
+.rowhelp{color:var(--dim);font-size:12px;margin-top:3px;line-height:1.45}
+.warn{
+  display:inline-block;margin-left:7px;padding:1px 6px;border-radius:9px;
+  background:var(--accent-soft);color:var(--accent);font-size:10.5px;font-weight:600;
+  vertical-align:1px;
+}
+.ctl{flex:0 0 auto;display:flex;align-items:center;min-height:22px}
+
+/* a switch, because a tick box that changes what background scripts run
+   deserves to look like more of a decision than a 13px square */
+.sw{position:relative;width:38px;height:21px;border-radius:11px;background:var(--border-strong);cursor:pointer;transition:background .13s}
+.sw.on{background:var(--accent)}
+.sw::after{
+  content:"";position:absolute;top:2px;left:2px;width:17px;height:17px;border-radius:50%;
+  background:#fff;transition:transform .13s;box-shadow:0 1px 2px rgba(0,0,0,.28);
+}
+.sw.on::after{transform:translateX(17px)}
+.sw.dis{opacity:.4;cursor:not-allowed}
+
+input.txt,select.sel{
+  background:var(--input-bg);color:var(--input-text);
+  border:1px solid var(--border-strong);border-radius:var(--radius);
+  padding:6px 9px;outline:none;min-width:190px;
+}
+input.txt:focus,select.sel:focus{border-color:var(--accent);box-shadow:0 0 0 3px var(--accent-soft)}
+input.num{min-width:96px}
+
+/* ── the bar ───────────────────────────────────────────────────────────── */
+#bar{
+  border-top:1px solid var(--border);background:var(--card);
+  padding:11px 22px;display:flex;align-items:center;gap:10px;
+}
+#dirty{color:var(--dim);font-size:12px;margin-right:auto}
+#dirty.on{color:var(--accent);font-weight:600}
+button.btn{
+  border:1px solid var(--border-strong);background:var(--card);color:var(--text);
+  border-radius:var(--radius);padding:8px 18px;cursor:pointer;font:inherit;
+}
+button.btn:hover{background:var(--hover)}
+button.btn.pri{background:var(--accent);border-color:var(--accent);color:var(--accent-ink);font-weight:600}
+button.btn.pri:hover{filter:brightness(1.08)}
+
+/* ── the Models section ───────────────────────────────────────────────────
+   A port of the Win32 Models tab's LAYOUT, not a list of rows. The shape
+   carries meaning there: the NAME/PLATFORM table is one question per column,
+   "Strategy" is one question with two answers, and each site's block is a
+   question and the order it implies. Flattened into one row per control it
+   reads as fourteen unrelated settings, which is not the same window. */
+#models{padding:14px 0 8px}
+.mline{display:flex;align-items:center;gap:12px;padding:5px 2px}
+.mline > .mlab{flex:0 0 132px;color:var(--text)}
+/* the two order rows sit under their site's radios, so their label starts
+   further in and needs the width back to stay on one line */
+.mline.mindent > .mlab{flex:0 0 158px}
+.mline .hint{color:var(--dim);font-size:12px}
+.mhead{
+  font-size:12px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;
+  color:var(--dim);margin:20px 0 6px;
+}
+.mrule{border:0;border-top:1px solid var(--border);margin:18px 0 14px}
+.mtitle{font-weight:600;margin:0 0 8px}
+.msub{color:var(--dim);font-size:12px;margin:2px 0 0 30px;line-height:1.45}
+.mindent{margin-left:30px}
+
+/* the NAME / PLATFORM table */
+table.mtab{border-collapse:collapse;margin:2px 0 4px}
+table.mtab th{
+  text-align:left;font-size:11px;font-weight:700;letter-spacing:.07em;
+  color:var(--dim);padding:0 10px 5px 0;text-transform:uppercase;
+}
+table.mtab td{padding:3px 10px 3px 0;vertical-align:middle}
+table.mtab td.mno{color:var(--dim);padding-right:14px;white-space:nowrap}
+table.mtab input.txt{min-width:170px}
+table.mtab select.sel{min-width:180px}
+
+/* a radio pair, which is what "Strategy" and each site's read mode are */
+.radios{display:flex;gap:8px;flex-wrap:wrap}
+.radio{
+  display:flex;align-items:center;gap:7px;cursor:pointer;
+  border:1px solid var(--border-strong);background:var(--card);
+  border-radius:var(--radius);padding:6px 13px;
+}
+.radio:hover{background:var(--hover)}
+.radio.on{border-color:var(--accent);background:var(--accent-soft);color:var(--accent);font-weight:600}
+.radio .dot{
+  width:13px;height:13px;border-radius:50%;flex:0 0 auto;
+  border:1.5px solid var(--border-strong);
+}
+.radio.on .dot{border-color:var(--accent);border-width:4px}
+
+/* a tick box, for the one control that genuinely is one */
+.chk{display:flex;align-items:flex-start;gap:9px;cursor:pointer}
+.chk .box{
+  flex:0 0 auto;width:17px;height:17px;border-radius:4px;margin-top:1px;
+  border:1.5px solid var(--border-strong);background:var(--input-bg);
+  display:flex;align-items:center;justify-content:center;
+  font-size:12px;color:var(--accent-ink);
+}
+.chk.on .box{background:var(--accent);border-color:var(--accent)}
+
+/* Greyed, not hidden, and greyed the moment you click rather than on Save - a
+   control that is live but ignored is the shape of every "I set that and it did
+   nothing" in this window's history. */
+.mdim{opacity:.42;pointer-events:none}
+
+.mlive{
+  padding:8px 11px;border-radius:var(--radius);background:var(--accent-soft);
+  color:var(--accent);overflow-x:auto;white-space:pre;
+  font:12px/1.5 "Cascadia Mono",Consolas,"Courier New",monospace;
+}
+.msvc{font-size:12.5px;margin-top:10px}
+.msvc.up{color:#15803D}
+.msvc.down{color:var(--dim)}
+button.mreset{
+  border:1px solid var(--border-strong);background:var(--card);color:var(--text);
+  border-radius:var(--radius);padding:7px 15px;cursor:pointer;font:inherit;
+  margin-top:16px;
+}
+button.mreset:hover{background:var(--hover)}
+
+/* A row that reports rather than asks: the live detector readout, and the
+   "no models have a site set" line under an empty order list. Monospaced,
+   because the readout is columns separated by pipes and a proportional font
+   makes them jump about as the numbers change. */
+.note{
+  display:block;padding:11px 2px;border-bottom:1px solid var(--border);
+}
+.note .noteval{
+  margin-top:6px;padding:8px 11px;border-radius:var(--radius);
+  background:var(--accent-soft);color:var(--accent);
+  font:12px/1.5 "Cascadia Mono",Consolas,"Courier New",monospace;
+  overflow-x:auto;white-space:pre;
+}
+.note .noteval.quiet{background:var(--hover);color:var(--dim)}
+
+#toast{
+  position:fixed;left:50%;bottom:64px;transform:translateX(-50%) translateY(10px);
+  background:var(--accent);color:var(--accent-ink);padding:9px 20px;border-radius:20px;
+  font-weight:600;opacity:0;pointer-events:none;transition:opacity .18s,transform .18s;
+}
+#toast.on{opacity:1;transform:translateX(-50%) translateY(0)}
+#empty{color:var(--dim);padding:26px 2px}
+</style>
+</head>
+<body>
+<div id="app">
+  <div id="rail">
+    <h1>Settings</h1>
+    <div id="nav"></div>
+    <div id="railfoot">
+      <button class="lnk" id="lnkHotkeys">Hotkeys editor…</button>
+      <button class="lnk" id="lnkClassic">Calibration &amp; debug…</button>
+    </div>
+  </div>
+  <div id="pane">
+    <div id="top"><input id="search" type="text" placeholder="Search settings" spellcheck="false"></div>
+    <div id="body"></div>
+    <div id="bar">
+      <span id="dirty"></span>
+      <button class="btn" id="btnClose">Close</button>
+      <button class="btn pri" id="btnSave">Save</button>
+    </div>
+  </div>
+</div>
+<div id="toast"></div>
+
+<script>
+"use strict";
+
+// Identical values to the main window's page — see its THEMES block. Same file
+// on disk would be better and is the obvious next move; until then these must
+// not be edited in one place only.
+const THEMES = {
+  pink: {bg:"#FEF7F9",card:"#FFFFFF",text:"#241E29",dim:"#8C7B86",inputBg:"#FFFFFF",
+         inputText:"#241E29",border:"#EEDFE6",borderStrong:"#DFCAD6",accent:"#6D28D9",
+         accentInk:"#FFFFFF",accentSoft:"rgba(109,40,217,.13)",hover:"#F8EDF3",scheme:"light"},
+  dark: {bg:"#1E1D26",card:"#26242F",text:"#FFFFFF",dim:"#A7A2B8",inputBg:"#2A2833",
+         inputText:"#FFFFFF",border:"#332F3F",borderStrong:"#403B4E",accent:"#B89CFF",
+         accentInk:"#1B1A24",accentSoft:"rgba(184,156,255,.16)",hover:"#2E2B39",scheme:"dark"},
+  classic:{bg:"#F3F3F3",card:"#FFFFFF",text:"#1A1A1A",dim:"#6B6B6B",inputBg:"#FFFFFF",
+         inputText:"#1A1A1A",border:"#E1E1E1",borderStrong:"#CDCDCD",accent:"#3B5BDB",
+         accentInk:"#FFFFFF",accentSoft:"rgba(59,91,219,.13)",hover:"#EAEAEA",scheme:"light"}
+};
+function applyTheme(name){
+  const t = THEMES[name] || THEMES.pink, r = document.documentElement.style;
+  r.setProperty("--bg",t.bg); r.setProperty("--card",t.card);
+  r.setProperty("--text",t.text); r.setProperty("--dim",t.dim);
+  r.setProperty("--input-bg",t.inputBg); r.setProperty("--input-text",t.inputText);
+  r.setProperty("--border",t.border); r.setProperty("--border-strong",t.borderStrong);
+  r.setProperty("--accent",t.accent); r.setProperty("--accent-ink",t.accentInk);
+  r.setProperty("--accent-soft",t.accentSoft); r.setProperty("--hover",t.hover);
+  document.documentElement.style.colorScheme = t.scheme;
+}
+
+const $ = (id) => document.getElementById(id);
+function post(m){ if(window.chrome && window.chrome.webview) window.chrome.webview.postMessage(m); }
+
+// The last state AHK sent. The only copy — every handler reads it rather than
+// keeping its own, so what is on screen and what will be saved cannot disagree.
+let S = null;
+let section = "";          // which rail entry is selected
+let query = "";            // the search box
+
+// Features become rows exactly like plain settings do, so one renderer draws
+// both. `group` is the sub-heading within a section — the registry's own
+// section for a feature, and whatever SWV_Fields() put on a plain setting. It
+// used to be a feature-only idea; the Models section needs it too, because it
+// answers two questions (who the models are, and how a shared key picks one)
+// and running them together as one list is what made the Win32 tab hard to read.
+function allRows(){
+  if(!S) return [];
+  const rows = S.fields.map(f => ({...f, kind:"field"}));
+  for(const ft of S.features)
+    rows.push({kind:"feature", id:ft.id, sect:"Features", group:ft.sect,
+               type:"bool", label:ft.label, help:"", value:ft.on, warn:0});
+  return rows;
+}
+function sections(){
+  const out = [];
+  for(const r of allRows()) if(!out.includes(r.sect)) out.push(r.sect);
+  return out;
+}
+function matches(r){
+  if(!query) return true;
+  const q = query.toLowerCase();
+  return (r.label||"").toLowerCase().includes(q)
+      || (r.help||"").toLowerCase().includes(q)
+      || (r.id||"").toLowerCase().includes(q);
+}
+
+function buildNav(){
+  const nav = $("nav");
+  nav.textContent = "";
+  for(const s of sections()){
+    const d = document.createElement("div");
+    d.className = "nav" + (s === section && !query ? " on" : "");
+    d.textContent = s;
+    d.onclick = () => { query=""; $("search").value=""; section=s; render(); };
+    nav.appendChild(d);
+  }
+}
+
+// A read-only row: a label, its explanation, and a value that AHK keeps
+// updating. Not a disabled input — there is nothing to type here, and an input
+// you cannot use is a worse lie than a line of text.
+function buildNote(r){
+  const box = document.createElement("div");
+  box.className = "note";
+  const lab = document.createElement("div"); lab.className = "rowlabel";
+  lab.textContent = r.label;
+  box.appendChild(lab);
+  if(r.help){
+    const h = document.createElement("div");
+    h.className = "rowhelp"; h.textContent = r.help;
+    box.appendChild(h);
+  }
+  const v = document.createElement("div");
+  v.className = "noteval" + (r.value ? "" : " quiet");
+  v.id = "note_" + r.id;
+  v.textContent = r.value || "…";
+  box.appendChild(v);
+  return box;
+}
+
+// One row. `kind` decides where an edit goes, not what it looks like.
+function buildRow(r){
+  if(r.type === "note") return buildNote(r);
+  const row = document.createElement("div"); row.className = "row";
+  const tx  = document.createElement("div"); tx.className = "rowtext";
+  const lab = document.createElement("div"); lab.className = "rowlabel";
+  lab.textContent = r.label;
+  if(r.warn){
+    const w = document.createElement("span");
+    w.className = "warn"; w.textContent = "restart";
+    lab.appendChild(w);
+  }
+  tx.appendChild(lab);
+  if(r.help){
+    const h = document.createElement("div");
+    h.className = "rowhelp"; h.textContent = r.help;
+    tx.appendChild(h);
+  }
+  row.appendChild(tx);
+
+  const ctl = document.createElement("div"); ctl.className = "ctl";
+  // In Easy mode the feature switches are shown but not operable — the same
+  // choice the Win32 panel makes, and for the same reason: they still display
+  // what each feature is set to, so switching back to Advanced visibly restores
+  // your choices instead of looking like a reset.
+  const locked = (r.kind === "feature" && S.easy);
+
+  if(r.type === "bool"){
+    const sw = document.createElement("div");
+    sw.className = "sw" + (r.value === "1" ? " on" : "") + (locked ? " dis" : "");
+    if(!locked) sw.onclick = () => set(r.id, r.value === "1" ? "0" : "1");
+    ctl.appendChild(sw);
+  } else if(r.type === "choice"){
+    const sel = document.createElement("select"); sel.className = "sel";
+    for(const o of (r.opts||[])){
+      const op = document.createElement("option");
+      op.value = o.v; op.textContent = o.l;
+      if(String(o.v) === String(r.value)) op.selected = true;
+      sel.appendChild(op);
+    }
+    sel.onchange = () => set(r.id, sel.value);
+    ctl.appendChild(sel);
+  } else {
+    const inp = document.createElement("input");
+    inp.className = "txt" + (r.type === "int" ? " num" : "");
+    inp.type = "text"; inp.value = r.value; inp.spellcheck = false;
+    // change, not input: a "set" per keystroke would be a sync per keystroke,
+    // and the caret would fight the re-render.
+    inp.onchange = () => set(r.id, inp.value);
+    ctl.appendChild(inp);
+  }
+  row.appendChild(ctl);
+  return row;
+}
+
+// ── the Models section, laid out like the Win32 tab it is a port of ────────
+// It reads its controls out of the same S.fields every other section uses -
+// there is still exactly one description of what these settings are, and it is
+// in SWV_Fields(). What is bespoke here is only where they SIT.
+function field(id){ return S.fields.find(f => f.id === id); }
+
+function mSelect(id, cls){
+  const f = field(id);
+  if(!f) return document.createTextNode("");
+  const sel = document.createElement("select");
+  sel.className = "sel" + (cls ? " " + cls : "");
+  for(const o of (f.opts||[])){
+    const op = document.createElement("option");
+    op.value = o.v; op.textContent = o.l;
+    if(String(o.v) === String(f.value)) op.selected = true;
+    sel.appendChild(op);
+  }
+  sel.onchange = () => set(id, sel.value);
+  return sel;
+}
+function mText(id){
+  const f = field(id);
+  if(!f) return document.createTextNode("");
+  const inp = document.createElement("input");
+  inp.className = "txt"; inp.type = "text"; inp.spellcheck = false;
+  inp.value = f.value;
+  inp.onchange = () => set(id, inp.value);
+  return inp;
+}
+// A radio PAIR from a choice field - the same control the Win32 tab uses, and
+// the reason it is not a dropdown there: both answers are worth reading at once.
+function mRadios(id){
+  const f = field(id);
+  const box = document.createElement("div"); box.className = "radios";
+  if(!f) return box;
+  for(const o of (f.opts||[])){
+    const r = document.createElement("div");
+    r.className = "radio" + (String(o.v) === String(f.value) ? " on" : "");
+    const d = document.createElement("span"); d.className = "dot";
+    r.appendChild(d);
+    r.appendChild(document.createTextNode(o.l));
+    r.onclick = () => set(id, o.v);
+    box.appendChild(r);
+  }
+  return box;
+}
+function mLine(labelText, ctl, hint){
+  const row = document.createElement("div"); row.className = "mline";
+  const l = document.createElement("div"); l.className = "mlab";
+  l.textContent = labelText;
+  row.appendChild(l);
+  if(ctl) row.appendChild(ctl);
+  if(hint){
+    const h = document.createElement("span"); h.className = "hint";
+    h.textContent = hint;
+    row.appendChild(h);
+  }
+  return row;
+}
+
+function renderModels(body){
+  const M = S.models || {ofSlots:[], fanSlots:[]};
+  const wrap = document.createElement("div"); wrap.id = "models";
+
+  // ── active models ────────────────────────────────────────────────────────
+  const cf = field("ModelCount");
+  wrap.appendChild(mLine("Active models:", mSelect("ModelCount"),
+                         cf ? cf.help : ""));
+
+  // ── name and platform, one row per model ─────────────────────────────────
+  const tbl = document.createElement("table"); tbl.className = "mtab";
+  const thr = document.createElement("tr");
+  for(const h of ["", "Name", "Platform"]){
+    const th = document.createElement("th"); th.textContent = h;
+    thr.appendChild(th);
+  }
+  tbl.appendChild(thr);
+  for(let i = 1; field("Model" + i); i++){
+    const tr = document.createElement("tr");
+    const td0 = document.createElement("td"); td0.className = "mno";
+    td0.textContent = "Model " + i + ":";
+    const td1 = document.createElement("td"); td1.appendChild(mText("Model" + i));
+    const td2 = document.createElement("td"); td2.appendChild(mSelect("Platform" + i));
+    tr.appendChild(td0); tr.appendChild(td1); tr.appendChild(td2);
+    tbl.appendChild(tr);
+  }
+  wrap.appendChild(tbl);
+
+  wrap.appendChild(document.createElement("hr")).className = "mrule";
+
+  // ── use a single hotkey for all masses ───────────────────────────────────
+  const t = document.createElement("div"); t.className = "mtitle";
+  t.textContent = "Use a single hotkey for all masses";
+  wrap.appendChild(t);
+
+  const sk = field("SharedKeys");
+  const on = sk && sk.value === "1";
+  const chk = document.createElement("div");
+  chk.className = "chk" + (on ? " on" : "");
+  const bx = document.createElement("span"); bx.className = "box";
+  bx.textContent = on ? "✓" : "";
+  chk.appendChild(bx);
+  const cl = document.createElement("span");
+  cl.textContent = sk ? sk.label : "";
+  chk.appendChild(cl);
+  chk.onclick = () => set("SharedKeys", on ? "0" : "1");
+  wrap.appendChild(chk);
+  if(sk && sk.help){
+    const h = document.createElement("div"); h.className = "msub";
+    h.textContent = sk.help;
+    wrap.appendChild(h);
+  }
+
+  // ── how each site decides ────────────────────────────────────────────────
+  // Two sites, two keys, and they do NOT have to agree — automatic on OnlyFans
+  // while Fansly asks you is the ordinary shape of a mixed desk, and until this
+  // there was no way to say it. A single global "Strategy: manual / automatic"
+  // row used to sit above these, writing the manual half of [Settings]
+  // ModelMatch, and the resolver short-circuited on it before Fansly was
+  // consulted at all. Turning off a rail detector that could not tell its rows
+  // apart therefore turned off the Infloww tab strip too.
+  //
+  // Greyed only with the shared keys off, since that is the one switch that
+  // makes every control here a choice about nothing.
+  const autoWrap = document.createElement("div");
+  if(!on) autoWrap.className = "mdim";
+
+  const ah = document.createElement("div"); ah.className = "mhead";
+  ah.textContent = "How each site decides which model is on screen";
+  autoWrap.appendChild(ah);
+
+  // One site's block: the mode, its help line, then the order that mode implies.
+  //
+  // The order row is greyed in Manual mode rather than hidden: manual reads no
+  // pixels, so a tab or rail order is inert — but you should be able to see what
+  // the other two modes would be about to do without having to switch to one.
+  function site(matchId, label, orderPrefix, slots, orderLabel, emptyText){
+    const f = field(matchId);
+    autoWrap.appendChild(mLine(label + ":", mRadios(matchId)));
+    if(f && f.help){
+      const h = document.createElement("div"); h.className = "msub";
+      h.textContent = f.help;
+      autoWrap.appendChild(h);
+    }
+    const row = document.createElement("div");
+    row.className = "mline mindent" + (f && f.value === "manual" ? " mdim" : "");
+    const l = document.createElement("div"); l.className = "mlab";
+    l.textContent = slots.length ? orderLabel : "";
+    row.appendChild(l);
+    if(!slots.length){
+      const e = document.createElement("span"); e.className = "hint";
+      e.textContent = emptyText;
+      row.appendChild(e);
+    } else {
+      for(let i = 1; i <= slots.length; i++){
+        const f2 = field(orderPrefix + ".Pos" + i);
+        if(f2) row.appendChild(mSelect(orderPrefix + ".Pos" + i));
+      }
+    }
+    autoWrap.appendChild(row);
+  }
+  site("inflowwMatch", "OnlyFans (Infloww)", "Positional", M.ofSlots || [],
+       "Tab order (left→right):", "no models are set to Infloww");
+  site("fanslyMatch", "Fansly", "FanslyPos", M.fanSlots || [],
+       "Rail order (top→bottom):", "no models are set to Fansly");
+  wrap.appendChild(autoWrap);
+
+  // ── the live readout ─────────────────────────────────────────────────────
+  // Everything above is a setting you cannot check by looking at it, which is
+  // how the detector stayed wrong for so long without saying so: it answered
+  // "model 1" with total confidence and nothing on screen disagreed. This is
+  // the disagreement. Never greyed — it is the thing you came here to read.
+  const lh = document.createElement("div"); lh.className = "mhead";
+  lh.textContent = "Detector sees";
+  wrap.appendChild(lh);
+  const live = document.createElement("div");
+  live.className = "mlive"; live.id = "mlive";
+  live.textContent = M.detector || "…";
+  wrap.appendChild(live);
+
+  const ph = document.createElement("div"); ph.className = "rowhelp";
+  ph.style.marginTop = "9px";
+  ph.textContent = M.pointHint || "";
+  wrap.appendChild(ph);
+
+  const svc = document.createElement("div");
+  svc.id = "msvc";
+  svc.className = "msvc " + (M.serviceOn ? "up" : "down");
+  svc.textContent = M.service || "";
+  wrap.appendChild(svc);
+
+  // ── reset ────────────────────────────────────────────────────────────────
+  // The names only, exactly as the Win32 button does. It does not touch the
+  // wait time: a button on this section reaching over to change a field on
+  // another one — one you cannot see it touch — is the kind of reach this
+  // window was rebuilt to remove.
+  const rb = document.createElement("button");
+  rb.className = "mreset"; rb.textContent = "Reset model fields";
+  rb.onclick = () => {
+    for(let i = 1; field("Model" + i); i++) set("Model" + i, "Model " + i);
+  };
+  wrap.appendChild(rb);
+
+  body.appendChild(wrap);
+}
+
+function render(){
+  if(!S) return;
+  applyTheme(S.theme);
+  const secs = sections();
+  if(!secs.includes(section)) section = secs[0] || "";
+  buildNav();
+
+  const body = $("body");
+  body.textContent = "";
+
+  // Models is laid out, not listed. Searching still falls through to the flat
+  // list below, because a search is a question about one setting and the answer
+  // is that setting's row wherever it lives.
+  if(section === "Models" && !query){
+    renderModels(body);
+    // After the content exists, not before — setting it on an empty div does
+    // nothing, and the section then opened halfway down its own list.
+    body.scrollTop = 0;
+    const d0 = $("dirty");
+    d0.textContent = S.dirty ? "Unsaved changes" : "";
+    d0.className = S.dirty ? "on" : "";
+    return;
+  }
+
+  const rows = allRows().filter(r => (query ? matches(r) : r.sect === section));
+
+  if(!rows.length){
+    const e = document.createElement("div");
+    e.id = "empty";
+    e.textContent = query ? ("Nothing matches “" + query + "”.") : "Nothing here.";
+    body.appendChild(e);
+  } else {
+    // The mode switch heads the Features section — it is the one control that
+    // decides whether anything under it does anything at all.
+    if(section === "Features" && !query) body.appendChild(modeRow());
+    let group = null;
+    for(const r of rows){
+      const g = query ? r.sect : (r.group || null);
+      if(g !== group){
+        group = g;
+        if(g){
+          const h = document.createElement("h2");
+          h.className = "sect"; h.textContent = g;
+          body.appendChild(h);
+        }
+      }
+      body.appendChild(buildRow(r));
+    }
+  }
+  const d = $("dirty");
+  d.textContent = S.dirty ? "Unsaved changes" : "";
+  d.className = S.dirty ? "on" : "";
+}
+
+// Easy / Advanced. Its own row rather than a field, because it is not a cfg key
+// this window owns — MODE_Set writes it, and every feature below reads it.
+function modeRow(){
+  const row = document.createElement("div"); row.className = "row";
+  const tx = document.createElement("div"); tx.className = "rowtext";
+  const lab = document.createElement("div"); lab.className = "rowlabel";
+  lab.textContent = "Advanced mode";
+  tx.appendChild(lab);
+  const h = document.createElement("div"); h.className = "rowhelp";
+  h.textContent = "Easy mode is MMA as it was at v1.4.0 — nothing below runs, their"
+                + " hotkeys never register and their background scripts never start."
+                + " Your choices are kept and come back when you switch here.";
+  tx.appendChild(h);
+  row.appendChild(tx);
+  const ctl = document.createElement("div"); ctl.className = "ctl";
+  const sw = document.createElement("div");
+  sw.className = "sw" + (S.easy ? "" : " on");
+  sw.onclick = () => set("__easy", S.easy ? "0" : "1");
+  ctl.appendChild(sw);
+  row.appendChild(ctl);
+  return row;
+}
+
+// Every edit goes out and comes back. The page does not update itself — AHK
+// holds the value and syncs, so there is one copy and Close discards all of it.
+function set(key, value){ post({cmd:"set", key:key, value:String(value)}); }
+
+$("search").oninput = (e) => { query = e.target.value.trim(); render(); };
+$("btnSave").onclick  = () => post({cmd:"save"});
+$("btnClose").onclick = () => post({cmd:"close"});
+$("lnkHotkeys").onclick = () => post({cmd:"open", what:"hotkeys"});
+$("lnkClassic").onclick = () => post({cmd:"open", what:"classic"});
+
+// F12 for devtools, since this is a real page and sometimes it misbehaves.
+document.addEventListener("keydown", (e) => {
+  if(e.key === "F12") post({cmd:"devtools"});
+  if(e.key === "Escape") post({cmd:"close"});
+  if(e.key === "s" && e.ctrlKey){ e.preventDefault(); post({cmd:"save"}); }
+});
+
+let toastTimer = 0;
+window.mma = {
+  sync(state){ S = state; render(); },
+
+  // The two lines on the Models section that report rather than ask.
+  // Deliberately NOT a sync: this arrives about once a second, and rebuilding
+  // the whole page that often would fight anything half-typed in a text box
+  // and reset the scroll under the pointer. If the section is not on screen,
+  // nothing happens.
+  live(detector, serviceOn){
+    if(S && S.models){ S.models.detector = detector; S.models.serviceOn = serviceOn; }
+    const el = document.getElementById("mlive");
+    if(el) el.textContent = detector || "…";
+    const sv = document.getElementById("msvc");
+    if(sv) sv.className = "msvc " + (serviceOn ? "up" : "down");
+  },
+  // Open a named section. AHK's only way to steer what is on screen — used by
+  // the `section=` probe argument, so a screenshot can be taken of any part of
+  // this window without driving the mouse at it. Clicking a rail entry from
+  // outside means SetForegroundWindow, which Windows refuses from a background
+  // process, and the click then lands on whatever IS in front.
+  go(name, toEnd){
+    if(!S) return;
+    // Only what THIS page has. `filter` lives in the hotkeys page, not this
+    // one, and assigning to it here threw a ReferenceError under "use strict"
+    // — into the page console, where this process cannot see it, so the call
+    // looked like it had simply been ignored.
+    query = "";
+    const el = $("search"); if(el) el.value = "";
+    section = name;
+    render();
+    // `toEnd` is for the screenshot loop: a section taller than the window
+    // cannot otherwise be seen past its first screen without a click, and a
+    // click from outside lands on whatever is really in front.
+    if(toEnd){ const b = $("body"); if(b) b.scrollTop = b.scrollHeight; }
+  },
+
+  toast(text){
+    const t = $("toast");
+    t.textContent = text; t.className = "on";
+    clearTimeout(toastTimer);
+    toastTimer = setTimeout(() => { t.className = ""; }, 1600);
+  }
+};
+
+post({cmd:"ready"});
+</script>
+</body>
+</html>

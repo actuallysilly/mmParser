@@ -1,7 +1,7 @@
 # Branching — BUILT
 
 > **Status: implemented.** This file is kept as the original brief; what actually
-> shipped is described in **[ARCHITECTURE.md §9](../../ARCHITECTURE.md)** and the code is
+> shipped is described in **[docs/decisions.md §9](../decisions.md)** and the code is
 > [src/branch/tree.ahk](../../src/branch/tree.ahk) (the model and the compiler),
 > [src/ui/branch_window.ahk](../../src/ui/branch_window.ahk) (the window) and
 > [src/ui/webview/branch_builder.html](../../src/ui/webview/branch_builder.html) (the

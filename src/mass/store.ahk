@@ -12,7 +12,7 @@
 ;  reserved bug. Data files do not have syntax errors that kill a process.
 ;
 ;  So the library is now userdata\masses.json, and this module is the only thing
-;  that reads or writes it. See ARCHITECTURE.md §5.
+;  that reads or writes it. See docs/decisions.md §5.
 ;
 ;  ── Shape ────────────────────────────────────────────────────────────────────
 ;      {
@@ -410,4 +410,25 @@ MASS_AsObject(rec) {
     for k, v in rec
         o.%k% := v
     return o
+}
+
+; The way back, for anything that EDITS a record and then has to store it.
+;
+; It exists because the boundary above is one-way in the send path — the engine
+; converts to an object, sends, and never writes back — so nothing needed the
+; inverse until a window started editing a record in object form (the chat
+; simulator, ui\chat_window.ahk).
+;
+; Handing an OBJECT to MASS_Set is not an error and that is the trap: nothing
+; throws, nothing is logged, and MASS_Normalise's `sMs[A_Index] is Map` test
+; quietly swaps it for MASS_Blank() on the way to disk. The mass looks saved
+; until you reopen it and find it empty. One conversion, at the same boundary,
+; in the same file as its opposite.
+MASS_AsMap(rec) {
+    if (rec is Map)
+        return rec
+    out := Map()
+    for k, v in rec.OwnProps()
+        out[k] := v
+    return out
 }

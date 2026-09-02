@@ -591,8 +591,13 @@ DBG_NameRow(p, lit) {
 ;  identical from the keyboard (nothing happens) and are completely different
 ;  problems.
 DBG_ResolvedRow(p) {
+    ; This panel's OWN site's mode. It used to append "manual" whenever INFLOWW
+    ; was manual, on both panels, because manual was a global that short-circuited
+    ; the resolver before Fansly was asked. Each site carries its own now, so the
+    ; Fansly panel showing Infloww's mode would be a readout of the wrong setting
+    ; in exactly the mixed setup this overlay is opened to diagnose.
     mode := (p.id = "fansly") ? FanslyMatchMode() : ModelMatchMode()
-    if (ModelMatchMode() = "manual")
+    if (mode = "manual")
         mode := "manual (you pick; no pixels are read)"
 
     st := ActiveModelStatus()

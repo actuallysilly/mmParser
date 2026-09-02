@@ -1,0 +1,181 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>MMA dev guide — start here</title>
+<link rel="stylesheet" href="guide.css">
+<script src="nav.js"></script>
+</head>
+<body>
+<div class="shell">
+<nav class="side"></nav>
+<main>
+
+<p class="eyebrow">MMA developer guide</p>
+<h1>Learn this repo well enough to change it</h1>
+
+<p class="lede">This guide exists so you can open a file in <code>src\</code>, read it, know why
+every line is there, and change it without breaking three things you did not know were
+connected. It assumes you know no AutoHotkey and no more than the surface of this codebase.
+It does not assume you are stupid — it assumes you were never told.</p>
+
+<div class="note">
+<p><b>How this is different from the docs already in the repo.</b>
+<a href="../../ARCHITECTURE.md">ARCHITECTURE.md</a> tells you <i>what</i> the tree is.
+<a href="../decisions.md">docs/decisions.md</a> tells you <i>why</i> it is shaped that way.
+This guide teaches you <i>how to read and write the code</i> — the language, the patterns,
+the traps, and the actual control flow from a key being pressed to a message landing in a
+chat. Read all three eventually. Read this one first.</p>
+</div>
+
+<h2>The one thing to understand before anything else</h2>
+
+<p>MMA is <strong>not one program</strong>. It is up to a dozen small independent processes
+that never call each other's functions. They cooperate through two things only:</p>
+
+<ul>
+<li><strong>Shared files</strong> in <code>userdata\</code> say <em>what the data is</em>.</li>
+<li><strong>Window messages</strong> declared in <code>src\core\messages.ahk</code> say
+<em>go and re-read it</em>.</li>
+</ul>
+
+<p>That single fact explains most of what looks strange in this repo. It is why settings are
+read from an ini on every keypress instead of held in a variable; why saving in the GUI
+applies instantly in the engine with no restart; why a "list of running scripts" is really a
+list of <em>window titles</em>; and why so many comments in the source are about failures that
+produce <em>nothing at all</em> rather than an error. Separate processes cannot throw an
+exception into each other. They can only fall silent.</p>
+
+<p>Almost every bug this codebase has ever had is that silence. Learning MMA is largely
+learning where the silence can come from, and the code is written — sometimes at extraordinary
+length in comments — to make each source of silence audible in a log file.</p>
+
+<h2>The CORE selection</h2>
+
+<p>You asked for a selection of files that count as core — the mass/send/detect/parse/organise
+spine, no add-ons, no Python. This is it. <strong>19 files, about 7,600 lines.</strong>
+Everything else in the repo (another ~35,000 lines) is windows, tools, tests, optional
+services and vendored third-party code, and none of it is load-bearing for the thing MMA
+actually does.</p>
+
+<h3>Tier 1 — the spine. Nothing works without these.</h3>
+<div class="tablewrap">
+<table>
+<thead><tr><th>File</th><th>Lines</th><th>What it establishes</th><th>Chapter</th></tr></thead>
+<tbody>
+<tr><td><code>src/core/paths.ahk</code></td><td>276</td><td>Every path in MMA, from one anchor. Included by 47 files.</td><td><a href="03-spine.html">3</a></td></tr>
+<tr><td><code>src/core/log.ahk</code></td><td>728</td><td>One log for eight processes, and the <code>BAIL</code> level that makes silence audible.</td><td><a href="03-spine.html">3</a></td></tr>
+<tr><td><code>src/core/modes.ahk</code></td><td>335</td><td>The feature registry. <code>FEAT("id")</code> is the only question the rest of the code asks.</td><td><a href="04-registries.html">4</a></td></tr>
+<tr><td><code>src/core/hotkeys.ahk</code></td><td>1003</td><td>Every key in MMA, declared once, bound by id, stored in an ini. Contains no keys.</td><td><a href="04-registries.html">4</a></td></tr>
+<tr><td><code>src/core/messages.ahk</code></td><td>~110</td><td>The ten window messages processes send each other.</td><td><a href="04-registries.html">4</a></td></tr>
+<tr><td><code>src/core/processes.ahk</code></td><td>758</td><td>The service registry, the launcher, the watchdog.</td><td><a href="04-registries.html">4</a></td></tr>
+</tbody>
+</table>
+</div>
+
+<h3>Tier 2 — the product. This <em>is</em> mass messaging.</h3>
+<div class="tablewrap">
+<table>
+<thead><tr><th>File</th><th>Lines</th><th>What it establishes</th><th>Chapter</th></tr></thead>
+<tbody>
+<tr><td><code>src/mass/store.ahk</code></td><td>413</td><td>What a mass <em>is</em>, as data. The record shape and <code>masses.json</code>.</td><td><a href="05-what-a-mass-is.html">5</a></td></tr>
+<tr><td><code>src/mass/parser.ahk</code></td><td>764</td><td>What a mass is <em>as text</em>. Three parse modes and the <code>::branch</code> marker.</td><td><a href="06-parser.html">6</a></td></tr>
+<tr><td><code>src/mass/runtime.ahk</code></td><td>979</td><td>What a mass <em>does</em>. Every follow-up, PPV, branch and <code>__mm</code> handler.</td><td><a href="07-send-path.html">7</a></td></tr>
+<tr><td><code>src/mass/engine.ahk</code></td><td>~110</td><td>The process. Loads the library, binds the keys, listens for reloads.</td><td><a href="07-send-path.html">7</a></td></tr>
+<tr><td><code>src/core/utils.ahk</code></td><td>1417</td><td><code>Snd</code>/<code>sndFu</code> — the code that actually puts text in the box — plus the whole TAB-staging picker.</td><td><a href="07-send-path.html">7</a></td></tr>
+<tr><td><code>src/mass/next_fu.ahk</code></td><td>310</td><td>The one key that reads the chat and sends whichever follow-up comes next.</td><td><a href="07-send-path.html">7</a></td></tr>
+<tr><td><code>src/mass/model_picker.ahk</code></td><td>659</td><td>The "which model?" window, for the modes where nothing on screen answers it.</td><td><a href="08-detection.html">8</a></td></tr>
+</tbody>
+</table>
+</div>
+
+<h3>Tier 3 — knowing which model is on screen.</h3>
+<div class="tablewrap">
+<table>
+<thead><tr><th>File</th><th>Lines</th><th>What it establishes</th><th>Chapter</th></tr></thead>
+<tbody>
+<tr><td><code>src/screen/pill_scan.ahk</code></td><td>296</td><td>Pure pixel functions. One <code>BitBlt</code>, then memory reads. No side effects at all.</td><td><a href="08-detection.html">8</a></td></tr>
+<tr><td><code>src/core/active_model.ahk</code></td><td>783</td><td>The three resolution strategies (name / position / manual), lock mode, and every refusal to guess.</td><td><a href="08-detection.html">8</a></td></tr>
+<tr><td><code>src/screen/model_detector.ahk</code></td><td>254</td><td>The background service: scan, OCR on change, write an ini.</td><td><a href="08-detection.html">8</a></td></tr>
+</tbody>
+</table>
+</div>
+
+<h3>Tier 4 — the window, and getting masses into it.</h3>
+<div class="tablewrap">
+<table>
+<thead><tr><th>File</th><th>Lines</th><th>What it establishes</th><th>Chapter</th></tr></thead>
+<tbody>
+<tr><td><code>src/ui/main_core.ahk</code></td><td>1800</td><td>The app behind the main window, with no window in it. Load, Save, Parse, import routing.</td><td><a href="09-gui.html">9</a></td></tr>
+<tr><td><code>src/sequences/sequences.ahk</code></td><td>424</td><td>The Discord <kbd>Ctrl</kbd>+click import — how masses get into MMA at all.</td><td><a href="10-import.html">10</a></td></tr>
+<tr><td><code>src/chat/nav.ahk</code></td><td>~75</td><td>The navigation keys. Tiny, and a clean example of the bind pattern.</td><td><a href="07-send-path.html">7</a></td></tr>
+</tbody>
+</table>
+</div>
+
+<h4>Deliberately outside the core, for now</h4>
+<p><code>src/ui/main_window.ahk</code> and <code>webview_main_window.ahk</code> (drawing only —
+chapter 9 explains the seam), <code>src/ui/settings_*</code>, <code>hotkeys_*</code>,
+<code>hotstrings_window</code>, <code>alt_fu_window</code>, <code>branch/</code>,
+<code>activity/</code>, <code>hotstrings/</code>, <code>screen/</code> beyond the three above,
+all of <code>src/services/</code> (Python), and all of <code>src/vendor/</code> — which the
+architecture doc says plainly: <em>"Not yours. Never read it."</em></p>
+
+<h2>The reading order</h2>
+
+<p>Chapters build. Do not skip 1 unless you already write AutoHotkey v2 daily.</p>
+
+<div class="cards">
+  <a class="card" href="01-ahk-primer.html"><span class="n">01</span><b>The AutoHotkey primer</b><span>Every language feature this repo uses, taught from zero, with the exact idioms you will meet.</span></a>
+  <a class="card" href="02-shape.html"><span class="n">02</span><b>The shape of MMA</b><span>Why it is many processes, how they find each other, and what happens between double-click and a working keyboard.</span></a>
+  <a class="card" href="03-spine.html"><span class="n">03</span><b>The spine: paths and log</b><span>The two files everything includes, and the logging philosophy that is really a debugging philosophy.</span></a>
+  <a class="card" href="04-registries.html"><span class="n">04</span><b>The four registries</b><span>Features, hotkeys, messages, services. Declarative single sources of truth, and the bugs each one killed.</span></a>
+  <a class="card" href="05-what-a-mass-is.html"><span class="n">05</span><b>What a mass IS</b><span>The record shape, the JSON file, branches, normalisation, and the Map-versus-object boundary.</span></a>
+  <a class="card" href="06-parser.html"><span class="n">06</span><b>The parser</b><span>Three modes chosen automatically, the header block, and the one marker for every alternative.</span></a>
+  <a class="card" href="07-send-path.html"><span class="n">07</span><b>The send path</b><span>Trace one keypress through eleven functions to the message landing in a fan's chat.</span></a>
+  <a class="card" href="08-detection.html"><span class="n">08</span><b>Detection</b><span>Reading pixels honestly: BitBlt, the pill scan, three resolution modes, and every refusal to guess.</span></a>
+  <a class="card" href="09-gui.html"><span class="n">09</span><b>The GUI</b><span>The core/shell seam, duck typing, and the load/save/parse cycle that owns your data.</span></a>
+  <a class="card" href="10-import.html"><span class="n">10</span><b>Auto import</b><span>Right-click in Discord, OCR a menu, tag a model, cross a process boundary, fill a tab.</span></a>
+  <a class="card" href="11-recipes.html"><span class="n">11</span><b>Recipes and debugging</b><span>Add a field, a key, a feature, a service. Then: how to find out why nothing happened.</span></a>
+  <a class="card" href="12-traps.html"><span class="n">12</span><b>The trap museum</b><span>Every AHK landmine this repo has stepped on, with the symptom you will see first.</span></a>
+</div>
+
+<h2>If you have one hour</h2>
+
+<ol>
+<li>Read <a href="01-ahk-primer.html">chapter 1</a> to the end of "Closures and the loop-variable trap". Skim the rest.</li>
+<li>Read <a href="02-shape.html">chapter 2</a> in full. It is short and it is the mental model.</li>
+<li>Open <code>src\mass\runtime.ahk</code> and read <code>_DoFuGroup</code> with
+    <a href="07-send-path.html">chapter 7</a> open beside it.</li>
+<li>Set <code>MMA_DEBUG=max</code> in your environment, launch MMA, press a follow-up key, and
+    read <code>debuglogs\mma.log</code>. Everything in this guide is visible in that file.</li>
+</ol>
+
+<h2>How to actually learn a codebase (the meta-point)</h2>
+
+<p>You said the goal is to stop band-aiding and start developing. The difference is not
+knowledge of syntax — it is having a <em>model of the system</em> that lets you predict what a
+change will do before you make it. Three habits get you there faster than reading more code:</p>
+
+<p><strong>1. Follow one thing end to end, repeatedly.</strong> Do not read files. Read
+<em>paths</em>. Pick "I press F1" and follow it through every function until a message is in a
+chat box. Then pick "I click Save". Then "the detector notices a tab change". Each trace takes
+an hour and teaches you more than a day of browsing, because you learn the <em>joints</em> —
+where one subsystem hands off to another — and joints are where bugs live.</p>
+
+<p><strong>2. Read the comments as bug reports.</strong> This repo's comments are unusual: most
+of them describe a failure that already happened. When a comment says "this used to X, which
+meant Y", that is not history — it is a constraint. If you change that line back, you get Y
+back. Chapter 12 collects the worst of them.</p>
+
+<p><strong>3. Change one thing and watch the log.</strong> The logging in this codebase is
+good enough to be a teaching tool. Turn on max logging, do something, read the timeline. You
+will see <code>hk.fire</code>, then <code>mass.fu</code>, then <code>send.fu</code>, then
+<code>send.snd</code> — the exact call chain, with the decisions it made, in order.</p>
+
+<div class="pager"></div>
+</main>
+</div>
+</body>
+</html>

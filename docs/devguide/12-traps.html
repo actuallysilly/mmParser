@@ -1,0 +1,636 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>12 — The trap museum</title>
+<link rel="stylesheet" href="guide.css">
+<script src="nav.js"></script>
+</head>
+<body>
+<div class="shell">
+<nav class="side"></nav>
+<main>
+
+<p class="eyebrow">Chapter 12</p>
+<h1>The trap museum</h1>
+
+<p class="lede">Every AutoHotkey landmine this repo has actually stepped on, organised by the
+symptom you will see first. Most of these cost hours. All of them are cheap to recognise once
+you have seen them named.</p>
+
+<div class="toc">
+<b>Sections</b>
+<ul>
+<li>Symptom: the script exits with no message</li>
+<li>Symptom: a modal dialog per keystroke</li>
+<li>Symptom: it works for one item and not the others</li>
+<li>Symptom: nothing happens, silently</li>
+<li>Symptom: the wrong thing happens, confidently</li>
+<li>Symptom: geometry is off, but self-consistent</li>
+<li>Symptom: it works, then stops working</li>
+<li>The quick-reference table</li>
+</ul>
+</div>
+
+<hr>
+
+<h2>Symptom: the script exits with no message</h2>
+
+<p>Exit code 0, no dialog, no log line. The nastiest class, because AHK gives you nothing at
+all.</p>
+
+<h3>A variable and a function sharing a name</h3>
+
+<div class="warn">
+<span class="tag">Trap</span>
+<p>AHK identifiers are <strong>case-insensitive</strong>, so a global <code>_LOG_FORCED</code> and
+a function <code>_LOG_Forced()</code> are the same name. The script fails to <em>load</em>, exits
+0, prints nothing.</p>
+<p><strong>Where it bit:</strong> <code>core/log.ahk</code>. The cache for the environment override
+is called <code>_LOG_FORCE_CACHE</code>, with a comment saying it cannot be called
+<code>_LOG_FORCED</code> because the reader is <code>_LOG_Forced()</code>.</p>
+<p><strong>How to spot it:</strong> if a script stopped loading right after you added a global,
+check whether any function shares the name ignoring case.</p>
+<p><em>Related red herring:</em> a double comma in <code>InStr(hay, needle, , -1)</code> looks
+wrong and is fine — it is an omitted optional parameter.</p>
+</div>
+
+<h3><code>base</code> is a reserved property name</h3>
+
+<div class="warn">
+<span class="tag">Trap</span>
+<pre><code>o := {base: someValue}      <span class="c">; does NOT create a property called "base"</span></code></pre>
+<p>It attempts to set the object's <strong>prototype</strong>, and throws. The failure looked like
+a script that exited 0 silently.</p>
+<p><strong>How it was found:</strong> bisecting with <code>FileAppend</code> lines. There is no
+other way.</p>
+<p><strong>Consequence in this repo:</strong> the mass record field is <code>ppv_base</code>, never
+<code>base</code>.</p>
+</div>
+
+<h3>A top-level <code>Integer()</code> on a config value</h3>
+
+<div class="warn">
+<span class="tag">Trap</span>
+<pre><code>mouseControl := Integer(IniRead(MMA_CFG, "Settings", "MouseControl", 1))</code></pre>
+<p><code>Integer()</code> <strong>throws</strong> on anything non-numeric, and this runs at the top
+level. So one hand-edited <code>MouseControl=yes</code> in a file MMA <em>invites</em> you to edit
+is not a wrong setting — it is <strong>a script that does not load</strong>.</p>
+<div class="tablewrap">
+<table>
+<thead><tr><th>File</th><th>Count</th><th>Consequence</th></tr></thead>
+<tbody>
+<tr><td><code>mass/runtime.ahk</code></td><td>9</td><td>The engine dies → <strong>every mass hotkey in MMA is dead</strong>.</td></tr>
+<tr><td><code>core/hotkeys.ahk</code></td><td>1</td><td><strong>Every script that binds a key</strong> dies.</td></tr>
+<tr><td><code>screen/model_detector.ahk</code></td><td>10</td><td>The detector dies, and it has no window, so there is nothing to notice.</td></tr>
+</tbody>
+</table>
+</div>
+<p><strong>The fix:</strong> <code>LOG_IniInt(file, section, key, default, tag)</code> — degrades to
+the default and says so. Use <code>LOG_IniNum</code> for fractional values;
+<code>IsInteger("0.30")</code> is false, so <code>LOG_IniInt</code> on a threshold would silently
+snap every value to its fallback.</p>
+</div>
+
+<h3><code>#Warn</code> as a hang</h3>
+
+<div class="warn">
+<span class="tag">Trap</span>
+<p><code>#Warn VarUnset</code> is on by default in v2, fires at LOAD, and <strong>a warning is a
+modal dialog even under <code>/ErrorStdOut</code></strong>.</p>
+<p>A test that includes a library expecting globals from its includer hangs forever with no output
+— <em>which reads as the test passing slowly rather than as a failure</em>.</p>
+<p><strong>The fix:</strong> <code>#Warn VarUnset, StdOut</code> and assign the globals yourself, so
+the contract is <em>stated</em> rather than muted. Prefer <code>VarUnset</code> over
+<code>All</code>, which also prints ~80 "local has the same name as a global" lines and buries the
+real output.</p>
+</div>
+
+<h3>The bisect technique</h3>
+
+<pre><code>FileAppend("reached line 40`n", "D:\bisect.txt")
+</code></pre>
+
+<p><code>FileAppend</code>, not <code>MsgBox</code> (which blocks and can itself be the problem) and
+not <code>LOGI</code> (the logger may be what failed to load). Halve the interval each time.</p>
+
+<hr>
+
+<h2>Symptom: a modal dialog per keystroke</h2>
+
+<p>This whole class comes from one fact: <strong><code>#HotIf</code> criteria are re-evaluated on
+every keypress.</strong> Anything a criterion calls is on the typing hot path, and anything that
+throws there throws once per character.</p>
+
+<h3>Reading a global without declaring it</h3>
+
+<div class="warn">
+<span class="tag">Trap</span>
+<pre><code>ActiveModelNo() {
+    Loop MASS_MODELS      <span class="c">; ← reads an unset LOCAL, and THROWS</span>
+        ...
+}</code></pre>
+<p>In v2 every name inside a function is local unless declared. The <code>global</code> line at the
+top of these functions is not decoration.</p>
+<p>Because <code>ActiveModelStatus</code> is reached from a hotkey context, the throw is
+<strong>one dialog per character typed into a fan's chat</strong>.</p>
+</div>
+
+<h3>Any unguarded <code>IniRead</code> conversion in a hot-path function</h3>
+
+<p>Same mechanism, different source. <code>DetectorCfg()</code> is reached from
+<code>#HotIf</code>, and one field — <code>GreyColor</code>, the field a human is most likely to
+edit by hand — was left going through a raw conversion. <em>"That was not a mis-tuned detector: it
+was an error dialog per character."</em></p>
+
+<h3>Opening a dialog from a hot-path function</h3>
+
+<p><code>ActiveModelStatus()</code> is deliberately <strong>read-only</strong>: it never writes an
+ini and never opens a dialog. The "ask about an unrecognised model name" logic lives in the GUI's
+process, on a 4-second timer, precisely because a dialog in the resolver would be one popup per
+keystroke.</p>
+
+<hr>
+
+<h2>Symptom: it works for one item and not the others</h2>
+
+<p>The closure family. All three of these produce "the last one wins" or "the loop count is
+wrong".</p>
+
+<h3>A lambda in a loop captures the variable, not the value</h3>
+
+<div class="warn">
+<span class="tag">Trap</span>
+<pre><code><span class="c">; WRONG — every key selects model 3</span>
+Loop 3 {
+    n := A_Index
+    HK_Bind("mass.select.m" n, (*) =&gt; SelectModel(n))
+}</code></pre>
+<p>One function body, one <code>n</code>, shared by all three lambdas. By the time any key is
+pressed the loop has finished.</p>
+<p><strong>Two fixes, both used here:</strong></p>
+<pre><code>HK_Bind(id, SelectModel.Bind(A_Index))        <span class="c">; copies the value now</span>
+
+_ModelFire(modelNo, fn) {                     <span class="c">; a parameter is a fresh binding</span>
+    return (*) =&gt; (_SetCurModel(modelNo), fn())
+}</code></pre>
+<p><strong>Where it bit:</strong> the <code>[mass.select]</code> keys, and the
+<code>__1mm</code>…<code>__12mm</code> triggers (all twelve would have meant model 12).
+<code>tools/test/mass_bind_test.ahk</code> exists to pin it down.</p>
+</div>
+
+<h3>A closure cannot read a <code>for</code>-loop's variables at all</h3>
+
+<div class="warn">
+<span class="tag">Trap</span>
+<p>In <code>for k, v in map</code>, a lambda inside the body cannot see <code>k</code> or
+<code>v</code>. Copy them to plain locals first.</p>
+<p><code>/validate</code> does not catch this. You find out at run time.</p>
+</div>
+
+<h3><code>A_Index</code> is the innermost loop</h3>
+
+<div class="warn">
+<span class="tag">Trap</span>
+<pre><code>Loop MASS_SLOTS {
+    for field in MASS_Fields()
+        ck := "m" A_Index "_" field    <span class="c">; ← counts FIELDS (1..44), not slots</span>
+}</code></pre>
+<p>The inner <code>for</code> has taken over <code>A_Index</code>. This silently built control keys
+like <code>m17_fu1</code> that matched nothing, and for the few that did exist wrote one slot's
+value into another's box.</p>
+<p><strong>The tell:</strong> loading was broken and saving was fine — which is why it would not
+reproduce from the save side.</p>
+<p><strong>The fix:</strong> <code>slot := A_Index</code> before the inner loop.</p>
+</div>
+
+<hr>
+
+<h2>Symptom: nothing happens, silently</h2>
+
+<p>The largest category by far, and the reason <code>log.ahk</code> exists.</p>
+
+<h3><code>A_ScriptDir</code> versus <code>A_LineFile</code></h3>
+
+<div class="warn">
+<span class="tag">Trap</span>
+<p><code>A_ScriptDir</code> is the folder of the <em>main</em> script. 37 uses of it worked by
+coincidence while every entry point lived in the repo root. When entry points moved to subfolders,
+every <code>IniRead(A_ScriptDir "\cfg", …, default)</code> quietly returned its default.</p>
+<p><strong>Use <code>paths.ahk</code>. Never <code>A_ScriptDir</code>.</strong></p>
+</div>
+
+<h3><code>IniRead</code> with a default cannot fail</h3>
+
+<div class="warn">
+<span class="tag">Trap</span>
+<p>Wrong path, missing section, misspelled key — all return the default, silently.
+<code>Overload_Mode()</code> read every setting out of a file that <em>did not exist</em>
+(<code>HK_DIR</code> is the repo root, and no cfg has ever lived there) and returned the default
+"ask" forever.</p>
+<p><strong>The detector:</strong> <code>LOG_IniRead</code> writes a VERB line whenever a read falls
+back. Turn on max logging and grep <code>cfg</code>.</p>
+</div>
+
+<h3>A folder missing from a resolver's list</h3>
+
+<div class="warn">
+<span class="tag">Trap</span>
+<p><code>MMA_ScriptPath</code> searches a folder list. A folder missing from it means
+<code>ResolveScriptPath</code> returns "", <code>LaunchStartupScripts</code> skips the entry, and
+the script <strong>simply never starts</strong> — no error, no dialog, nothing.</p>
+<p>That is how <code>engine.ahk</code> silently stopped running after it moved to
+<code>src\mass\</code>, and "engine not running" means every mass hotkey is dead.</p>
+</div>
+
+<h3><code>#HotIf</code> where <code>HotIf()</code> was needed</h3>
+
+<div class="warn">
+<span class="tag">Trap</span>
+<p><code>#HotIf</code> is a <strong>directive</strong> that applies to <code>::</code> hotkeys
+written literally below it. It has <em>no effect at all</em> on keys registered with the
+<code>Hotkey()</code> function.</p>
+<p>The Discord import was wrapped in <code>#HotIf</code> and bound with <code>Hotkey()</code>, so
+it was registered <strong>globally and fired in every application</strong>.</p>
+</div>
+
+<h3>A criterion function with no parameters</h3>
+
+<div class="warn">
+<span class="tag">Trap</span>
+<p><code>HotIf</code> calls its criterion <em>with the hotkey's name</em>. A zero-parameter function
+is rejected with "Invalid callback function". Declare every criterion <code>(*) =&gt; …</code>.</p>
+<p>Same class: a hotkey callback receives the hotkey name, a GUI event handler receives the control
+and info. Hence <code>DoSomething(*)</code> everywhere.</p>
+</div>
+
+<h3><code>OnMessage</code> does not keep a script alive</h3>
+
+<div class="warn">
+<span class="tag">Trap</span>
+<p>Neither does a hidden GUI. A v2 script needs a hotkey, a timer, a <em>visible</em> GUI, or
+<code>Persistent</code>. Otherwise it registers its handler, reaches the end of the file, and
+exits — leaving no error and no process.</p>
+</div>
+
+<h3><code>PostMessage</code>'s fourth parameter is Control</h3>
+
+<div class="warn">
+<span class="tag">Trap</span>
+<pre><code>PostMessage(msg, w, l, 0, "ahk_id " hwnd)      <span class="c">; ✗ "Target window not found"</span>
+PostMessage(msg, w, l,  , "ahk_id " hwnd)      <span class="c">; ✓ omit it</span></code></pre>
+</div>
+
+<h3>A broadcast that reaches nobody</h3>
+
+<div class="warn">
+<span class="tag">Trap</span>
+<p><code>HK_Broadcast</code> matches windows whose title starts with <code>HK_DIR</code>. If
+<code>HK_DIR</code> were <code>src\core\</code> (this file's own folder) instead of the repo root,
+the test matches <strong>nothing</strong> — no script lives there — and every rebind, suspend and
+remote fire silently stops crossing process boundaries.</p>
+<p><strong>The detector:</strong> <code>HK_Broadcast</code> logs the recipient count, and a
+<code>LOGW</code> when it is zero.</p>
+</div>
+
+<h3>Hidden windows are invisible without <code>DetectHiddenWindows</code></h3>
+
+<div class="warn">
+<span class="tag">Trap</span>
+<p>Every AHK script's main window is hidden. <code>WinExist(path " ahk_class AutoHotkey")</code>
+returns 0 unless <code>DetectHiddenWindows true</code> is set.</p>
+<p><code>SVC_Running</code> sets it <em>itself</em> rather than relying on the caller having done
+so, "so a caller that has not cannot get a false 'everything is down'". Always save and restore.</p>
+<p><strong>The inverse also bites:</strong> with it ON, <code>ahk_exe Discord.exe</code> can resolve
+to one of Discord's <em>hidden helper windows</em> — blank title, nothing to capture.
+<code>DiscordChannelName()</code> turns it off for exactly that reason.</p>
+</div>
+
+<h3>Splitting an id at the wrong dot</h3>
+
+<div class="warn">
+<span class="tag">Trap</span>
+<p><code>[hotstring]</code> ids end in a user-chosen trigger like <code>..intro</code>. Splitting at
+the last dot gave section <code>hotstring...intro</code> minus its tail — <strong>a section that
+does not exist</strong> — so the key was written in one place and read from another and never
+fired.</p>
+<p>Note the <em>first</em> attempted fix: refusing to bind any trigger containing a dot. That is "a
+rule about MMA's id format dressed up as a rule about your triggers", and it turned away 23 of
+them. Worth remembering as a shape of bad fix.</p>
+</div>
+
+<hr>
+
+<h2>Symptom: the wrong thing happens, confidently</h2>
+
+<p>The expensive category, because a plausible wrong answer is acted on.</p>
+
+<h3><code>&lt;</code> and <code>&gt;</code> are numeric and throw on strings</h3>
+
+<div class="warn">
+<span class="tag">Trap</span>
+<pre><code>if (c &gt;= "a" &amp;&amp; c &lt;= "z")     <span class="c">; ✗ "Expected a Number but got a String"</span>
+StrCompare(a, b)              <span class="c">; ✓</span></code></pre>
+<p>A character-filter loop in <code>next_fu.ahk</code> was written the first way. It did not filter
+letters — <em>it crashed on the first one</em>. It is a <code>RegExReplace</code> now, which is also
+faster on a pane's worth of OCR text.</p>
+<p><code>/validate</code> does not catch this.</p>
+</div>
+
+<h3>A Map key that does not exist throws</h3>
+
+<div class="warn">
+<span class="tag">Trap</span>
+<p><code>m["nope"]</code> throws. It does not return blank. <code>HK_SECTION_LABEL</code> missing an
+entry raised "key not found" the moment the Hotkeys window reached the first
+<code>mass.active</code> row.</p>
+<p><strong>The pattern that removes the whole class:</strong> <code>MASS_Blank()</code> — guarantee
+every key exists at the boundary, and drop the guards everywhere else.</p>
+</div>
+
+<h3>Assigning an undeclared property silently creates it</h3>
+
+<div class="warn">
+<span class="tag">Trap</span>
+<p>A Gui control has no <code>_v</code>, and <strong>AHK will happily create one</strong> — so
+<code>ctrl._v := text</code> succeeds, the box keeps its old text, and nothing anywhere says so.
+That is why <code>WV_Quiet</code> tests <code>if (cell is WvCell)</code>.</p>
+</div>
+
+<h3>A chained ternary has no "else" — it has a last branch</h3>
+
+<div class="warn">
+<span class="tag">Trap</span>
+<pre><code>slot = 1 ? name1 : slot = 2 ? name2 : name3</code></pre>
+<p>answers for slot 4, 5 and 40 with <strong>model 3's name</strong>. It reads like an enumeration
+and behaves like a default. Grep for these whenever a bound changes.</p>
+</div>
+
+<h3>One <code>Continue</code> in a bad subscript gives you TWO dialogs</h3>
+
+<div class="warn">
+<span class="tag">Trap</span>
+<p>A single bad array subscript can produce two <code>[Continue][Abort]</code> dialogs. Read pairs
+in the crash log as <strong>one bug, not two</strong>, and use <code>mode=Return</code> when
+scripting around it.</p>
+</div>
+
+<h3><code>FileOpen</code> eats the BOM; <code>FileRead</code> handles it differently</h3>
+
+<div class="warn">
+<span class="tag">Trap</span>
+<p>Detect a BOM with <code>FileRead(path, "RAW m3")</code>. MMA's message files are mixed BOM and
+no-BOM, which matters when scanning them as text.</p>
+<p>And on the write side: <code>"UTF-8"</code> writes a BOM, <code>"UTF-8-RAW"</code> does not.
+<strong>A BOM is illegal at the start of JSON</strong> — Python and browsers reject it outright —
+which is why <code>MASS_Save</code> uses RAW. AHK never noticed because
+<code>FileRead(…, "UTF-8")</code> strips one on the way back in.</p>
+</div>
+
+<h3>Escaping order</h3>
+
+<div class="warn">
+<span class="tag">Trap</span>
+<pre><code>AHK_CHARS := ["``", Chr(34), ";"]   <span class="c">; backtick MUST be first</span></code></pre>
+<p>Escape the escape character first, or escaping a quote afterwards has its own backtick escaped
+again.</p>
+</div>
+
+<h3>Ini quirks that change your data</h3>
+
+<div class="warn">
+<span class="tag">Trap</span>
+<ul>
+<li>Windows <strong>strips leading and trailing whitespace</strong> from values, so a separator
+<code>"  |  "</code> comes back as <code>"|"</code>. MMA encodes spaces as <code>\s</code>.</li>
+<li>A trailing <code>; comment</code> on a value line is <strong>not stripped</strong> — it becomes
+part of the value.</li>
+<li>An <code>=</code> in a <em>key</em> is impossible: <code>IniWrite</code> of key
+<code>a=b</code> emits <code>a=b=value</code>, which reads back as key "a". The guard must live at
+the two places that <em>write</em> a binding, not at the place that reads them — a check there
+would be dead code.</li>
+</ul>
+</div>
+
+<h3>Two services writing one file</h3>
+
+<div class="warn">
+<span class="tag">Trap</span>
+<p>Two detectors sharing <code>detector_status.ini</code> would be two services racing over one
+<code>active_model</code> key, "and the loser wins about half the time — which on this particular
+key means <strong>one model's mass sent into another model's chat</strong>."</p>
+<p>Hence <code>fansly_status.ini</code> is a separate file, separate readers, and whichever
+platform's window is in front is the only one consulted.</p>
+</div>
+
+<h3>A normaliser that deletes data outside its shape</h3>
+
+<div class="warn">
+<span class="tag">Trap</span>
+<pre><code>Loop MASS_MODELS { … }              <span class="c">; ✗ drops models 4-8 on the next save</span>
+keep := Max(MASS_MODELS, src.Length) <span class="c">; ✓ lowering the count HIDES, never deletes</span></code></pre>
+<p>Any function that rebuilds a structure is a potential data shredder. Ask what it does to data
+outside the shape it enforces.</p>
+</div>
+
+<hr>
+
+<h2>Symptom: geometry is off, but self-consistent</h2>
+
+<h3>Mixed-DPI monitors</h3>
+
+<div class="warn">
+<span class="tag">Trap</span>
+<p>AutoHotkey ships a <strong>system</strong>-DPI-aware manifest. On a desk where every monitor
+shares the primary's scaling that is indistinguishable from full awareness. Put a second monitor on
+a different scale and Windows hands the process invented numbers for window rects, cursor position,
+the virtual screen, and the origin a <code>BitBlt</code> reads from.</p>
+<p>Measured: a box asked for at (−1200, 400) 400×200 landed at (−1008, 545) 480×240. Off by 1.2× in
+both size and position. <code>SysGet</code>'s virtual screen came back 4080×3200 instead of
+4080×3840.</p>
+<p><strong>Why it is nastier than "20% off":</strong> inside the process every wrong number is
+<em>consistent</em>. The mouse, the overlay and the capture rect agree with each other and disagree
+only with the screen. Every reading looks plausible.</p>
+<p><strong>Two entry points, and picking wrong is the only way to break something:</strong>
+<code>DPI_ScriptWide()</code> for a script whose whole job is pixels (never for one with a normal
+GUI — its layout is still sized against <code>A_ScreenDPI</code>, which stays the <em>system</em>
+DPI regardless), and <code>DPI_Enter()</code>/<code>DPI_Leave()</code> paired in a
+<code>finally</code> for a library included into a GUI process.</p>
+</div>
+
+<h3>Never calibrate from outside AHK</h3>
+
+<div class="warn">
+<span class="tag">Trap</span>
+<p>Do not measure geometry off a PowerShell screenshot or a <code>PrintWindow</code> capture taken
+by another tool. Different processes have different DPI awareness, so the numbers do not transfer.
+<strong>Measure inside AHK, with the same awareness the consumer will have.</strong></p>
+</div>
+
+<h3><code>-DPIScale</code> and GUI geometry</h3>
+
+<div class="warn">
+<span class="tag">Trap</span>
+<p>With DPI scaling ON, AHK reports control positions in <strong>logical</strong> units while the
+window is created in <strong>physical</strong> pixels — so on a 125% display rows render 1.25×
+further down than the layout says. <code>-DPIScale</code> fixes that and means your numbers are
+real pixels, which then means <em>you</em> must scale: <code>w := w * A_ScreenDPI // 96</code>.</p>
+<p>Related: <code>WinGetPos</code> cannot see hidden windows; <code>GetPos</code>/<code>AutoSize</code>
+under <code>-DPIScale</code> can undersize a window.</p>
+</div>
+
+<h3>Window size assumptions</h3>
+
+<div class="warn">
+<span class="tag">Trap</span>
+<p>All of MMA's automation geometry assumes a <strong>1920×1032</strong> Infloww client. Coordinates
+in <code>core/coords.ahk</code>, the detector region, the NextFu chat pane and the Discord header
+band are all measured against that. On a different window size none of them transfer, and each
+fails differently — the detector reads nothing, NextFu OCRs the wrong pane, the import misses the
+menu.</p>
+</div>
+
+<h3><code>CoordMode</code> is thread-global</h3>
+
+<div class="warn">
+<span class="tag">Trap</span>
+<p>Setting it changes behaviour for everything that follows in that thread. Save and restore:</p>
+<pre><code>prevPixel := A_CoordModePixel
+CoordMode "Pixel", "Client"
+...
+CoordMode "Pixel", prevPixel</code></pre>
+<p>And a maximised window's rect starts at <strong>−8,−8</strong> (an invisible border), which is
+why client coordinates matter for anything measured against a window's chrome.</p>
+</div>
+
+<h3><code>CAPTUREBLT</code> pulls in your own tooltips</h3>
+
+<div class="warn">
+<span class="tag">Trap</span>
+<p><code>PILL_Grab</code> deliberately does <em>not</em> set it: it includes layered windows, and
+MMA's own toast can sit over the tab strip at exactly the moment a select key is pressed.</p>
+</div>
+
+<h3>Bottom-up DIBs read mirrored</h3>
+
+<div class="warn">
+<span class="tag">Trap</span>
+<p>A positive <code>biHeight</code> gives a bottom-up bitmap, so row 0 is the <em>bottom</em> row.
+Use a negative height for top-down and obvious index arithmetic.</p>
+</div>
+
+<hr>
+
+<h2>Symptom: it works, then stops working</h2>
+
+<h3>A stale reading from a polled file</h3>
+
+<div class="warn">
+<span class="tag">Trap</span>
+<p>The detector polls every 500 ms and only while Infloww is focused. So "click a tab, press the
+key" acted on a reading <strong>from before the click</strong> — and both models got taught the
+same x.</p>
+<p><strong>The rule:</strong> there is no reason to route a measurement you can take directly
+through a file. <code>TeachPosition</code> reads the pixels at the moment of the press.</p>
+</div>
+
+<h3>The list reorders under a held click</h3>
+
+<div class="warn">
+<span class="tag">Trap</span>
+<p>Infloww sorts conversations by most recent message — <em>and the send that is holding your click
+is what makes a conversation most recent.</em> A point that meant "Jess, row 4" when you pressed it
+can mean "Marie, row 4" a second later.</p>
+<p>The click wall therefore keeps a bitmap patch of what was under the pointer and compares before
+playback. Different pixels means the rows moved, and a moved row is not clicked.</p>
+</div>
+
+<h3>A seeded default that outlives its own fix</h3>
+
+<div class="warn">
+<span class="tag">Trap</span>
+<p><code>AltStageSetting</code> <em>seeds</em> the cfg the first time it reads a key, so changing the
+fallback in code reaches <strong>only brand-new installs</strong>. Every machine where a choice has
+ever been staged already has the old value on disk, and a stored value always wins.</p>
+<p>The fix needs an explicit migration — and <code>AltStageMigrateSep</code> replaces
+<strong>only the untouched original</strong>. A value somebody deliberately set is left alone.</p>
+</div>
+
+<h3>A stored preference that was never a choice</h3>
+
+<div class="warn">
+<span class="tag">Trap</span>
+<p>Settings writes every key it owns on save, so anyone who has opened Settings once has
+<code>MainWindowShell=legacy</code> on disk — <em>written by the old default, not chosen</em>. Left
+alone, "the new default" would have reached new installs only.</p>
+<p><code>MMA.ahk</code> lifts that value once and sets a marker. "The difference between a
+preference and an inherited default is whether anyone has been asked, and the marker is that
+question having been asked."</p>
+</div>
+
+<h3>An update that freezes a user-owned file</h3>
+
+<div class="warn">
+<span class="tag">Trap</span>
+<p>The updater skips <code>hotkeys.ini</code> so it cannot overwrite anyone's keys. That alone
+freezes the file: a key added in a later release is absent, and absent means unbound.</p>
+<p><code>HK_MergeDefaults</code> folds in only what is missing, never touching a key that has a
+value — <strong>including a blank one</strong>, so a key you cleared on purpose does not come back
+to life.</p>
+</div>
+
+<h3>Gitignoring a directory kills negations inside it</h3>
+
+<div class="warn">
+<span class="tag">Trap</span>
+<pre><code>userdata/          <span class="c">; ✗ git never descends — the negation below is DEAD</span>
+!userdata/hotkeys.default.ini
+
+userdata/*         <span class="c">; ✓ exclude the CONTENTS, not the directory</span>
+!userdata/hotkeys.default.ini</code></pre>
+<p>Nobody notices until a fresh clone has no keys to seed from.</p>
+</div>
+
+<hr>
+
+<h2>Quick reference</h2>
+
+<div class="tablewrap">
+<table>
+<thead><tr><th>If you see…</th><th>Suspect</th></tr></thead>
+<tbody>
+<tr><td>Exit 0, no message, no log</td><td>Name collision by case · <code>base</code> property · top-level <code>Integer()</code> · a <code>#Warn</code> modal</td></tr>
+<tr><td>A dialog per keystroke</td><td>Undeclared global, or an unguarded conversion, in something reached from <code>#HotIf</code></td></tr>
+<tr><td>Only the last item works</td><td>Closure capturing a loop variable — use <code>.Bind</code> or a factory</td></tr>
+<tr><td>Loop count is wrong inside a nested loop</td><td><code>A_Index</code> is the innermost loop</td></tr>
+<tr><td>A setting does nothing</td><td><code>IniRead</code> default · wrong path · <code>A_ScriptDir</code></td></tr>
+<tr><td>A key does nothing</td><td>Feature off · blank in the ini · a <code>_HK_Fire</code> guard · the process is not running</td></tr>
+<tr><td>A key fires everywhere</td><td><code>#HotIf</code> where <code>HotIf()</code> was needed</td></tr>
+<tr><td>"Invalid callback function"</td><td>A criterion or handler with no <code>(*)</code></td></tr>
+<tr><td>"Target window not found" from PostMessage</td><td>A <code>0</code> in the Control parameter</td></tr>
+<tr><td>A script cannot be found by title</td><td><code>DetectHiddenWindows</code></td></tr>
+<tr><td>A save does not apply live</td><td><code>hk.broadcast</code> reached nobody</td></tr>
+<tr><td>"Expected a Number but got a String"</td><td><code>&lt;</code> or <code>&gt;</code> on strings — use <code>StrCompare</code></td></tr>
+<tr><td>A property assignment goes nowhere</td><td>Undeclared property silently created</td></tr>
+<tr><td>Geometry off by a constant ratio</td><td>Mixed-DPI, or calibration taken outside AHK</td></tr>
+<tr><td>Two <code>[Continue][Abort]</code> dialogs</td><td>One bad subscript, not two bugs</td></tr>
+<tr><td>Works on new installs only</td><td>A seeded default that needs a migration</td></tr>
+<tr><td>The whole app went deaf</td><td>A script left <code>Suspend</code>ed — grep <code>hk.suspend</code></td></tr>
+</tbody>
+</table>
+</div>
+
+<div class="note">
+<p><b>Last word.</b> Almost every entry above is written down <em>somewhere in the source</em>,
+usually as a comment on the line that prevents it. That is the real lesson of this chapter and of
+this codebase: when you fix something here, the fix is not finished until the comment says what it
+was. That is what makes the next person — who is you, in six months — able to read the line and
+not undo it.</p>
+</div>
+
+<div class="pager"></div>
+</main>
+</div>
+</body>
+</html>

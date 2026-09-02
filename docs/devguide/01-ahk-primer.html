@@ -1,0 +1,1000 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>1 — The AutoHotkey primer</title>
+<link rel="stylesheet" href="guide.css">
+<script src="nav.js"></script>
+</head>
+<body>
+<div class="shell">
+<nav class="side"></nav>
+<main>
+
+<p class="eyebrow">Chapter 1</p>
+<h1>The AutoHotkey primer</h1>
+
+<p class="lede">Everything about the language that you need in order to read this repo, in the
+order you will meet it. Not a full AHK tutorial — a targeted one. If a feature is not used in
+MMA it is not here.</p>
+
+<div class="toc">
+<b>On this page</b>
+<ul>
+<li>What AutoHotkey is, and why v2 is a different language from v1</li>
+<li>Scripts, processes, and the auto-execute section</li>
+<li><code>#Include</code>, directives, and load order</li>
+<li>Variables, assignment, and scope — the part that bites hardest</li>
+<li>Arrays, Maps, and objects — three things that look alike</li>
+<li>Functions: defaults, variadics, ByRef, fat arrows</li>
+<li>Closures and the loop-variable trap</li>
+<li>Hotkeys and hotstrings</li>
+<li>Contexts: <code>#HotIf</code> versus <code>HotIf()</code></li>
+<li>Threads, timers, and interruption</li>
+<li>Sending text, the clipboard, and why <code>ClipWait</code> matters</li>
+<li>Windows: titles, classes, hidden windows</li>
+<li>Window messages — how processes talk</li>
+<li>INI files as a database</li>
+<li>Errors: try, catch, finally, throw</li>
+<li>Built-in <code>A_</code> variables you will see constantly</li>
+<li><code>DllCall</code> and talking to Windows directly</li>
+<li>Coordinate modes and DPI</li>
+<li>A ten-minute tour of AHK's standard library, MMA edition</li>
+</ul>
+</div>
+
+<h2>What AutoHotkey is</h2>
+
+<p>AutoHotkey is a Windows scripting language whose defining feature is that it can
+<strong>register global hotkeys</strong> and <strong>synthesise keystrokes and mouse
+input</strong>. That is the whole reason MMA is written in it. A follow-up key has to work
+while Chrome is focused, without Chrome cooperating, and then type into Chrome as though you
+had typed it. No ordinary application can do that; AHK does it in one line.</p>
+
+<p>What you get with that power is a language that is, frankly, eccentric. It was designed for
+five-line macros and grew into a general-purpose language. Some of its rules exist for
+backwards compatibility with a macro syntax from 2003. You will meet several of them.</p>
+
+<div class="concept">
+<span class="tag">CONCEPT-ENCOUNTERED</span>
+<h3>AutoHotkey v1 versus v2</h3>
+<p>These are <strong>different languages that share a name</strong>. v1 code does not run on v2
+and vice versa. Most AutoHotkey answers you find on the internet, in forums, and in older
+Stack Overflow posts are v1, and they will not work here.</p>
+<p>Tells that you are reading v1 (and should close the tab):</p>
+<ul>
+<li>Assignment with <code>=</code> instead of <code>:=</code>, e.g. <code>x = 5</code></li>
+<li>Percent signs around variables in commands: <code>MsgBox %name%</code></li>
+<li>Commands with comma arguments and no parentheses: <code>StringSplit, out, str, |</code></li>
+<li>Labels ending in a colon used as targets for <code>Gosub</code></li>
+<li><code>SetFormat</code>, <code>StringReplace</code>, <code>IfWinActive</code></li>
+</ul>
+<p>Every file in MMA opens with <code>#Requires AutoHotkey v2.0</code>, which makes AHK refuse
+to run the file at all under v1. That line is not decoration — it is the guard that stops a v1
+interpreter from silently misreading v2 code as something else entirely.</p>
+<p><strong>Where to look things up:</strong> the official v2 docs at
+<code>autohotkey.com/docs/v2/</code>. Nowhere else, until you can tell the versions apart on
+sight.</p>
+</div>
+
+<h2>Scripts, processes, and the auto-execute section</h2>
+
+<div class="concept">
+<span class="tag">CONCEPT-ENCOUNTERED</span>
+<h3>A script is a process</h3>
+<p>When you run <code>engine.ahk</code>, Windows starts a copy of
+<code>AutoHotkey64.exe</code> with that file as its argument. That is a real OS process with
+its own memory, its own variables, and its own message queue. Two AHK scripts running at once
+share <em>nothing</em> — not globals, not functions, not state. If they need to cooperate they
+must go through the filesystem or through Windows itself.</p>
+<p>This is the single most important thing to internalise about MMA. The GUI and the engine are
+two processes. When you save a mass in the GUI, the engine does not "see" it. The GUI writes a
+file and then <em>tells</em> the engine, via a Windows message, that the file changed.</p>
+</div>
+
+<div class="concept">
+<span class="tag">CONCEPT-ENCOUNTERED</span>
+<h3>The auto-execute section</h3>
+<p>An AHK script has no <code>main()</code>. When it starts, the interpreter runs statements
+from the top of the file downward — skipping over function definitions, hotkey definitions and
+class definitions, which are only <em>declarations</em> — until it hits one of:</p>
+<ul>
+<li>a <code>return</code> at the top level,</li>
+<li>the first hotkey or hotstring definition, or</li>
+<li>the end of the file.</li>
+</ul>
+<p>Everything that actually ran is called the <strong>auto-execute section</strong>. After it
+finishes, the script sits idle waiting for hotkeys, timers, and messages.</p>
+<p><strong>The consequence that bites:</strong> top-level code written <em>below</em> the first
+<code>::</code> hotstring never runs. There is a real example in
+<code>src/mass/runtime.ahk</code>, and it carries a long comment explaining exactly this:</p>
+<pre><code><span class="c">; Up HERE, far from the __mm hotstring it belongs beside, for a reason worth the
+; distance: top-level code stops running at the first hotstring definition in the
+; script, and __mm is one. Down there this loop would parse cleanly, read
+; correctly, and never execute.</span>
+_MassRegisterNumbered()
+</code></pre>
+<p>The call sits at the top of the file, hundreds of lines away from the thing it relates to,
+because the alternative is code that looks perfect in a diff and does nothing.</p>
+</div>
+
+<div class="concept">
+<span class="tag">CONCEPT-ENCOUNTERED</span>
+<h3>Persistence — when does a script exit?</h3>
+<p>A v2 script exits when the auto-execute section finishes <em>and</em> nothing is keeping it
+alive. Things that keep it alive: a registered hotkey or hotstring, a running
+<code>SetTimer</code>, a visible GUI, or the explicit directive <code>Persistent</code>.</p>
+<p><strong>What does <em>not</em> keep it alive:</strong> an <code>OnMessage</code> handler, or
+a GUI you created but never showed. This has bitten this repo. A background service that only
+listened for messages would start, register its handler, reach the end of the file, and quietly
+exit — leaving no error and no process. Every MMA service therefore has a timer or a hotkey.</p>
+</div>
+
+<h2>Directives and <code>#Include</code></h2>
+
+<p>Lines starting with <code>#</code> are <strong>directives</strong>: instructions to the
+interpreter, processed at load time, not statements that run. The ones you will meet:</p>
+
+<div class="tablewrap">
+<table>
+<thead><tr><th>Directive</th><th>Meaning</th></tr></thead>
+<tbody>
+<tr><td><code>#Requires AutoHotkey v2.0</code></td><td>Refuse to run under any other version. On every MMA file.</td></tr>
+<tr><td><code>#SingleInstance Force</code></td><td>If this script is already running, kill the old copy and take over. On every entry point, so a double-launch cannot produce two engines fighting over the same keys.</td></tr>
+<tr><td><code>#Include "path"</code></td><td>Paste that file's contents in here, at load time.</td></tr>
+<tr><td><code>#HotIf expr</code></td><td>Every <code>::</code> hotkey <em>written below this line</em> only fires when <code>expr</code> is true. See the warning further down.</td></tr>
+<tr><td><code>#Warn</code></td><td>Turn on load-time and run-time warnings about suspicious code.</td></tr>
+</tbody>
+</table>
+</div>
+
+<div class="concept">
+<span class="tag">CONCEPT-ENCOUNTERED</span>
+<h3><code>#Include</code> is textual, and idempotent</h3>
+<p><code>#Include "store.ahk"</code> literally inlines that file at that point, before anything
+runs. There are no modules, no namespaces, no exports. Everything a file defines becomes
+visible to everything else in the same script.</p>
+<p><strong>AHK loads any given file only once</strong>, no matter how many times it is named.
+That is what makes the include graph in MMA safe: <code>paths.ahk</code> includes
+<code>log.ahk</code>, and <code>log.ahk</code> includes <code>paths.ahk</code> right back. That
+circle is harmless — whichever is reached first wins and the other include is a no-op. The
+comment at the bottom of <code>paths.ahk</code> says exactly this, because it looks like a bug
+and is not.</p>
+<p>The practical rule this repo follows: <strong>a file that names a function includes the file
+that defines it.</strong> Not "the file that includes me will have done it." That costs nothing
+(the second include is free) and it means a file can never break because someone reordered
+includes somewhere else.</p>
+<p>Include paths are relative to the file containing the directive, so
+<code>#Include "../core/paths.ahk"</code> in <code>src/mass/store.ahk</code> resolves to
+<code>src/core/paths.ahk</code>.</p>
+</div>
+
+<div class="warn">
+<span class="tag">Trap</span>
+<p><strong>Because there are no namespaces, every function name in a script is global and can
+collide.</strong> MMA's answer is prefixes: <code>HK_</code> for hotkeys,
+<code>MASS_</code> for the store, <code>FEAT_</code> for features, <code>PILL_</code> for the
+pixel scan, <code>SVC_</code> for services, <code>MMA_</code> for paths. The convention is
+stated in ARCHITECTURE.md §8: <em>a folder's name is the global prefix its functions use</em>.
+So <code>HSI_Build</code> lives in <code>src/hotstrings/index.ahk</code>, and you can find any
+function from its name with no search.</p>
+</div>
+
+<h2>Variables, assignment, and scope</h2>
+
+<div class="concept">
+<span class="tag">CONCEPT-ENCOUNTERED</span>
+<h3><code>:=</code> versus <code>=</code></h3>
+<p><code>:=</code> is <strong>assignment</strong>. <code>=</code> is <strong>comparison</strong>
+(case-insensitive equality). <code>==</code> is case-<em>sensitive</em> comparison.</p>
+<pre><code>x := 5              <span class="c">; assign</span>
+if (x = 5)          <span class="c">; compare — true</span>
+if (name = "Bob")   <span class="c">; true for "bob", "BOB", "Bob"</span>
+if (name == "Bob")  <span class="c">; true only for exactly "Bob"</span>
+</code></pre>
+<p>You will see <code>==</code> in this repo specifically where a sentinel value is being
+tested, because a sentinel must match exactly:</p>
+<pre><code>global HK_UNSET := Chr(1) "«unset»"
+v := IniRead(HK_INI, section, key, HK_UNSET)
+if (v == HK_UNSET)  <span class="c">; the key is genuinely absent from the file</span>
+</code></pre>
+<p>The sentinel is a string starting with character 1 precisely because no real hotkey could
+ever equal it — which lets "absent from the ini" be distinguished from "present but blank",
+and blank means <em>deliberately disabled</em>.</p>
+</div>
+
+<div class="concept">
+<span class="tag">CONCEPT-ENCOUNTERED</span>
+<h3>String concatenation is a dot, or a space</h3>
+<pre><code>msg := "model " . n . " follow-up " . group
+msg := "model " n " follow-up " group     <span class="c">; identical — the dot is optional</span>
+</code></pre>
+<p>Both forms appear in MMA. When a string spans lines, the continuation is a leading
+<code>.</code> on the next line:</p>
+<pre><code>LOGW("mass.load", "masses.json does not exist — starting with an EMPTY"
+                . " library. Normal on a first run; on an existing install"
+                . " it means every mass is missing.")
+</code></pre>
+<p>Note the leading space inside each fragment. Nothing joins them for you.</p>
+</div>
+
+<div class="concept">
+<span class="tag">CONCEPT-ENCOUNTERED</span>
+<h3>Scope: locals by default, and the <code>global</code> keyword</h3>
+<p>Inside a function, <strong>every name is local unless you say otherwise</strong>. A function
+cannot even <em>read</em> a global without declaring it. This is the opposite of AHK v1 and it
+catches everyone.</p>
+<pre><code>global MASS_MODELS := 3
+
+BadCount() {
+    Loop MASS_MODELS       <span class="c">; THROWS: reads an unset LOCAL named MASS_MODELS</span>
+        ...
+}
+
+GoodCount() {
+    global MASS_MODELS     <span class="c">; now it means the real one</span>
+    Loop MASS_MODELS
+        ...
+}
+</code></pre>
+<p>The comment above <code>ActiveModelNo()</code> in <code>core/active_model.ahk</code> spells
+out why this is worse than it sounds there: that function is reached from a hotkey context
+expression, which AHK re-evaluates <em>on every keystroke</em>. So the throw is not one error
+dialog — it is one error dialog per character typed into a fan's chat.</p>
+<p>There is also a bulk form, <code>global</code> on its own line, which makes the
+<em>entire function</em> operate in global scope:</p>
+<pre><code>ParseCurrent(*) {
+    global                 <span class="c">; every name in here is global</span>
+    raw := StrReplace(edPaste.Value, ...)
+    ...
+}
+</code></pre>
+<p>MMA uses this in the GUI files, where a function genuinely needs a dozen globals
+(<code>edCtrls</code>, <code>tabs</code>, <code>edPaste</code>…). It is convenient and it is
+dangerous: a typo creates a global instead of failing. Prefer naming what you need.</p>
+</div>
+
+<div class="concept">
+<span class="tag">CONCEPT-ENCOUNTERED</span>
+<h3><code>static</code> — a local that survives between calls</h3>
+<pre><code>PythonAvailable() {
+    static cached := ""
+    if cached != ""
+        return cached = "1"
+    ... expensive scan of PATH ...
+    cached := found ? "1" : "0"
+    return found
+}
+</code></pre>
+<p>The initialiser runs once, the first time the function is reached. This is MMA's standard
+memoisation idiom. <code>AltStageMigrateSep()</code> uses <code>static done := false</code> to
+make a one-time migration genuinely one-time <em>per process</em>.</p>
+</div>
+
+<h2>Arrays, Maps, and objects</h2>
+
+<p>Three container types that look similar and are not interchangeable. Getting these confused
+is the most common source of "it says it has no such key" errors.</p>
+
+<div class="concept">
+<span class="tag">CONCEPT-ENCOUNTERED</span>
+<h3>Array — ordered, 1-based</h3>
+<pre><code>a := ["fu1", "fu2", "fu3"]
+a.Push("ppv")
+a.Length          <span class="c">; 4</span>
+a[1]              <span class="c">; "fu1"  — ONE-based, not zero</span>
+a.RemoveAt(1)
+for i, v in a     <span class="c">; i = index, v = value</span>
+for v in a        <span class="c">; just the values</span>
+</code></pre>
+<p>AHK v2 arrays have no <code>Sort</code>. This repo hand-writes an insertion sort where it
+needs one — see <code>HK_HotstringTriggers()</code> in <code>core/hotkeys.ahk</code>, with a
+comment saying so.</p>
+</div>
+
+<div class="concept">
+<span class="tag">CONCEPT-ENCOUNTERED</span>
+<h3>Map — a real dictionary, with arbitrary keys</h3>
+<pre><code>m := Map()
+m["fu1"] := "text"
+m := Map("fu1", "text", "fu2", "more")   <span class="c">; key, value, key, value…</span>
+m.Has("fu1")      <span class="c">; true — ALWAYS check before reading</span>
+m["nope"]         <span class="c">; THROWS if absent. It does not return blank.</span>
+m.Delete("fu1")
+for k, v in m     <span class="c">; iteration order is insertion order</span>
+</code></pre>
+<p><strong>A Map throws on a missing key.</strong> That is why <code>MASS_Blank()</code> in
+<code>store.ahk</code> exists: it builds a record with <em>every</em> field present and empty,
+so that every reader downstream can drop its <code>.Has()</code> guards. Guaranteeing shape at
+the boundary is cheaper than guarding at every use.</p>
+<p>It is also why <code>HK_SECTION_LABEL</code> being missing an entry raised "key not found"
+in the Hotkeys window — a real bug, recorded in <code>hotkeys.ahk</code>'s comments.</p>
+</div>
+
+<div class="concept">
+<span class="tag">CONCEPT-ENCOUNTERED</span>
+<h3>Object — properties by name, with dot access</h3>
+<pre><code>o := {no: 2, name: "Rama", state: "ok"}
+o.no                     <span class="c">; 2</span>
+o.HasOwnProp("name")     <span class="c">; true</span>
+o.state := "ambiguous"   <span class="c">; assign</span>
+</code></pre>
+<p>An object literal <code>{}</code> is not a Map. Keys must be valid identifiers, and you
+access them with a dot. MMA uses objects for small structured returns — the pattern is
+everywhere:</p>
+<pre><code>return {no: hits[1], name: active, state: "ok"}
+return {index: PILL_PickLit(counts, cfg.min), counts: counts}
+return {text: text, rest: rest}
+return {name: Trim(m[1]), body: Trim(m[2])}
+</code></pre>
+<p>This is a deliberate style: a function that must answer "which model, and why" returns
+<em>both</em> in one object rather than an out-parameter or a magic value.
+<code>ActiveModelStatus()</code> is the clearest example — <code>.no</code> is the answer and
+<code>.state</code> is the reason, and callers that can act on the reason do.</p>
+</div>
+
+<div class="concept">
+<span class="tag">CONCEPT-ENCOUNTERED</span>
+<h3>Dynamic property access: <code>obj.%name%</code></h3>
+<p>When the property name is in a variable, wrap it in percent signs:</p>
+<pre><code>key := "fu" group "_5"        <span class="c">; e.g. "fu2_5"</span>
+if m.HasOwnProp(key)
+    part := m.%key%           <span class="c">; the property NAMED by key</span>
+</code></pre>
+<p>This is used constantly in the send path, because a follow-up group is a number and the
+fields are named after it. <code>_FuParts</code> in <code>runtime.ahk</code> is three lines of
+it:</p>
+<pre><code>_FuParts(m, group) {
+    parts := [m.%"fu" group%, m.%"fu" group "_5"%, m.%"fu" group "_7"%]
+    ...
+}
+</code></pre>
+<p>The same syntax works on the left of an assignment: <code>o.%k% := v</code>, which is how
+<code>MASS_AsObject</code> converts a Map to an object one key at a time.</p>
+</div>
+
+<div class="warn">
+<span class="tag">Trap</span>
+<p><strong><code>base</code> is a reserved property name.</strong> Writing
+<code>{base: someValue}</code> does not create a property called "base" — it attempts to set the
+object's <em>prototype</em>, and throws. In this repo that once produced a script that exited
+with code 0 and no message at all. If you need a field called "base", rename it — which is why
+the mass record has <code>ppv_base</code> and not <code>base</code>.</p>
+</div>
+
+<h2>Functions</h2>
+
+<pre><code>Name(required, optional := "default") {
+    return required optional
+}
+</code></pre>
+
+<div class="concept">
+<span class="tag">CONCEPT-ENCOUNTERED</span>
+<h3>Variadic parameters: <code>parts*</code></h3>
+<p>A trailing <code>*</code> in a definition collects all remaining arguments into an array:</p>
+<pre><code>sndFu(group, parts*) {
+    for p in parts
+        ...
+}
+</code></pre>
+<p>The same <code>*</code> on a call site does the reverse — it <em>spreads</em> an array into
+separate arguments:</p>
+<pre><code>sndFu(group, _FuParts(m, group)*)   <span class="c">; array of 3 → three arguments</span>
+</code></pre>
+<p>That one line in <code>_DoFuGroup</code> is doing real work: <code>_FuParts</code> returns an
+array of three strings, and the <code>*</code> unpacks it so <code>sndFu</code> receives them as
+its variadic <code>parts</code>.</p>
+</div>
+
+<div class="concept">
+<span class="tag">CONCEPT-ENCOUNTERED</span>
+<h3>ByRef parameters: <code>&amp;name</code></h3>
+<p>An <code>&amp;</code> in the definition means the caller's variable itself is passed, so the
+function can write to it. The caller must also write <code>&amp;</code>:</p>
+<pre><code>ExtractModelName(&amp;raw) {
+    ...
+    raw := ""              <span class="c">; modifies the CALLER's variable</span>
+    ...
+    return name
+}
+
+detected := ExtractModelName(&amp;raw)   <span class="c">; raw comes back stripped</span>
+</code></pre>
+<p>You meet this constantly with <code>RegExMatch</code>, which writes its match object into a
+ByRef output:</p>
+<pre><code>if RegExMatch(t, "i)^!?mm[a]?[\s:]+\s*(.*)", &amp;m)
+    text := Trim(m[1])     <span class="c">; m[0] = whole match, m[1] = first group</span>
+</code></pre>
+<p>An <em>optional</em> ByRef is written <code>&amp;ok?</code> — the trailing question mark is
+the v2 spelling. <code>&amp;ok := unset</code> is not valid syntax. <code>LOG_Try</code> uses
+this so callers can branch on success without every caller being forced to.</p>
+</div>
+
+<div class="concept">
+<span class="tag">CONCEPT-ENCOUNTERED</span>
+<h3>Fat arrows — one-expression functions</h3>
+<pre><code>MODE_IsEasy() => (MODE_Current() = "easy")
+
+LOG_On()     => (_LOG_Settings(), _LOG_ON)
+</code></pre>
+<p>The second one uses the <strong>comma operator</strong>: evaluate the first expression for
+its side effect, then return the second. It reads as "refresh the cached settings, then answer
+with the flag."</p>
+<p>Fat arrows also make anonymous functions:</p>
+<pre><code>SetTimer(() =&gt; ToolTip(), -1400)          <span class="c">; clear the tooltip in 1.4s</span>
+HK_Context("chrome", (*) =&gt; WinActive("ahk_exe chrome.exe"))
+</code></pre>
+<p><code>(*)</code> means "accept any arguments and ignore them". It appears everywhere in MMA
+because AHK passes arguments you did not ask for: a hotkey callback receives the hotkey's own
+name, a GUI event handler receives the control and info. A function that does not accept them
+raises <em>"Invalid callback function"</em> or a parameter-count error.</p>
+<p>That is why so many MMA handlers are declared <code>DoSomething(*)</code> — including
+<code>ToggleMassLock(*)</code>, <code>AltStageNext(*)</code> and <code>ParseCurrent(*)</code>.
+It is not laziness; it is the required signature.</p>
+</div>
+
+<h2>Closures and the loop-variable trap</h2>
+
+<p>This one has cost this repo real bugs, more than once, and it is subtle enough that
+<code>tools/test/mass_bind_test.ahk</code> exists specifically to pin it down.</p>
+
+<div class="concept">
+<span class="tag">CONCEPT-ENCOUNTERED</span>
+<h3>A closure captures the variable, not its value</h3>
+<p>When a fat-arrow function refers to a variable from the enclosing function, it captures
+<strong>the variable itself</strong>. If that variable changes later, the closure sees the new
+value.</p>
+<pre><code><span class="c">; WRONG — every key selects model 3</span>
+Loop 3 {
+    n := A_Index
+    HK_Bind("mass.select.m" n, (*) =&gt; SelectModel(n))
+}
+</code></pre>
+<p>There is one function body, so there is one <code>n</code>. All three lambdas share it. By
+the time any key is pressed, the loop has finished and <code>n</code> is 3.</p>
+<p>Two correct fixes, both used in MMA:</p>
+<pre><code><span class="c">; 1. .Bind() — copies the VALUE at bind time</span>
+HK_Bind(id, SelectModel.Bind(A_Index))
+
+<span class="c">; 2. a factory function — a parameter is a fresh binding per call</span>
+_ModelFire(modelNo, fn) {
+    return (*) =&gt; (_SetCurModel(modelNo), fn())
+}
+HK_Bind(id, _ModelFire(n, fn))
+</code></pre>
+<p>The factory works because each <em>call</em> to <code>_ModelFire</code> creates a new
+<code>modelNo</code>. The lambda closes over <em>that</em> one.</p>
+<p><code>_MassRegisterNumbered()</code> in <code>runtime.ahk</code> uses the factory form and
+says why in a comment: without it, all twelve <code>__1mm</code>…<code>__12mm</code> triggers
+would mean model 12.</p>
+</div>
+
+<div class="warn">
+<span class="tag">Trap</span>
+<p><strong>A closure cannot read a <code>for</code>-loop's own loop variables at all.</strong>
+In <code>for k, v in map</code>, a lambda inside the body cannot see <code>k</code> or
+<code>v</code>. Copy them to plain locals first. AHK's <code>/validate</code> syntax check does
+not catch this; you find out at run time.</p>
+</div>
+
+<div class="concept">
+<span class="tag">CONCEPT-ENCOUNTERED</span>
+<h3><code>.Bind()</code> — partial application</h3>
+<pre><code>SelectModel.Bind(2)        <span class="c">; a function that calls SelectModel(2)</span>
+SVC_RunVbs.Bind(s.path)    <span class="c">; a function that calls SVC_RunVbs(path)</span>
+</code></pre>
+<p>The bound arguments are evaluated <em>now</em> and stored. Any arguments passed later are
+appended after them. This is the safest way to build a callback in a loop.</p>
+</div>
+
+<h2>Hotkeys and hotstrings</h2>
+
+<div class="concept">
+<span class="tag">CONCEPT-ENCOUNTERED</span>
+<h3>Hotkeys — two syntaxes</h3>
+<p>Static, at the top level of a file:</p>
+<pre><code>F1::DoFu1()          <span class="c">; one-liner</span>
+
+^!o::                <span class="c">; block form</span>
+{
+    ToggleStats()
+}
+</code></pre>
+<p>Dynamic, at run time — which is what MMA uses <em>exclusively</em>:</p>
+<pre><code>Hotkey("F1", DoFu1)           <span class="c">; register</span>
+Hotkey("F1", "Off")           <span class="c">; disable, keep the binding</span>
+Hotkey("F1", "On")            <span class="c">; re-enable</span>
+</code></pre>
+<p>MMA never writes a key in code. Every key lives in <code>userdata/hotkeys.ini</code> and is
+registered by <code>HK_Bind(id, fn)</code>, which looks the key up. Chapter 4 covers why.</p>
+<p><strong>Modifier prefixes:</strong> <code>^</code> Ctrl, <code>!</code> Alt, <code>+</code>
+Shift, <code>#</code> Win. So <code>^!F9</code> is Ctrl+Alt+F9. Other prefixes:
+<code>*</code> means "fire regardless of extra modifiers", <code>~</code> means "also let the
+key through to the app", <code>$</code> forces the keyboard hook.</p>
+<p><code>F13</code>–<code>F24</code> are real keys that no keyboard has — which is why MMA
+maps a Corsair Scimitar's twelve side buttons to them in <code>src/core/coords.ahk</code>. They
+can never conflict with anything else.</p>
+</div>
+
+<div class="warn">
+<span class="tag">Trap</span>
+<p><code>*Tab</code> also fires on Shift+Tab, because the wildcard ignores <em>extra</em>
+modifiers. To handle them separately you must bind <code>*+Tab</code> as well — an exact
+modifier match beats a wildcard one. The TAB-staging picker in <code>utils.ahk</code> binds
+both, with a comment saying exactly this.</p>
+</div>
+
+<div class="concept">
+<span class="tag">CONCEPT-ENCOUNTERED</span>
+<h3>Hotstrings — text that expands as you type</h3>
+<pre><code>::btw::by the way          <span class="c">; type "btw" + space → "by the way"</span>
+:*X:__mm::MassSendOrPick() <span class="c">; MMA's actual mass trigger</span>
+</code></pre>
+<p>The letters between the colons are options:</p>
+<ul>
+<li><code>*</code> — fire the <em>instant</em> the trigger is typed, with no ending character.</li>
+<li><code>X</code> — the replacement is <em>code to execute</em>, not text.</li>
+<li><code>?</code> — fire even inside another word.</li>
+<li><code>C</code> — case sensitive.</li>
+</ul>
+<p>Dynamic registration exists too, and MMA uses it for the numbered triggers:</p>
+<pre><code>Hotstring(":*X:__" A_Index "mm", _MassNumberedFire(A_Index))
+</code></pre>
+<p><strong>The <code>*</code> option has a consequence worth knowing.</strong> Because
+<code>__mm</code> fires the moment the second <code>m</code> is typed, a trigger named
+<code>__mm1</code> could <em>never fire</em> — <code>__mm</code> would have already expanded.
+That is why MMA's per-model triggers put the number in front (<code>__1mm</code>), and it is
+why a whole arbitration mechanism (<code>NumberedSendActive</code>) could be deleted: the two
+triggers no longer overlap, so nothing has to decide between them.</p>
+</div>
+
+<h2>Contexts: <code>#HotIf</code> versus <code>HotIf()</code></h2>
+
+<div class="concept">
+<span class="tag">CONCEPT-ENCOUNTERED</span>
+<h3>The two are not the same thing, and mixing them fails silently</h3>
+<p><code>#HotIf</code> is a <strong>directive</strong>. It applies to <code>::</code> hotkeys
+<em>written literally below it in the source</em>, at load time. It has no effect whatsoever on
+keys registered with the <code>Hotkey()</code> function.</p>
+<p><code>HotIf(criterion)</code> is a <strong>function</strong>. It sets the context for
+<code>Hotkey()</code> calls that follow it at run time, until you call <code>HotIf()</code> with
+no argument to clear it.</p>
+<pre><code>HotIf(HK_CTX[m.when])          <span class="c">; from now on, keys are context-limited</span>
+Hotkey(key, _HK_Wrap(id, fn))
+HotIf()                        <span class="c">; back to global</span>
+</code></pre>
+<p><strong>This has bitten this repo.</strong> The Discord import in
+<code>sequences/sequences.ahk</code> was wrapped in a <code>#HotIf</code> directive while being
+bound with <code>Hotkey()</code>. The directive did nothing, so the key was registered
+<em>globally</em> and fired in every application. The comment in that file records it. The
+context now comes from the hotkey registry, which applies it the correct way.</p>
+<p>A criterion must accept arguments — <code>HotIf</code> calls it with the hotkey's name — so
+every context in MMA is declared <code>(*) =&gt; ...</code>:</p>
+<pre><code>HK_Context("chrome",  (*) =&gt; WinActive("ahk_exe chrome.exe"))
+HK_Context("discord", (*) =&gt; WinActive("ahk_exe Discord.exe"))
+</code></pre>
+<p><strong>The performance consequence is real.</strong> A context expression is re-evaluated
+<em>every time the key might fire</em>, which for a key like <code>Tab</code> means on every
+keystroke. Anything a criterion calls is therefore on the typing hot path. That is why
+<code>_PositionalStatus()</code> caches for 250 ms, why <code>_IniInt</code> must never throw,
+and why <code>FEAT()</code> logs at <code>VERB</code> and never higher.</p>
+</div>
+
+<h2>Threads, timers, and interruption</h2>
+
+<div class="concept">
+<span class="tag">CONCEPT-ENCOUNTERED</span>
+<h3>AHK "threads" are pseudo-threads, and they interrupt each other</h3>
+<p>When a hotkey fires, AHK starts a new <em>thread</em> — not an OS thread, but a nested
+execution context. Crucially, <strong>a running thread can be interrupted by another
+hotkey</strong>. If <code>DoFu1</code> is halfway through sending three messages with pauses
+between them and you press F2, <code>DoFu2</code> starts running <em>inside</em> that pause.</p>
+<p>The result is two follow-ups interleaved into one chat. This is the exact mess that the
+three anti-fumble guards in <code>_HK_Fire</code> exist to prevent — see chapter 7.</p>
+<p>Because they are pseudo-threads sharing one OS thread, a DPI awareness context set at the
+top of a script is still in force inside every hotkey and every timer callback. That is why
+<code>DPI_ScriptWide()</code> works as a single top-level statement in
+<code>model_detector.ahk</code>.</p>
+</div>
+
+<div class="concept">
+<span class="tag">CONCEPT-ENCOUNTERED</span>
+<h3><code>SetTimer</code>, and the meaning of a negative period</h3>
+<pre><code>SetTimer(Poll, 500)        <span class="c">; every 500 ms, forever</span>
+SetTimer(Poll, 0)          <span class="c">; stop it</span>
+SetTimer(ClearTip, -1400)  <span class="c">; ONCE, after 1400 ms</span>
+</code></pre>
+<p>A negative period means "run once after this delay". MMA uses it for every tooltip
+auto-clear and for the staging timeout. Re-calling <code>SetTimer</code> with a negative period
+on a pending timer <em>resets</em> the countdown, which is how a debounce is written.</p>
+</div>
+
+<h2>Sending text, and the clipboard</h2>
+
+<div class="concept">
+<span class="tag">CONCEPT-ENCOUNTERED</span>
+<h3><code>Send</code> — synthesising keystrokes</h3>
+<pre><code>Send("^v")           <span class="c">; Ctrl+V</span>
+Send("{Enter}")      <span class="c">; a named key</span>
+Send("hello")        <span class="c">; literal text, typed character by character</span>
+SendText("hello")    <span class="c">; literal, no modifier interpretation at all</span>
+</code></pre>
+<p>Braces name special keys; <code>^!+#</code> are modifiers, exactly as in a hotkey.
+<code>SetKeyDelay(-1, -1)</code> at the top of <code>utils.ahk</code> makes sends as fast as
+possible.</p>
+</div>
+
+<div class="concept">
+<span class="tag">CONCEPT-ENCOUNTERED</span>
+<h3>The clipboard, and why every use is guarded</h3>
+<p><code>A_Clipboard</code> is a built-in variable that <em>is</em> the Windows clipboard.
+Assigning to it copies; reading it pastes-in-reverse. MMA sends messages by putting them on the
+clipboard and pressing Ctrl+V, because that is far faster and far more reliable than typing 200
+characters into a web app.</p>
+<pre><code>A_Clipboard := ""          <span class="c">; clear first, so ClipWait tests THIS write</span>
+A_Clipboard := arg
+if !ClipWait(1)            <span class="c">; wait up to 1s for the clipboard to actually hold it</span>
+    LOGE(...)
+Send("^v")
+Send("{Enter}")
+</code></pre>
+<p><code>ClipWait(seconds)</code> returns false on timeout. <strong>The failure mode if you
+ignore it is the worst in the codebase</strong> and the comment on <code>Snd()</code> says so
+plainly: if the clipboard did not take the text, Ctrl+V pastes <em>whatever was on the
+clipboard before</em> into a real fan's chat, and then presses Enter. There is no way to notice
+except by reading the message that went out.</p>
+<p>Clearing to <code>""</code> first is not decoration either. Without it,
+<code>ClipWait</code> would see the <em>previous</em> content and return true immediately.</p>
+</div>
+
+<h2>Windows: titles, classes, and hidden windows</h2>
+
+<div class="concept">
+<span class="tag">CONCEPT-ENCOUNTERED</span>
+<h3>WinTitle — how AHK addresses a window</h3>
+<p>Most window functions take a "WinTitle", which can be a title substring or one of several
+prefixed forms:</p>
+<div class="tablewrap">
+<table>
+<thead><tr><th>Form</th><th>Means</th></tr></thead>
+<tbody>
+<tr><td><code>"Infloww Messages"</code></td><td>a window whose title contains this</td></tr>
+<tr><td><code>"ahk_exe chrome.exe"</code></td><td>matched by executable</td></tr>
+<tr><td><code>"ahk_class AutoHotkey"</code></td><td>matched by window class</td></tr>
+<tr><td><code>"ahk_id " hwnd</code></td><td>one specific window handle</td></tr>
+<tr><td><code>"A"</code></td><td>the currently active window</td></tr>
+<tr><td>combined</td><td><code>path " ahk_class AutoHotkey"</code> — both must match</td></tr>
+</tbody>
+</table>
+</div>
+<p><code>WinExist(t)</code> returns the hwnd or 0. <code>WinActive(t)</code> returns non-zero
+if that window is in front.</p>
+</div>
+
+<div class="concept">
+<span class="tag">CONCEPT-ENCOUNTERED</span>
+<h3>A script's main window is titled with its full path</h3>
+<p>Every AHK script has a hidden main window, and Windows titles it with the script's
+<strong>full file path</strong>. That single fact is load-bearing throughout MMA:</p>
+<ul>
+<li><code>HK_Broadcast</code> finds "our" scripts by testing whether a window's title starts
+with the repo root.</li>
+<li><code>processes.ahk</code> closes a service by looking up
+<code>path " ahk_class AutoHotkey"</code> and calling <code>ProcessClose</code> on its PID.</li>
+<li><code>sequences.ahk</code> posts the auto-parse message to a title built from the main
+window's path.</li>
+</ul>
+<p>It is also why <code>MMA.ahk</code> uses <code>Run</code> instead of <code>#Include</code> to
+start the GUI — its own comment explains that including would run the GUI under the title
+"MMA.ahk" and all three of those mechanisms would quietly stop matching.</p>
+<p><strong>These windows are hidden</strong>, so you must turn on
+<code>DetectHiddenWindows true</code> before <code>WinExist</code> can find them. Every MMA
+function that looks for a script saves the previous setting, sets it, and restores it — because
+leaving it on changes the behaviour of unrelated code.</p>
+</div>
+
+<h2>Window messages — how processes talk</h2>
+
+<div class="concept">
+<span class="tag">CONCEPT-ENCOUNTERED</span>
+<h3><code>PostMessage</code> and <code>OnMessage</code></h3>
+<p>Windows lets any process send a numbered message to any window. The receiver registers a
+handler for that number.</p>
+<pre><code><span class="c">; receiver</span>
+ReloadMasses(*) {
+    global MASS_DOC := MASS_Load()
+}
+OnMessage(MMA_MSG_MASSES_CHANGED, ReloadMasses)
+
+<span class="c">; sender, in another process entirely</span>
+PostMessage(MMA_MSG_MASSES_CHANGED, 0, 0, , "ahk_id " hwnd)
+</code></pre>
+<p>A message carries a number and two integer payloads (<code>wParam</code>,
+<code>lParam</code>). <strong>It cannot carry a string.</strong> That constraint shapes MMA's
+entire IPC design: the message is only ever a <em>nudge</em>, and the actual data travels
+through a file. "The GUI saved masses.json" is a message with no payload; the engine responds by
+re-reading the file.</p>
+<p>Numbers must be in the user range, above <code>0x8000</code>. MMA declares all ten in
+<code>core/messages.ahk</code> and uses the <em>name</em> at both ends, because a literal is how
+<code>0x8002</code> once came to mean two different things in two different files.</p>
+<p>A handler receives four arguments: <code>(wParam, lParam, msg, hwnd)</code>. Handlers that
+ignore them are declared <code>(*)</code>. <code>msg</code> is the message number, which is what
+lets one handler serve three contiguous messages — see
+<code>SetEditableFuMsg</code>.</p>
+</div>
+
+<div class="warn">
+<span class="tag">Trap</span>
+<p><code>PostMessage</code>'s fourth parameter is <strong>Control</strong>, not the target
+window. Passing <code>0</code> there throws "Target window not found". Omit it — leave the slot
+empty, as <code>PostMessage(msg, wparam, 0, , "ahk_id " hwnd)</code> does.</p>
+</div>
+
+<h2>INI files as a database</h2>
+
+<div class="concept">
+<span class="tag">CONCEPT-ENCOUNTERED</span>
+<h3>IniRead / IniWrite, and the silent-default problem</h3>
+<pre><code>v := IniRead(file, "Section", "Key", "default")
+IniWrite(value, file, "Section", "Key")
+IniRead(file, "Section")        <span class="c">; whole section as "key=value" lines</span>
+IniRead(file)                   <span class="c">; all section NAMES, newline separated</span>
+</code></pre>
+<p>MMA stores essentially all of its configuration this way, in
+<code>userdata/mass_gui.cfg</code> and <code>userdata/hotkeys.ini</code>. Settings are read
+<em>per use</em>, not cached, which is what lets a change in the GUI apply to the engine's next
+keypress with no restart.</p>
+<p><strong>The failure mode that shapes half this codebase:</strong> <code>IniRead</code> with a
+default <em>cannot fail</em>. A wrong path, a missing section, a typo in the key name — all
+return the default, silently. A setting appears to do nothing and nothing says why. The header
+of <code>paths.ahk</code> is entirely about this, and <code>LOG_IniRead</code> exists so that a
+defaulted read is at least written down at verbose level.</p>
+<p><strong>A second failure mode, worse:</strong></p>
+<pre><code>n := Integer(IniRead(cfg, "Settings", "ModelCount", 3))   <span class="c">; ← latent crash</span>
+</code></pre>
+<p><code>Integer()</code> <strong>throws</strong> on anything non-numeric. One hand-typed
+<code>ModelCount=three</code> in a file MMA itself invites you to edit does not mis-configure
+the app — if that line is at a script's top level, the <em>script does not load</em>. In
+<code>runtime.ahk</code> that means every mass hotkey in MMA is dead, silently. The repo's
+answer is <code>LOG_IniInt</code>, which degrades to the default and says so.</p>
+<p>Two more ini quirks that have caused bugs here:</p>
+<ul>
+<li>Windows strips leading and trailing whitespace from values, so a separator of
+<code>"  |  "</code> comes back as <code>"|"</code>. MMA encodes spaces as <code>\s</code> in
+the staging separators for exactly this reason.</li>
+<li>A trailing <code>; comment</code> on a value line is <em>not</em> stripped — it becomes
+part of the value. <code>hotkeys.default.ini</code> says so in its header.</li>
+<li>An <code>=</code> inside a key is impossible: <code>IniWrite</code> of a key
+<code>a=b</code> emits <code>a=b=value</code>, which reads back as key "a". That is why the
+hotstring-key UI refuses a trigger containing <code>=</code> at the point of writing.</li>
+</ul>
+</div>
+
+<h2>Errors</h2>
+
+<div class="concept">
+<span class="tag">CONCEPT-ENCOUNTERED</span>
+<h3>try / catch / finally / throw</h3>
+<pre><code>try {
+    risky()
+} catch as e {
+    LOGE("tag", "it failed", LOG_Err(e))
+} finally {
+    cleanup()          <span class="c">; runs whether or not it threw</span>
+}
+
+try FileDelete(tmp)    <span class="c">; single-statement form, no braces</span>
+</code></pre>
+<p><code>catch as e</code> binds the error object. It has <code>.Message</code>,
+<code>.What</code>, <code>.File</code>, <code>.Line</code>, <code>.Extra</code> —
+<code>LOG_Err(e)</code> in <code>log.ahk</code> flattens all of them into one readable string,
+each access individually guarded because not every thrown value is an Error object.</p>
+<p><code>finally</code> is used in MMA wherever a global setting is temporarily changed, so it
+is restored even on a throw:</p>
+<pre><code>prev := A_DetectHiddenWindows
+DetectHiddenWindows true
+try {
+    ...
+}
+finally
+    DetectHiddenWindows prev
+</code></pre>
+<p><strong>The bare <code>try</code> with no catch swallows everything.</strong> That is
+deliberate in exactly one place — the logger — where the rule is stated as: <em>a logger must
+never crash the thing it is logging for</em>. Everywhere else, a bare <code>try</code> should
+make you suspicious.</p>
+</div>
+
+<div class="warn">
+<span class="tag">Trap</span>
+<p><strong><code>&lt;</code> and <code>&gt;</code> are numeric operators.</strong> Comparing two
+non-numeric strings with them throws <em>"Expected a Number but got a String"</em>. Use
+<code>StrCompare(a, b)</code> for ordering strings. This is not caught by
+<code>/validate</code>; you find out at run time. A character-by-character filter loop in
+<code>next_fu.ahk</code> was written this way originally, and it did not filter letters — it
+crashed on the first one.</p>
+</div>
+
+<h2>Built-in <code>A_</code> variables</h2>
+
+<p>AHK exposes state through variables prefixed <code>A_</code>. The ones you must know:</p>
+
+<div class="tablewrap">
+<table>
+<thead><tr><th>Variable</th><th>Meaning</th><th>Why it matters here</th></tr></thead>
+<tbody>
+<tr><td><code>A_LineFile</code></td><td>The file <em>this line of code</em> is written in.</td><td>The anchor for the whole path system. Immune to which script is running.</td></tr>
+<tr><td><code>A_ScriptDir</code></td><td>The folder of the <em>main</em> script — the one launched.</td><td><strong>A trap.</strong> 37 uses of it broke silently when entry points moved into subfolders. Never use it in MMA.</td></tr>
+<tr><td><code>A_Index</code></td><td>The current iteration of the <em>innermost</em> loop.</td><td>A real bug source — see the trap below.</td></tr>
+<tr><td><code>A_TickCount</code></td><td>Milliseconds since the machine booted.</td><td>Not since the script started. The logger takes its own start mark for that reason.</td></tr>
+<tr><td><code>A_Clipboard</code></td><td>The Windows clipboard, readable and writable.</td><td>The send mechanism.</td></tr>
+<tr><td><code>A_ScriptName</code></td><td>Filename of the running script.</td><td>The process column in <code>mma.log</code>.</td></tr>
+<tr><td><code>A_Now</code></td><td>Current timestamp, YYYYMMDDHH24MISS.</td><td>Used with <code>FormatTime</code>.</td></tr>
+<tr><td><code>A_ScreenDPI</code></td><td>The <em>system</em> DPI.</td><td>Stays system DPI even under per-monitor awareness. See chapter 12.</td></tr>
+<tr><td><code>A_DetectHiddenWindows</code></td><td>Current setting, for save/restore.</td><td>Every script-finding function saves and restores it.</td></tr>
+</tbody>
+</table>
+</div>
+
+<div class="warn">
+<span class="tag">Trap</span>
+<p><code>A_Index</code> always refers to the <strong>innermost</strong> loop. In</p>
+<pre><code>Loop MASS_SLOTS {
+    for field in MASS_Fields()
+        ck := "m" A_Index "_" field    <span class="c">; ← counts FIELDS (1..44), not slots</span>
+}</code></pre>
+<p>the inner <code>for</code> has taken over <code>A_Index</code>. MMA's fix, recorded in a
+comment in <code>LoadFile</code>, is to copy it first: <code>slot := A_Index</code> before the
+inner loop. The bug this produced was silent — it built control keys like <code>m17_fu1</code>
+that matched nothing.</p>
+</div>
+
+<h2><code>DllCall</code> — talking to Windows directly</h2>
+
+<div class="concept">
+<span class="tag">CONCEPT-ENCOUNTERED</span>
+<h3>Calling the Win32 API from a script</h3>
+<pre><code>hdc := DllCall("GetDC", "ptr", 0, "ptr")
+</code></pre>
+<p>The pattern is: function name, then alternating <em>type</em>, <em>value</em> pairs, then a
+final type which is the return type. Types you will see in MMA: <code>"ptr"</code>,
+<code>"int"</code>, <code>"uint"</code>, <code>"ushort"</code>, <code>"str"</code>,
+<code>"ptr*"</code> (an out-pointer).</p>
+<p>MMA uses <code>DllCall</code> in three places, all core:</p>
+<ul>
+<li><code>pill_scan.ahk</code> — <code>GetDC</code>, <code>CreateCompatibleDC</code>,
+<code>CreateDIBSection</code>, <code>BitBlt</code>, <code>RtlMoveMemory</code>: capture a
+rectangle of screen into memory so pixels can be read a thousand times faster. Chapter 8
+explains why that mattered so much.</li>
+<li><code>processes.ahk</code> — <code>OpenEventW</code> / <code>SetEvent</code>: a Python
+service has no AHK window, so it signs its presence with a named kernel event. Opening it
+answers "is it running?"; setting it means "please exit".</li>
+<li><code>dpi.ahk</code> — <code>SetThreadDpiAwarenessContext</code>: make coordinate maths
+agree with a mixed-DPI desk.</li>
+</ul>
+<p><code>Buffer(size)</code> allocates raw memory; <code>NumPut</code> and <code>NumGet</code>
+write and read typed values into it at byte offsets. That is how the bitmap header in
+<code>PILL_Grab</code> is built.</p>
+</div>
+
+<h2>Coordinates and DPI</h2>
+
+<div class="concept">
+<span class="tag">CONCEPT-ENCOUNTERED</span>
+<h3><code>CoordMode</code> — relative to what?</h3>
+<pre><code>CoordMode("Pixel", "Screen")   <span class="c">; pixel functions use screen coordinates</span>
+CoordMode("Pixel", "Client")   <span class="c">; …relative to the active window's client area</span>
+CoordMode("Mouse", "Screen")
+</code></pre>
+<p>The default is "Window", which is almost never what you want. MMA's detectors use "Screen"
+because they scan fixed rectangles; the Discord import uses "Client" because the header band's
+position depends on the window, not the desktop — and because a maximised window's rect starts
+at −8,−8, which would shift a screen-relative band right off the header.</p>
+<p><code>CoordMode</code> is <em>global to the thread</em>, so functions that change it save and
+restore the previous value. <code>DiscordChannelName()</code> is a clean example.</p>
+</div>
+
+<div class="concept">
+<span class="tag">CONCEPT-ENCOUNTERED</span>
+<h3>DPI awareness</h3>
+<p>AutoHotkey ships a <em>system</em>-DPI-aware manifest. On a desk where every monitor shares
+the primary's scaling, that is indistinguishable from being fully aware. Put a second monitor
+on a different scale and Windows starts handing the process <em>invented numbers</em> for
+window rects, cursor position, and the origin a <code>BitBlt</code> reads from.</p>
+<p>The measurements are in <code>src/core/dpi.ahk</code>: a box asked for at (−1200, 400) 400×200
+on a 150 % second monitor landed at (−1008, 545) 480×240. Off by exactly 1.2× in both size and
+position.</p>
+<p><strong>The reason this is nastier than "20 % off"</strong> is that inside the process every
+wrong number is <em>consistent</em>. The mouse, the overlay and the capture rectangle all agree
+with each other and disagree only with the screen. Every reading looks plausible.</p>
+<p>Two entry points, and choosing wrong is the only way to break something:</p>
+<ul>
+<li><code>DPI_ScriptWide()</code> — for a script whose whole job is pixels, called once at the
+top. <em>Not</em> for anything that builds a normal GUI.</li>
+<li><code>DpiScope()</code> / <code>DPI_Enter()</code> + <code>DPI_Leave()</code> — thread-scoped
+and reversible, for a library included into a process that does have a GUI.</li>
+</ul>
+</div>
+
+<h2>A ten-minute tour of the standard library, MMA edition</h2>
+
+<div class="tablewrap">
+<table>
+<thead><tr><th>Function</th><th>Notes</th></tr></thead>
+<tbody>
+<tr><td><code>StrSplit(s, delim, omitChars)</code></td><td>Returns an Array. <code>StrSplit(body, "`n", "`r")</code> splits lines and strips carriage returns — the standard idiom here.</td></tr>
+<tr><td><code>StrReplace(s, find, repl)</code></td><td>All occurrences.</td></tr>
+<tr><td><code>SubStr(s, start, len)</code></td><td>1-based. Negative <code>start</code> counts from the end.</td></tr>
+<tr><td><code>InStr(hay, needle, caseSense, start)</code></td><td>Returns position or 0. <strong>Case-insensitive by default.</strong> A negative <code>start</code> searches <em>backwards</em> — that is how <code>next_fu.ahk</code> finds the <em>last</em> occurrence.</td></tr>
+<tr><td><code>Trim / LTrim / RTrim(s, chars)</code></td><td>Default trims whitespace. <code>Trim(chunk, " `t`r`n")</code> is used in the archive parser because plain <code>Trim</code> leaves leading CR/LF.</td></tr>
+<tr><td><code>StrLower / StrUpper</code></td><td>Used before every case-insensitive comparison of user data.</td></tr>
+<tr><td><code>StrLen(s)</code></td><td>Length.</td></tr>
+<tr><td><code>StrCompare(a, b)</code></td><td>Ordering. Use this, never <code>&lt;</code>/<code>&gt;</code>.</td></tr>
+<tr><td><code>RegExMatch(hay, pat, &amp;out)</code></td><td>Position or 0. Options go <em>before</em> the pattern with <code>)</code>: <code>"i)^abc"</code> is case-insensitive.</td></tr>
+<tr><td><code>RegExReplace(hay, pat, repl)</code></td><td>Same option syntax.</td></tr>
+<tr><td><code>Format("0x{:06X}", n)</code></td><td>printf-style. Used to log colours readably.</td></tr>
+<tr><td><code>FormatTime(stamp, fmt)</code></td><td>Blank stamp means now.</td></tr>
+<tr><td><code>FileRead / FileAppend / FileDelete / FileMove / FileCopy</code></td><td>Encoding is the third argument: <code>"UTF-8"</code> writes a BOM, <code>"UTF-8-RAW"</code> does not.</td></tr>
+<tr><td><code>FileOpen(path, "w", "UTF-8-RAW")</code></td><td>Returns a file object with <code>.Write()</code> / <code>.Close()</code>.</td></tr>
+<tr><td><code>FileExist(path)</code></td><td>Returns an attribute string (truthy) or "".</td></tr>
+<tr><td><code>SplitPath path, &amp;name, &amp;dir, &amp;ext</code></td><td>All outputs are ByRef and optional.</td></tr>
+<tr><td><code>Run(target, workingDir, options)</code></td><td><code>Run(path)</code> on an .ahk launches a new AHK process.</td></tr>
+<tr><td><code>ProcessExist()</code> / <code>ProcessClose(pid)</code></td><td>No argument means "my own PID".</td></tr>
+<tr><td><code>MsgBox(text, title, options)</code></td><td>Options are a bitmask: <code>0x10</code> error icon, <code>0x24</code> Yes/No + question, <code>0x40</code> info, <code>0x23</code> Yes/No/Cancel.</td></tr>
+<tr><td><code>ToolTip(text)</code> / <code>ToolTip()</code></td><td>Show / hide. MMA's <code>_MassToast</code> is this plus a one-shot timer.</td></tr>
+<tr><td><code>SoundBeep(freq, ms)</code></td><td>Used as audible confirmation where your eyes are on the chat, not on MMA. 880 Hz = success, 300 Hz long = refusal.</td></tr>
+<tr><td><code>Mod(a, b)</code></td><td>Modulo. <code>Mod(i, n) + 1</code> is the wrap-around-a-list idiom used by TAB staging and model cycling.</td></tr>
+<tr><td><code>Max / Min / Abs</code></td><td>As expected.</td></tr>
+<tr><td><code>IsInteger / IsNumber / IsSet / IsObject</code></td><td>Type tests. <code>IsInteger("0x1A")</code> is true, which is why the same guard covers hex colours.</td></tr>
+<tr><td><code>Chr(n)</code> / <code>Ord(c)</code></td><td>Character from code point and back. <code>Chr(0xFEFF)</code> is the BOM; <code>Chr(1)</code> starts every sentinel in this repo.</td></tr>
+</tbody>
+</table>
+</div>
+
+<div class="note">
+<p><b>Escape character.</b> AHK uses a <strong>backtick</strong>, not a backslash.
+<code>`n</code> is newline, <code>`r</code> carriage return, <code>`t</code> tab,
+<code>``</code> a literal backtick. Backslashes in a string are just backslashes, which is
+convenient for Windows paths and confusing everywhere else.</p>
+</div>
+
+<h2>Checking your work without running it</h2>
+
+<p>AutoHotkey can parse a file and report syntax errors without executing it:</p>
+<pre><code>AutoHotkey64.exe /validate "path\to\file.ahk"
+</code></pre>
+<p>Two traps, both recorded in this project's notes:</p>
+<ul>
+<li>AHK is a <strong>GUI-subsystem</strong> executable, so it detaches immediately from a
+console. From PowerShell you must use <code>Start-Process -Wait</code> to get the exit code.</li>
+<li>Under Git Bash on Windows, MSYS rewrites <code>/validate</code> into a path. Set
+<code>MSYS_NO_PATHCONV=1</code>.</li>
+</ul>
+<p><strong><code>/validate</code> is a parser, not a linter.</strong> It will not catch: a
+closure reading a loop variable, a string comparison with <code>&lt;</code>, a Map key that does
+not exist, or a variable and a function whose names differ only by case — which is the next
+one.</p>
+
+<div class="warn">
+<span class="tag">Trap</span>
+<p><strong>A variable and a function cannot share a name, even across case.</strong> AHK
+identifiers are case-insensitive, so a global <code>_LOG_FORCED</code> and a function
+<code>_LOG_Forced()</code> are <em>the same name</em>. The script fails to load — and it fails
+<em>silently</em>, exiting with code 0 and printing nothing. That exact collision is why
+<code>log.ahk</code> has a global called <code>_LOG_FORCE_CACHE</code> with a comment explaining
+that it may not be called <code>_LOG_FORCED</code>.</p>
+</div>
+
+<h2>What to do next</h2>
+
+<p>You now have enough language to read any file in the core selection. Do not try to memorise
+this page — come back to it. The next chapter puts the pieces into a shape: what all these
+processes are, and how they find each other.</p>
+
+<div class="pager"></div>
+</main>
+</div>
+</body>
+</html>

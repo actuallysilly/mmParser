@@ -49,11 +49,23 @@ global MMA_DEBUGLOGS := MMA_ROOT "\debuglogs"
 
 ; ─── Files the user owns ──────────────────────────────────────────────────────
 ; All of these live in userdata\, which is gitignored except for the .default
-; that seeds hotkeys.ini. See ARCHITECTURE.md §1.3.
+; that seeds hotkeys.ini. See ARCHITECTURE.md §5.
 global MMA_CFG         := MMA_USERDATA "\mass_gui.cfg"
 global MMA_HK_INI      := MMA_USERDATA "\hotkeys.ini"
 global MMA_HK_DEFAULT  := MMA_USERDATA "\hotkeys.default.ini"
 global MMA_OVERLOADS   := MMA_USERDATA "\hotstring_overloads.ini"
+; Which hotstrings you use, and which you pinned — the quick menu's whole
+; memory. Its OWN file, not another section of hotstring_overloads.ini: that
+; one is written by a human in the manager and read at load by every message
+; script, while this one is written on every send. Mixing them would put a
+; keystroke-rate writer into the file your overloads live in.
+global MMA_USAGE       := MMA_USERDATA "\hotstring_usage.ini"
+; Triggers that run an ACTION instead of typing a message — see
+; hotstrings\shortcuts.ahk. Its own file, hand-edited and never written by MMA,
+; for the reason hotkeys.ini is its own file: mass_gui.cfg is machine-written
+; UTF-16 whose key order IniWrite reshuffles, which is no place for a list you
+; keep in an order that means something to you.
+global MMA_SHORTCUTS   := MMA_USERDATA "\shortcuts.ini"
 global MMA_MASSES      := MMA_USERDATA "\masses.json"
 global MMA_ARCHIVE     := MMA_USERDATA "\mass_archive.txt"
 global MMA_DETECTOR    := MMA_USERDATA "\detector_status.ini"
@@ -86,33 +98,115 @@ global MMA_PROBE_FANSLY := MMA_DEBUGLOGS "\fansly_probe.txt"
 global MMA_PROBE_NEXTFU := MMA_DEBUGLOGS "\nextfu_probe.txt"
 
 ; ─── Source files referenced as PATHS rather than #Included ───────────────────
-;  Three things do this and all three are easy to miss when moving files:
+;  Two things do this and both are easy to miss when moving files:
 ;    • recorder.ahk WRITES new code into sequences.ahk and hotkeys.ahk
-;    • main_window.ahk READS utils.ahk as text to scrape its waitTime value
 ;    • sequences.ahk builds a WinTitle from main_window.ahk's path, because an
 ;      AHK script's window title IS its full path
+;
+;  There was a third: both main windows and both Settings windows READ utils.ahk
+;  as text, to scrape the waitTime literal out of it. That number is [Settings]
+;  WaitTime in the cfg now, so four files stopped caring how utils.ahk is worded.
 global MMA_SRC_COORDS    := MMA_SRC "\core\coords.ahk"
 global MMA_SRC_UTILS     := MMA_SRC "\core\utils.ahk"
 global MMA_SRC_HOTKEYS   := MMA_SRC "\core\hotkeys.ahk"
 global MMA_SRC_SEQUENCES := MMA_SRC "\sequences\sequences.ahk"
 global MMA_SRC_GUI       := MMA_SRC "\ui\main_window.ahk"
-; The WebView shell — the same window drawn by Edge instead of by Win32. It is a
-; SECOND front end, not a replacement: MMA_SRC_GUI stays pointed at main_window.ahk
-; whichever one is running, because that path is also the WinTitle three files
-; match on (see the note above), and re-pointing it would move an identity as a
-; side effect of a cosmetic preference.
-global MMA_SRC_WEBVIEW   := MMA_ROOT "\tools\webview_main_window.ahk"
+; The WebView shell — the same window drawn by Edge instead of by Win32, and the
+; one MMA starts unless you ask for the other. It lived in tools\ while it was a
+; prototype; it is release code now, and it sits beside the Win32 shell and the
+; pages it loads (ui\webview\).
+;
+; MMA_SRC_GUI still points at main_window.ahk whichever one is running. That path
+; is the Win32 shell's own identity and nothing else: what used to address "the
+; GUI" through it now calls MMA_GuiWin() below, which answers with whichever
+; shell is actually up.
+global MMA_SRC_WEBVIEW   := MMA_SRC "\ui\webview_main_window.ahk"
+; The other two windows that come in both kinds. Settings has no standalone
+; Win32 script - the classic one is a Gui built inside the MAIN window, so
+; "legacy" there means "ask the main window", not "run this file".
+global MMA_SRC_SETTINGS_WV := MMA_SRC "\ui\settings_webview.ahk"
+global MMA_SRC_HOTKEYS_WV  := MMA_SRC "\ui\hotkeys_webview.ahk"
+global MMA_SRC_HOTKEYS_GUI := MMA_SRC "\ui\hotkeys_window.ahk"
 
 ; Which of the two MMA.ahk should start — Settings ▸ GUI ▸ Main window.
+;
+; The default is the WebView shell. The key is only ever WRITTEN by Settings, so
+; an install that has never touched that radio has no key at all and takes the
+; default — which is the whole mechanism by which this became the new front end.
+; "legacy" is still honoured and still fully supported; it is a choice now rather
+; than the starting point.
 ;
 ; Falls back to the Win32 window whenever the WebView file is missing, rather than
 ; failing to start: this is a preference, and a preference must not be able to
 ; leave you with no window at all. IniRead and nothing else — paths.ahk is included
 ; by scripts that include nothing, so it cannot call into log.ahk.
 MMA_ShellPath() {
-    v := Trim(IniRead(MMA_CFG, "Settings", "MainWindowShell", "legacy"))
-    return (v = "webview" && FileExist(MMA_SRC_WEBVIEW)) ? MMA_SRC_WEBVIEW
-                                                         : MMA_SRC_GUI
+    return (MMA_ShellFor("main") = "webview") ? MMA_SRC_WEBVIEW : MMA_SRC_GUI
+}
+
+; Which KIND of window to open: "webview" or "legacy". One function for all three
+; windows that come in both, so "everything is configurable as WebView vs AHK"
+; is one question asked the same way each time rather than three launchers each
+; reading their own key their own way.
+;
+;     which        key                  legacy means
+;     ---------    ------------------   ----------------------------------------
+;     "main"       MainWindowShell      run ui\main_window.ahk
+;     "settings"   SettingsShell        the Win32 Gui INSIDE the main window
+;     "hotkeys"    HotkeysShell         run ui\hotkeys_window.ahk
+;
+; WebView is the default for all three, and every key is only ever WRITTEN by
+; Settings - an install that has never touched them has no keys at all and takes
+; the default, which is the mechanism by which these became the front ends.
+;
+; Falls back to legacy whenever the WebView file is MISSING rather than failing:
+; this is a preference, and a preference must never be able to leave you with no
+; window at all. IniRead and nothing else - paths.ahk is included by scripts that
+; include nothing, so it cannot call into log.ahk.
+MMA_ShellFor(which) {
+    which := StrLower(Trim(which))
+    if (which = "settings") {
+        key := "SettingsShell", wv := MMA_SRC_SETTINGS_WV
+    } else if (which = "hotkeys") {
+        key := "HotkeysShell",  wv := MMA_SRC_HOTKEYS_WV
+    } else {
+        key := "MainWindowShell", wv := MMA_SRC_WEBVIEW
+    }
+    v := StrLower(Trim(IniRead(MMA_CFG, "Settings", key, "webview")))
+    return (v = "webview" && FileExist(wv)) ? "webview" : "legacy"
+}
+
+; The WinTitle of the main window that is actually RUNNING, whichever shell it is.
+;
+; An AHK script's hidden main window is titled with its full path, and two things
+; address the GUI that way across processes: sequences.ahk, which posts the
+; Discord import's auto-parse message, and hotstrings_window.ahk, whose
+; "Add hotkey..." button asks the GUI to open a dialog built out of the GUI's own
+; globals.
+;
+; Both hard-coded MMA_SRC_GUI, which was right while main_window.ahk was the only
+; front end and silently wrong the moment the WebView shell could be the window
+; MMA started: the message goes to a title nothing has, WinExist says the GUI is
+; not running, and the import reports itself as "MMA is not open" while MMA is
+; plainly open. That is the failure this function exists to prevent.
+;
+; Asks the preference first, then tries the other shell, so it is right whichever
+; one is up even if the setting was changed without a restart. If neither is
+; running it still returns a title, so the caller's own "not running" branch and
+; its log line say something meaningful.
+MMA_GuiWin() {
+    prev := A_DetectHiddenWindows
+    DetectHiddenWindows true
+    try {
+        for _, path in [MMA_ShellPath(), MMA_SRC_GUI, MMA_SRC_WEBVIEW] {
+            title := path " ahk_class AutoHotkey"
+            if WinExist(title)
+                return title
+        }
+        return MMA_ShellPath() " ahk_class AutoHotkey"
+    }
+    finally
+        DetectHiddenWindows prev
 }
 
 ; ─── Resolvers ────────────────────────────────────────────────────────────────

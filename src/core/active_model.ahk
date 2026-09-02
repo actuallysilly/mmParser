@@ -3,6 +3,7 @@
 #Include "../mass/store.ahk"
 #Include "../screen/pill_scan.ahk"
 #Include "fansly_model.ahk"
+#Include "dpi.ahk"
 ; ═══════════════════════════════════════════════════════════════════════════════
 ;  active_model.ahk — which of your models is on screen right now.
 ; ───────────────────────────────────────────────────────────────────────────────
@@ -13,7 +14,7 @@
 ;  GUI has no business owning, which is the same reason crashlog.ahk was split
 ;  out — so calling these from there was a load-time 'nonexistent function'.
 ;
-;  Three ways to decide, chosen in Settings (ARCHITECTURE.md §5.1):
+;  Three ways to decide, chosen in Settings (docs/decisions.md §5.1):
 ;    name      OCR the tab and match it against [ActiveMap]/[ModelAliases]/the
 ;              model's display name. Survives reordering your tabs; depends on
 ;              names that differ across MMA, Infloww and Discord.
@@ -21,6 +22,22 @@
 ;              No OCR, nothing to map; depends on the ORDER staying put.
 ;    manual    You say so, with a key, and MMA remembers until you say otherwise.
 ;              Reads no pixels at all.
+;
+;  ─── PER SITE, NOT PER INSTALL ───────────────────────────────────────────────
+;  Those three describe INFLOWW. Fansly has the same three of its own, in
+;  [Fansly] Match, read by FanslyMatchMode() in core/fansly_model.ahk, and the
+;  two settings do not have to agree.
+;
+;  They used to. `manual` lived only in [Settings] ModelMatch and short-circuited
+;  this function before Fansly was ever asked, so one switch governed both sites:
+;  putting the rail in manual — the correct response to a rail detector that
+;  cannot tell its rows apart — silently stopped the Infloww tab strip being read
+;  as well. "Read the tab strip, ask me about Fansly" was not expressible, and it
+;  is the ordinary shape of a desk with both sites open.
+;
+;  So the ROUTING happens first and the MODE second: which window is in front
+;  picks the site (a fact), and that site's own setting picks how to decide (a
+;  preference). See the two branches in ActiveModelStatus.
 ;
 ;  The first two both go through the screen detector, so they share its failure
 ;  modes — and when it is wrong it is CONFIDENTLY wrong: a scan that groups two
@@ -83,19 +100,43 @@ _IniInt(file, section, key, default) {
 
 ; "name" (default), "position" or "manual". See ActiveModelStatus.
 ;
-; Describes the INFLOWW side only, and always has — Fansly's equivalent is
-; [Fansly] Match, read by FanslyMatchMode() in fansly_model.ahk. "manual" is the
-; exception: it is a statement about not reading pixels at all, so it applies
-; wherever you are. Settings ▸ Models writes both from one Strategy radio pair
-; plus a per-site pair; this key's three values are unchanged.
+; Describes the INFLOWW side and nothing else. Fansly's equivalent is [Fansly]
+; Match, read by FanslyMatchMode() in fansly_model.ahk, and it has the same three
+; values. "manual" used to be the exception that applied to both sites at once;
+; it is not any more — see the PER SITE note in the header for what that cost.
+; Settings ▸ Models writes each site's key from its own three-way radio row.
 ModelMatchMode() {
-    return StrLower(Trim(IniRead(MMA_CFG, "Settings", "ModelMatch", "name")))
+    m := StrLower(Trim(IniRead(MMA_CFG, "Settings", "ModelMatch", "name")))
+    if (m = "position" || m = "manual")
+        return m
+    return "name"
+}
+
+; The match mode of the site you are actually looking at right now.
+;
+; ActiveModelStatus routes by window and then applies that site's mode. Anything
+; that has to know the mode BEFORE resolving — the picker gate in
+; _RunOnActiveModel, the select key deciding which site it is teaching — must
+; route the same way, or it reads Infloww's setting while you are looking at the
+; Fansly rail and acts on the wrong one.
+;
+; This is the one function to ask. Do not read ModelMatchMode() directly unless
+; you specifically mean Infloww's setting whatever is in front (Settings' own
+; Infloww readout does; almost nothing else should).
+ActiveSiteMatchMode() {
+    return FanslyIsUp() ? FanslyMatchMode() : ModelMatchMode()
+}
+
+; Which site the keys are aimed at right now: "fansly" or "infloww". For toasts
+; and log lines that would otherwise have to say "one of the two sites".
+ActiveSiteName() {
+    return FanslyIsUp() ? "fansly" : "infloww"
 }
 
 ; Do the shared [mass.active] keys resolve a model at all?
 ;
-; NOT a FEAT. The Features tab is the only writer of the feature registry (see
-; the header of ui/settings_window.ahk), and this switch belongs beside the
+; NOT a FEAT. The Features tab is the only place a registry key is offered as a
+; SETTING (see the header of ui/features_panel.ahk), and this switch belongs beside the
 ; strategy it governs on the Models tab — a feature key echoed read-only there
 ; would put the answer one tab away from the question. It is also the one switch
 ; Easy mode must NOT turn off in bulk: Easy switches off everything in the
@@ -262,16 +303,23 @@ SetModelPlatform(n, v) {
 
 ; Is this model one that nothing on screen can identify right now?
 ;
-; Only one case is left: a Fansly model with the rail detector switched OFF. With
-; the detector running, something on screen DOES identify it, and answering true
-; would hand it the "detector said nothing, use whatever was picked by hand"
-; fallback below — a guess, and the guess costs one model's mass in another's
-; chat. With the detector off, that model genuinely has nothing to go by.
+; Two cases, both Fansly: the rail detector switched OFF, or Fansly set to
+; Manual. Either way nothing on screen is being read for that model, so the
+; "detector said nothing, use whatever was picked by hand" fallback below is the
+; right answer rather than a guess. With the rail detector actually running in
+; name or position mode, something on screen DOES identify it and answering true
+; here would cost one model's mass in another's chat.
+;
+; The Manual case is new with per-site modes: before, Fansly-manual could only be
+; expressed as the global ModelMatch=manual, which never reached this function
+; because it short-circuited ActiveModelStatus first.
 ;
 ; The name stayed while the "manual" platform went, because this is still the
 ; question every caller is asking.
 IsManualPlatform(n) {
-    return (ModelPlatform(n) = "fansly" && !FEAT("fanslyDetector"))
+    if (ModelPlatform(n) != "fansly")
+        return false
+    return !FEAT("fanslyDetector") || FanslyMatchMode() = "manual"
 }
 
 ; The model to fall back to when the detector cannot see anything — but ONLY if
@@ -384,6 +432,11 @@ DetectorWindowUp(cfg := 0) {
 ; measurements that forced this. Callers grab once and pass it down; a function
 ; that grabs its own copy per call is back to the slow path.
 GrabStrip(cfg := 0) {
+    ; Per-monitor DPI for the length of this call — see core/dpi.ahk. Without
+    ; it every coordinate below is virtualised on any monitor whose scaling
+    ; differs from the primary's, and the wrong numbers stay self-consistent
+    ; while disagreeing with the screen.
+    _dpi := DpiScope()
     if !cfg
         cfg := DetectorCfg()
     return PILL_Grab(cfg.x, cfg.y, cfg.w + 1, cfg.h + 1)
@@ -528,6 +581,36 @@ ActiveModelNo() {
 ActiveModelStatus() {
     global MASS_MODELS, MMA_CFG
 
+    ; ── STEP 1: WHICH SITE ────────────────────────────────────────────────────
+    ; Fansly is a completely separate detector — separate scan, separate service,
+    ; separate config, separate status file, separate MODE (core/fansly_model.ahk).
+    ; This is the ONE line where the two meet, and it is one line on purpose.
+    ;
+    ; Routing is by which window is in FRONT, not by a setting, because a setting
+    ; is a thing that can be wrong. FanslyStatus() returns state "off" unless the
+    ; Fansly feature is on AND the Fansly window is active, so on an Infloww-only
+    ; machine this costs one ini read per resolve and changes nothing; while you
+    ; are actually in Fansly, the Infloww path below would return "none" anyway
+    ; because its own window gate is false.
+    ;
+    ; ── WHY THIS IS NOW FIRST ────────────────────────────────────────────────
+    ; It used to sit after an `if (mode = "manual")` short-circuit, on the
+    ; argument that manual reads no pixels on any platform so it should win
+    ; everywhere. The argument was sound and the consequence was not: it made
+    ; manual a GLOBAL, so the only way to stop MMA trusting the Fansly rail was to
+    ; stop it reading the Infloww tab strip too. Fansly now carries its own manual
+    ; mode and answers for itself, which is why routing comes first.
+    ;
+    ; Manual on the Fansly side therefore returns "ok" from in there, NOT "off" —
+    ; "off" means "I am not the site you are looking at", and answering it while
+    ; the rail is in front would hand the keys to the Infloww detector behind the
+    ; window. That is the cross-site send both files exist to prevent.
+    fan := FanslyStatus()
+    if (fan.state != "off")
+        return fan
+
+    ; ── STEP 2: HOW THIS SITE DECIDES ─────────────────────────────────────────
+    ; Everything below is Infloww's own mode, read from [Settings] ModelMatch.
     mode := ModelMatchMode()
 
     ; ── manual mode ───────────────────────────────────────────────────────────
@@ -542,28 +625,11 @@ ActiveModelStatus() {
     ; confirmation IS the safety mechanism.
     if (mode = "manual") {
         n := ManualModelNo()
-        LOGV("model.resolve", "manual mode → model " n " (" ModelDisplayName(n) ")"
-                            . " because you said so; nothing on screen was read")
+        LOGV("model.resolve", "manual mode (Infloww) → model " n " ("
+                            . ModelDisplayName(n) ") because you said so; nothing"
+                            . " on screen was read")
         return {no: n, name: ModelDisplayName(n), state: "ok"}
     }
-
-    ; ── the other platform ────────────────────────────────────────────────────
-    ; Fansly is a completely separate detector — separate scan, separate service,
-    ; separate config, separate status file (core/fansly_model.ahk). This is the
-    ; ONE line where the two meet, and it is one line on purpose.
-    ;
-    ; Routing is by which window is in FRONT, not by a setting, because a setting
-    ; is a thing that can be wrong. FanslyStatus() returns state "off" unless the
-    ; Fansly feature is on AND the Fansly window is active, so on an Infloww-only
-    ; machine this costs one ini read per resolve and changes nothing; while you
-    ; are actually in Fansly, the Infloww path below would return "none" anyway
-    ; because its own window gate is false.
-    ;
-    ; It sits AFTER manual mode deliberately: manual reads no pixels on any
-    ; platform, and "you said model 2" must keep meaning model 2 wherever you are.
-    fan := FanslyStatus()
-    if (fan.state != "off")
-        return fan
 
     ; ── positional mode ───────────────────────────────────────────────────────
     ; Names are the hard part of this: MMA, Infloww and Discord each have their
@@ -773,5 +839,5 @@ IsAskableModelName(name) {
 ;  See the trigger block in mass/runtime.ahk and mass/model_picker.ahk.
 ;
 ;  Kept as a comment rather than deleted quietly because the two functions were
-;  named in ARCHITECTURE.md §5.2 and in two test files, and "where did this go"
+;  named in docs/decisions.md §5.2 and in two test files, and "where did this go"
 ;  deserves an answer at the place it used to be.

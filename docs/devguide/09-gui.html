@@ -1,0 +1,571 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>9 — The GUI</title>
+<link rel="stylesheet" href="guide.css">
+<script src="nav.js"></script>
+</head>
+<body>
+<div class="shell">
+<nav class="side"></nav>
+<main>
+
+<p class="eyebrow">Chapter 9</p>
+<h1>The GUI</h1>
+
+<p class="lede"><code>src/ui/</code> is 13,500 lines — a third of the codebase — and almost
+nothing includes it. Windows are the outermost layer, not the centre. This chapter covers the
+one file that matters to the core: <code>main_core.ahk</code>, the app behind the main window,
+with no window in it.</p>
+
+<h2>The seam</h2>
+
+<p>MMA has <strong>two front ends</strong> for the same window:</p>
+<ul>
+<li><code>ui/main_window.ahk</code> (1,497 lines) draws the panel out of Win32 controls.</li>
+<li><code>ui/webview_main_window.ahk</code> (981 lines) draws the same panel with Edge and CSS,
+loading <code>ui/webview/main_window.html</code>.</li>
+</ul>
+
+<p>Everything that is not <em>drawing</em> lives in <code>ui/main_core.ahk</code> (1,800 lines),
+and both of them <code>#Include</code> it.</p>
+
+<div class="warn">
+<span class="tag">Why this file exists</span>
+<p>It did not, and the two shells had grown their own copies of the same logic —
+<strong>thirty-four functions defined twice</strong>. They had already drifted:</p>
+<ul>
+<li><code>ApplyFile</code> differed by 56 lines.</li>
+<li><code>PickMassSlot</code> differed by 28.</li>
+<li>The WebView's <code>LoadFile</code> called <code>RefreshModelHeader()</code> where the Win32
+one did not — so loading a model you were not looking at left both buttons naming the
+<em>previous</em> one.</li>
+</ul>
+<p>"That is the exact shape of the mass-# bug (2.0.3): <strong>what you SAW and what the keys SENT
+disagreed, because two copies of one truth are one copy plus a lie waiting to be found.</strong>"</p>
+</div>
+
+<h3>The rule</h3>
+
+<div class="note">
+<p><b>If a function does not touch a Gui control's POSITION, SIZE or CREATION, it belongs in
+<code>main_core.ahk</code>, not in a shell.</b></p>
+</div>
+
+<h3>The contract</h3>
+
+<p>Nothing in <code>main_core.ahk</code> creates a control, and nothing in it knows what a control
+<em>is</em>. A shell must have assigned these before anything in core is called:</p>
+
+<div class="tablewrap">
+<table>
+<thead><tr><th>Global</th><th>Shape</th><th>Holds</th></tr></thead>
+<tbody>
+<tr><td><code>edCtrls</code></td><td>Map "m&lt;model&gt;_&lt;field&gt;" → cell</td><td>The 45 boxes per model.</td></tr>
+<tr><td><code>edPaste</code></td><td>cell</td><td>The paste box.</td></tr>
+<tr><td><code>tabs</code></td><td>cell, <code>.Value</code> = model number</td><td>Which model is in front.</td></tr>
+<tr><td><code>lblLoaded</code></td><td>cell, <code>.Text</code></td><td>The "… loaded (mass N)" line.</td></tr>
+<tr><td><code>massNoRadios</code></td><td>array of arrays of cells</td><td>Per model, per slot, 1/0.</td></tr>
+<tr><td><code>g</code></td><td>Gui</td><td>Owner for dialogs and <code>WinActivate</code>.</td></tr>
+<tr><td><code>_mFiles</code></td><td>array</td><td>Model identifiers Load/Save/ApplyFile take.</td></tr>
+<tr><td colspan="3"><code>modelCount</code>, <code>modelNames</code>, <code>fastParseAutosave</code>, <code>_lastImportModel</code></td></tr>
+</tbody>
+</table>
+</div>
+
+<p>And four functions each shell defines its own way, because they move controls:
+<code>SetMassNoRadio</code>, <code>RefreshModelHeader</code>, <code>UpdateModelButtons</code>,
+<code>VarRefresh</code>.</p>
+
+<div class="concept">
+<span class="tag">CONCEPT-ENCOUNTERED</span>
+<h3>Duck typing, and the smallest possible interface</h3>
+<p>Core needs objects with a <code>.Value</code> and, for captions, a <code>.Text</code>. That is
+the entire interface. The Win32 shell hands it <strong>real Gui controls</strong>, which already
+have both. The WebView shell hands it <strong>shims</strong>:</p>
+<pre><code>class WvCell {
+    __New(startValue := "") {
+        this._v := startValue
+    }
+    Value {
+        get =&gt; this._v
+        set {
+            this._v := value
+            WV_Touch()          <span class="c">; mark the page dirty</span>
+        }
+    }
+    Text {
+        get =&gt; this._v
+        set =&gt; this.Value := value
+    }
+}</code></pre>
+<p>Fifteen lines, and it is what makes one copy of 1,800 lines of logic possible.</p>
+<p><strong>This is worth studying as a technique.</strong> The seam is minimal — two properties —
+so almost nothing can be shell-specific by accident. Contrast a "renderer interface" with twenty
+methods: every method is a place the two implementations can diverge.</p>
+<p>Note also that <code>WvCell</code> exposes <code>Value</code> and <code>Text</code> over the
+<em>same storage</em>. A button's caption and an edit box's contents are both "the string this
+thing shows", and the Win32 controls happen to agree.</p>
+</div>
+
+<h3>The one place the duck type leaks, and how it is caught</h3>
+
+<pre><code>WV_Quiet(cell, v) {
+    if (cell is WvCell)
+        cell._v := v
+    else
+        cell.Value := v
+}
+</code></pre>
+
+<blockquote><p>"<code>edCtrls</code> holds two kinds of thing. The main panel's fourteen fields
+are shims; the Variants window's branch cells are <strong>REAL Gui Edit controls</strong>, because
+that window is still old AHK. A Gui control has no <code>_v</code>, and <strong>AHK will happily
+create one</strong> — so the assignment would succeed, the box would keep its old text, and
+nothing anywhere would say so."</p></blockquote>
+
+<p>That is a general AHK hazard worth remembering: assigning to an undeclared property on an
+object <em>silently creates it</em>. There is no compile error and no run-time error, just a value
+that goes nowhere.</p>
+
+<hr>
+
+<h2>The WebView bridge</h2>
+
+<p>Not core, but understanding it makes the shell files readable.</p>
+
+<pre><code>WV_Touch() {
+    SetTimer(WV_Sync, -1)          <span class="c">; run once, next tick</span>
+}
+</code></pre>
+
+<div class="concept">
+<span class="tag">CONCEPT-ENCOUNTERED</span>
+<h3>Coalescing writes onto a zero-delay timer</h3>
+<p>A single <code>FillTabFromSlot</code> writes forty-odd cells in a row. Forty round trips through
+<code>ExecuteScript</code> to draw one tab is the kind of thing that makes a WebView feel slower
+than the Win32 window it replaced.</p>
+<p><code>SetTimer(fn, -1)</code> schedules <code>fn</code> to run <em>once</em>, on the next
+message-pump tick. Calling it forty times in a burst still results in <strong>one</strong> run.
+That is the whole coalescing mechanism: one line.</p>
+<p>This idiom — "mark dirty, redraw once on the next tick" — is the standard answer to any
+write-amplification problem where the writes are cheap and the flush is expensive.</p>
+</div>
+
+<p><code>WV_Sync</code> then pushes the <em>whole</em> window state to the page, every time. No
+delta protocol. That is a deliberate trade: a delta protocol is a second model of the state that
+can disagree with the first, and the whole state is a few kilobytes of JSON.</p>
+
+<div class="warn">
+<span class="tag">Never open a modal inside a COM callback</span>
+<pre><code>WV_OnMessage(sender, args) {
+    <span class="c">; `set` is handled inline: common case, every keystroke, cannot put a window up.</span>
+    <span class="c">; Everything else is QUEUED onto a -1 timer instead of being run here.</span>
+}</code></pre>
+<p>"This function is called from inside a COM event, and half these commands open a modal — the
+unsaved-changes prompt, 'All fields are empty. Save anyway?', the Settings window. <strong>A modal
+pumps messages, so running one inside the callback invites the next web message to arrive while
+this one is still on the stack.</strong> Returning first costs nothing and takes the whole
+question away."</p>
+<p>The same rule as "never block inside a hotkey handler" from chapter 8, arriving from a different
+direction.</p>
+</div>
+
+<hr>
+
+<h2>The load / save / parse cycle</h2>
+
+<p>This is the part of the GUI that owns your data. Four functions, and every one of them has a
+comment about a bug that cost real masses.</p>
+
+<h3><code>LoadFile(fname)</code> — library → boxes</h3>
+
+<pre><code>LoadFile(fname) {
+    modelNo := ModelNoOf(fname)
+    LOGD("gui.load", "Load fired for " fname " → model " modelNo)
+    doc  := MASS_Load()
+    slot := MASS_MassNo(doc, modelNo)
+    if (slot &lt; 1 || slot &gt; MASS_SLOTS)
+        slot := 1
+    FillTabFromSlot(modelNo, slot, doc)
+    try tabs.Value := modelNo
+    RefreshModelHeader()
+    lblLoaded.Text := ModelNameForSlot(modelNo) " loaded (mass " slot ")"
+    LOGI("gui.load", "loaded model " modelNo " (" fname ") mass slot " slot)
+}
+</code></pre>
+
+<p>Which mass comes in is <strong>the model's own live slot</strong>, and the Mass # radio is set
+to match, so the box always says what you are looking at.</p>
+
+<div class="warn">
+<span class="tag">Two bugs recorded in this one function</span>
+<p><strong>1. <code>A_Index</code> in a nested loop.</strong> The original had
+<code>Loop MASS_SLOTS { for field in MASS_Fields() { ck := "m" A_Index "_" field } }</code> —
+and <code>A_Index</code> always refers to the <em>innermost</em> loop, so inside the
+<code>for</code> it counted fields (1..44), not slots. It silently built control keys like
+<code>m17_fu1</code> that matched nothing, and for the few that did exist wrote one slot's value
+into another's box. <em>Saving was always fine, which is why it would not come back.</em></p>
+<p><strong>2. The control keys are <code>m&lt;MODEL&gt;_</code>, not <code>m&lt;SLOT&gt;_</code>.</strong>
+They were slot-keyed when the tabs <em>were</em> the three masses. Leaving this loop indexing by
+slot while the tabs became models is precisely how three-masses-per-model editing was lost:
+loading a model wrote its masses 1–3 across the first three <em>models'</em> tabs.</p>
+<p><strong>3. <code>RefreshModelHeader()</code> nearly went missing in the merge.</strong> The tab
+is moved <em>in code</em>, which fires no tab-change event in either shell — so the labels naming
+the model Load and Save act on have to be told. The WebView copy called it; the Win32 copy did
+not.</p>
+</div>
+
+<h3><code>FillTabFromSlot</code> — the one place boxes are filled</h3>
+
+<pre><code>FillTabFromSlot(modelNo, slot, doc := 0) {
+    if !doc
+        doc := MASS_Load()
+    rec := MASS_Get(doc, modelNo, slot)
+    for field in MASS_Fields()
+        if edCtrls.Has("m" modelNo "_" field)
+            edCtrls["m" modelNo "_" field].Value := rec.Has(field) ? rec[field] : ""
+    if (modelNo &gt;= 1 &amp;&amp; modelNo &lt;= massNoCurrent.Length)
+        massNoCurrent[modelNo] := slot
+    SetMassNoRadio(modelNo, slot)
+    VarRefresh()
+    CORE_Changed()
+}
+</code></pre>
+
+<p><strong>Every field is written, including the empty ones.</strong> That is the whole point of
+loading a slot you have not written yet: mass 2 of a model that only has a mass 1 must come up
+<em>blank</em>, not leave mass 1's text sitting in the boxes looking like it belongs to mass 2.</p>
+
+<h3><code>ApplyFile(fname, silent)</code> — boxes → library</h3>
+
+<pre><code>ApplyFile(fname, silent := false) {
+    modelNo := ModelNoOf(fname)
+
+    <span class="c">; ── refuse a save that would blank this model ────────────────</span>
+    _pfx := "m" modelNo "_"
+    allEmpty := true
+    for k, c in edCtrls {
+        if (SubStr(k, 1, StrLen(_pfx)) = _pfx &amp;&amp; Trim(c.Value) != "") {
+            allEmpty := false
+            break
+        }
+    }
+    if allEmpty {
+        if silent {
+            LOG_Bail("gui.save", "silent save of model " modelNo " SKIPPED — every"
+                               . " field on screen is empty, and writing that would"
+                               . " blank this model's masses on disk")
+            return
+        }
+        if MsgBox("All fields are empty. Save anyway?", "Confirm Save", 0x24) != "Yes"
+            return
+    }
+
+    <span class="c">; ── read-modify-WRITE THE WHOLE LIBRARY ─────────────────────</span>
+    slot := MassNoForModel(modelNo)
+    doc  := MASS_Load()
+    rec := MASS_Blank()
+    for field in MASS_Fields() {
+        ck := "m" modelNo "_" field
+        rec[field] := edCtrls.Has(ck) ? edCtrls[ck].Value : ""
+    }
+    MASS_Set(doc, modelNo, slot, rec)
+    MASS_SetMassNo(doc, modelNo, slot)
+    if !MASS_Save(doc)
+        return
+    engineUp := NotifyMassesChanged()
+    ...
+}
+</code></pre>
+
+<h4>Three things happening here</h4>
+
+<p><strong>1. The empty check is scoped to <em>this model's</em> prefix.</strong> It used to scan
+every control in the window, which was right when the window held one model; with a tab per model
+it would call a blank model "not empty" because a <em>different</em> model's tab has text — and
+the whole point of the check is to refuse a save that would blank this one.</p>
+
+<p><strong>2. Read-modify-write the whole library.</strong> The file holds all N models and the
+GUI only has this one on screen. Writing a document built from the edit boxes alone would blank
+the others.</p>
+
+<p><strong>3. <code>MASS_SetMassNo</code> right after <code>MASS_Set</code>.</strong> "What you
+just saved is what the keys should send. Without this you would save into mass 2 and go on sending
+mass 1, which is the 'hotkeys are broken' report."</p>
+
+<h4>And it tells you when the save is pointless</h4>
+
+<pre><code>MsgBox("Saved model " modelNo " — but the mass engine is NOT running, so no "
+     . "hotkey will send it.`n`nTick engine.ahk under Settings → startup "
+     . "scripts, or run src\mass\engine.ahk.", "Saved, but nothing can send it", 0x30)
+</code></pre>
+
+<p><code>NotifyMassesChanged()</code> broadcasts <code>MMA_MSG_MASSES_CHANGED</code> <em>and
+returns whether the engine was there to hear it</em>. "Saved model 2" while nothing on the machine
+can send model 2 is <strong>a lie by omission</strong> — the save worked, but the thing the user
+is about to go and press does not exist.</p>
+
+<h3><code>ParseCurrent()</code> — paste box → boxes</h3>
+
+<pre><code>ParseCurrent(*) {
+    raw := StrReplace(StrReplace(edPaste.Value, "`r`n", "`n"), "`r", "`n")
+    mNo := tabs.Value
+    LOGI("gui.parse", "parsing " StrLen(raw) " chars of pasted text into model "
+                    . mNo "'s fields"
+                    . (Trim(raw) = "" ? "  — THE PASTE BOX IS EMPTY, so this will"
+                                      . " clear the fields and fill nothing" : ""))
+    pfx := "m" mNo "_"
+    for k, c in edCtrls
+        if SubStr(k, 1, StrLen(pfx)) = pfx
+            c.Value := ""
+    FillTab(StrSplit(raw, "`n"), mNo)
+    VarRefresh()
+    ... archive ...
+    CORE_Changed()
+}
+</code></pre>
+
+<p><strong><code>StrLen(pfx)</code>, not <code>3</code>.</strong> <code>pfx</code> is
+<code>"m" mNo "_"</code>, so it is three characters only while <code>mNo</code> is one digit — at
+ten models <code>"m10"</code> was compared against <code>"m10_"</code>, matched nothing, and Parse
+stopped clearing the old text out of the boxes before filling them. That fix came from the WebView
+copy and was folded in during the merge.</p>
+
+<p>"Parsing into the WRONG TAB is the classic version of 'it did not work': the text lands in
+model 3's boxes while you are looking at model 1's, so the fields you can see stay empty and it
+reads as the parser failing outright." Hence the model number in the log line.</p>
+
+<h4>The archive, and the dialog that was removed</h4>
+
+<pre><code>if FEAT("archive") &amp;&amp; LOG_IniInt(CFG_FILE, "Settings", "ArchiveOnParse", 1)
+                   &amp;&amp; Trim(raw) != "" {
+    if dup := ArchiveFindDuplicate(mName, raw) {
+        ToolTip("Archive: already saved today")
+        SetTimer(ClearArchiveTip, -1500)
+    } else {
+        ts := FormatTime(, "yyyy-MM-dd HH:mm:ss")
+        FileAppend "[" ts "] [" mName "]`n" raw "`n===END===`n`n", ArchiveFile(), "UTF-8"
+    }
+}
+</code></pre>
+
+<blockquote><p>"Archiving is silent in both directions now. It used to raise a Yes/No dialog on
+every duplicate — mid-parse, with the fields already filled, <strong>for the most ordinary thing
+you can do here: fix a line and press Parse again.</strong> The answer was 'No' every time, so the
+dialog was a keystroke charged for nothing."</p></blockquote>
+
+<p>Note the unnamed-slot guard: an unnamed model used to write <code>[]</code> as its label,
+"which no dup check could match". Small, and it made the whole dedupe silently useless for that
+model.</p>
+
+<h3><code>PickMassSlot</code> — clicking a Mass # radio</h3>
+
+<pre><code>PickMassSlot(modelNo, slot, *) {
+    prev := massNoCurrent[modelNo]
+    if (slot = prev) {
+        FillTabFromSlot(modelNo, slot)      <span class="c">; re-click = reload, a free undo</span>
+        return
+    }
+    if TabDiffersFromSlot(modelNo, prev) {
+        if (MsgBox("Mass " prev " has unsaved changes.`n`nSwitch to mass " slot
+                 . " and lose them?", "Unsaved changes", 0x24) != "Yes") {
+            SetMassNoRadio(modelNo, prev)   <span class="c">; put the radio BACK</span>
+            return
+        }
+    }
+    doc := MASS_Load()
+    FillTabFromSlot(modelNo, slot, doc)
+    MASS_SetMassNo(doc, modelNo, slot)
+    empty := (Trim(MASS_Get(doc, modelNo, slot)["mass"]) = "")
+    if MASS_Save(doc)
+        NotifyMassesChanged()
+    LOGI("gui.massno", "model " modelNo " is now on mass " slot
+                     . " — shown in its tab, and what the keys send"
+                     . (empty ? ". That slot is EMPTY, so the mass keys will do"
+                              . " nothing for this model until you fill it in" : ""))
+}
+</code></pre>
+
+<p>Three design decisions in twenty lines:</p>
+
+<p><strong>Re-clicking the current slot reloads it</strong> — a free undo, at no cost.</p>
+
+<p><strong>It asks before discarding, and only when there is something to lose.</strong>
+<code>TabDiffersFromSlot</code> compares against the slot the tab is <em>showing</em>, not the live
+one, so the prompt is true only when there is genuinely unsaved text. It also logs <em>which
+field</em> differs and both values — because when it was wrong (it refused to leave a slot nobody
+had edited) the alternative was bisecting forty fields by hand.</p>
+
+<p><strong>One control, one meaning.</strong> "The radio is this model's mass, full stop: what you
+SEE, what a save writes, and what the hotkeys SEND." The old "-- Set massNo --" grid was a
+separate control that wrote the live slot; dropping half of that made the row look broken — a
+model sat on mass 3 because that was its live slot, and clicking mass 1 changed the boxes while
+every key went on sending 3.</p>
+
+<div class="concept">
+<span class="tag">CONCEPT-ENCOUNTERED</span>
+<h3>One control, one meaning</h3>
+<p>The 2.0.3 bug (<em>"the mass # radio changed what you SAW but not what the keys sent"</em>) is
+the archetype. Whenever a control shows state <em>and</em> a separate control sets it, they will
+disagree — and the disagreement is invisible, because both look correct on their own.</p>
+<p>The fix is never "keep them in sync". It is to make them the same control.</p>
+</div>
+
+<hr>
+
+<h2>Import routing</h2>
+
+<pre><code>AutoParseFromClipboard(wParam, lParam, msg, hwnd) {
+    raw      := A_Clipboard
+    detected := ExtractModelName(&amp;raw)      <span class="c">; strips a leading @model line</span>
+    edPaste.Value := raw
+    slot := detected != "" ? MatchModelName(detected) : 0
+
+    if (fastParseAutosave &amp;&amp; slot) {
+        tabs.Value := slot
+        ParseCurrent()
+        ApplyFile(_mFiles[slot], true)
+        _lastImportModel := slot
+    } else if (fastParseAutosave &amp;&amp; detected = "" &amp;&amp; _lastImportModel) {
+        tabs.Value := _lastImportModel
+        ParseCurrent()
+        ApplyFile(_mFiles[_lastImportModel], true)
+    } else {
+        PromptSaveTarget(detected)
+    }
+}
+</code></pre>
+
+<p><strong><code>tabs.Value</code> first, every time.</strong> <code>ParseCurrent</code> fills the
+tab that is <em>in front</em> and <code>ApplyFile</code> saves the model it is <em>given</em> — the
+same number, or the import lands in one model's boxes and is written to another's record.</p>
+
+<p>Fast mode auto-saves only when the model is known: a matched name, or the model the last import
+was routed to. Otherwise it asks. <em>Never silently dump into mass 1.</em></p>
+
+<h3>"Remember this name for the model"</h3>
+
+<p>One checkbox on the import prompt, and it means two different facts:</p>
+
+<pre><code>RememberModelName(name, slot) {
+    <span class="c">; …ADOPT the name when the slot has never been named,</span>
+    <span class="c">; …otherwise write an ALIAS.</span>
+}
+</code></pre>
+
+<p>Writing only the alias is right for a model MMA already knows, and <em>wrong</em> for a slot
+that has never been named — that slot then has no display name, so nothing shows it and the user
+opens Settings and types the same name a second time. That was the reported bug.</p>
+
+<h3><code>ModelNameForSlot</code>, and the ternary that lied</h3>
+
+<pre><code>ModelNameForSlot(slot)
+</code></pre>
+
+<p>This replaced <code>slot = 1 ? … : slot = 2 ? … : model3Name</code>, which answered for slot 4,
+5 and 40 with <strong>model 3's name</strong> — confidently and wrongly. Out of range now says
+so.</p>
+
+<div class="concept">
+<span class="tag">CONCEPT-ENCOUNTERED</span>
+<h3>A chained ternary has no "else" — it has a last branch</h3>
+<p>Every <code>a ? x : b ? y : z</code> ends in a value that catches <em>everything else</em>,
+including inputs that are errors. It reads like an enumeration and behaves like a default. This
+pattern is worth grepping for whenever a bound has changed.</p>
+</div>
+
+<hr>
+
+<h2><code>CORE_Arm()</code> — the registrations</h2>
+
+<pre><code>CORE_Arm() {
+    OnMessage(MMA_MSG_AUTOPARSE,         AutoParseFromClipboard)
+    OnMessage(MMA_MSG_ADD_HOTKEY,        OpenAddHotkeyFromMsg)
+    OnClipboardChange(WebImportFromClipboard)
+    OnMessage(MMA_MSG_OPEN_SETTINGS,     CORE_OpenSettingsFromMsg)
+    OnMessage(MMA_MSG_SETTINGS_CHANGED,  CORE_SettingsChangedFromMsg)
+
+    HK_Context("mouseControl", CORE_MouseControlOn)
+    HK_Bind("gui.addHotkeyGrab",  AddHotkeyGrab)
+    HK_Bind("gui.ocrGrab",        OcrGrab)
+    HK_Bind("gui.branchBuilder",  OpenBranchBuilder)
+    HK_Bind("gui.toggleDoubleMM", ToggleDoubleMM)
+}
+</code></pre>
+
+<div class="warn">
+<span class="tag">Why these are behind a call and not at the top level</span>
+<p>They used to be top-level statements, "which made <strong>WHERE a shell <code>#Include</code>d
+this file part of its behaviour</strong>: the <code>OnMessage</code> lines sat mid-file in the
+Win32 shell and the <code>HK_Bind</code>s sat at its very end, so any shell that included this
+anywhere else got a subtly different startup."</p>
+<p>A call says plainly "arm the shared behaviour now", and both shells make it at the end of their
+own setup. <strong>Nothing in here is safe to run twice</strong> —
+<code>OnClipboardChange</code> would fire the import handler twice per copy — so it must be called
+exactly once per process.</p>
+</div>
+
+<p><code>CORE_SettingsChangedFromMsg</code> is worth noting for what it fixes: the Win32 Settings
+is a Gui inside <em>this</em> process and calls <code>UpdateModelButtons()</code> directly; the
+WebView one is its own script and cannot. "Without this handler a rename or a theme change made
+there landed in the cfg and nowhere on screen until a restart, <em>which reads exactly like the
+setting did not save.</em>"</p>
+
+<hr>
+
+<h2>Two smaller things worth reading</h2>
+
+<h3><code>CORE_OpenActivity()</code> — a button that fires a hotkey</h3>
+
+<p>The activity chart has always existed and has only ever had one door: the
+<code>gui.activity</code> key. That is a door you have to already know about, and the log said it
+had never been opened once — <code>act.boot</code> every session, <code>act.chart</code> never.</p>
+
+<p>So a button was added, in both shells — but it does <strong>not</strong> run
+<code>activity_window.ahk</code> itself. The tracker owns the minute in progress and flushes it
+before opening the chart; without that the chart comes up showing everything <em>except</em> the
+minute you just pressed the button about.</p>
+
+<p>The button therefore <strong>fires <code>gui.activity</code> through the registry</strong> and
+the tracker answers — exactly as the Actions menu runs a key that lives in another process. One
+implementation, and the button and the key cannot drift.</p>
+
+<h3><code>CheckCollisions()</code> — a linter for your own hotstrings</h3>
+
+<pre><code>if RegExMatch(ln, "^:[^:]*:([^:`r`n]+)::", &amp;m)
+    trigger := StrLower(Trim(m[1]))
+else if RegExMatch(ln, "^([^:\s]+)::", &amp;m)
+    trigger := StrLower(m[1])
+</code></pre>
+
+<p>Scans <code>utils.ahk</code>, <code>content/general.ahk</code> and every account file for
+hotstring and hotkey definitions, and warns when the same trigger appears in two files. It is a
+plain text scan of source — crude, and exactly right for the job, because those files are
+hand-written and there is no other authority.</p>
+
+<hr>
+
+<h2>What you can now change</h2>
+
+<div class="tablewrap">
+<table>
+<thead><tr><th>Task</th><th>Where</th></tr></thead>
+<tbody>
+<tr><td>Add behaviour shared by both shells</td><td><code>main_core.ahk</code>. If it moves a control, it does not belong there.</td></tr>
+<tr><td>Add a field's edit box</td><td>Both shells' control setup, plus <code>MASS_Fields()</code> (chapter 5). The load/save loops pick it up automatically.</td></tr>
+<tr><td>Add a button</td><td>Both shells (drawing) + one function in core (behaviour). Consider whether it should fire an existing hotkey id instead.</td></tr>
+<tr><td>Change what a message does to the window</td><td>The handler in <code>CORE_Arm</code>'s list.</td></tr>
+<tr><td>Debug "it saved the wrong model"</td><td><code>gui.save</code> logs the click separately from the save: "Save clicked while tab N is in front", then "saved model N into slot S". If the tab was not what you thought, that is the whole bug.</td></tr>
+<tr><td>Debug "the boxes did not clear"</td><td><code>gui.parse</code>. Check <code>StrLen(pfx)</code> logic if the model number is ≥ 10.</td></tr>
+</tbody>
+</table>
+</div>
+
+<div class="pager"></div>
+</main>
+</div>
+</body>
+</html>

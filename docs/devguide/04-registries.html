@@ -1,0 +1,694 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>4 — The four registries</title>
+<link rel="stylesheet" href="guide.css">
+<script src="nav.js"></script>
+</head>
+<body>
+<div class="shell">
+<nav class="side"></nav>
+<main>
+
+<p class="eyebrow">Chapter 4</p>
+<h1>The four registries</h1>
+
+<p class="lede">Everything declarative in MMA lives in exactly one file. This is the most useful
+thing to know about the codebase, and each registry replaced a specific set of hand-kept lists
+that had drifted apart silently.</p>
+
+<div class="tablewrap">
+<table>
+<thead><tr><th>Registry</th><th>File</th><th>Declares</th></tr></thead>
+<tbody>
+<tr><td><strong>Features</strong></td><td><code>core/modes.ahk</code></td><td><code>FEAT_Def(id, cfgKey, label, default, section)</code> — every optional feature, once.</td></tr>
+<tr><td><strong>Hotkeys</strong></td><td><code>core/hotkeys.ahk</code></td><td><code>HK_Section</code> / <code>HK_Def(id, label, when, owner)</code> — every key, its context, its owner.</td></tr>
+<tr><td><strong>Messages</strong></td><td><code>core/messages.ahk</code></td><td>Every <code>0x80xx</code> window message.</td></tr>
+<tr><td><strong>Services</strong></td><td><code>core/processes.ahk</code></td><td><code>SVC_Def(id, kind, path, tag, noun, extra)</code> — every background service.</td></tr>
+</tbody>
+</table>
+</div>
+
+<p>(<code>paths.ahk</code> from the last chapter is arguably a fifth. ARCHITECTURE.md counts it
+as one.)</p>
+
+<div class="concept">
+<span class="tag">CONCEPT-ENCOUNTERED</span>
+<h3>The registry pattern, and what it actually buys</h3>
+<p>A registry is: <strong>one table, declared once, that everything else walks</strong> — rather
+than the same list written out by hand in each place that needs it.</p>
+<p>The benefit is not "less typing". It is that <strong>a hand-kept list drifts silently</strong>.
+Nothing tells you when two lists that should match no longer do. In this repo the drift was
+real and it was invisible:</p>
+<ul>
+<li>Three services were missing from the boot list, so they did not start until the first
+watchdog tick five seconds later — and never at all in Easy mode.</li>
+<li>Two services were missing from the Features chain, so unticking either wrote the config key
+and <em>left the process running</em>. Untick "Activity tracker" and it kept counting your
+keystrokes until you restarted MMA, with the checkbox saying it was off.</li>
+</ul>
+<p>The test for whether you have built a real registry: <em>can a declared thing be missing from
+a list?</em> If the answer is no — because there are no lists — you have one.</p>
+</div>
+
+<hr>
+
+<h2>Registry 1 — Features (<code>core/modes.ahk</code>)</h2>
+
+<h3>What a feature is</h3>
+
+<pre><code>FEAT_Def(id, cfgKey, label, default, section)
+</code></pre>
+
+<div class="tablewrap">
+<table>
+<tbody>
+<tr><td><code>id</code></td><td>The short name used in code: <code>if FEAT("altFollowups")</code></td></tr>
+<tr><td><code>cfgKey</code></td><td>Its key in <code>mass_gui.cfg</code> <code>[Settings]</code>. Existing keys are reused as-is so nobody's settings are lost.</td></tr>
+<tr><td><code>label</code></td><td>What the Settings window shows.</td></tr>
+<tr><td><code>default</code></td><td><code>"1"</code> or <code>"0"</code> — the value when the key is absent.</td></tr>
+<tr><td><code>section</code></td><td>Grouping in the Features tab: Sending, Library, Tools, Background.</td></tr>
+</tbody>
+</table>
+</div>
+
+<p>It fills three globals:</p>
+<pre><code>global FEAT_META  := Map()   <span class="c">; id -> the record</span>
+global FEAT_ORDER := []      <span class="c">; declaration order, for the Settings window</span>
+global FEAT_SECTIONS := []   <span class="c">; section names in first-seen order</span>
+</code></pre>
+
+<p><strong>The Features tab draws itself from these.</strong> There is no list of checkboxes
+anywhere — adding a <code>FEAT_Def</code> line makes a checkbox appear.</p>
+
+<h3>Easy mode, and why it switches off rather than hides</h3>
+
+<pre><code>FEAT(id) {
+    if !FEAT_META.Has(id)
+        return true                    <span class="c">; undeclared = not a gated feature</span>
+    if MODE_IsEasy()
+        return false                   <span class="c">; Easy switches off the whole registry</span>
+    f := FEAT_META[id]
+    return Trim(IniRead(MODE_CFG, "Settings", f.cfgKey, f.default)) = "1"
+}
+</code></pre>
+
+<p>So <code>FEAT()</code> is <strong>the feature's own checkbox AND Advanced mode</strong>. Two
+consequences fall out of that one line:</p>
+
+<ul>
+<li>A user can switch a single feature off inside Advanced, and Easy switches off <em>the
+lot</em> without touching their choices. Flip back to Advanced and every checkbox is exactly
+where they left it.</li>
+<li><strong>Easy does not hide features — it disables them.</strong> Advanced hotkeys never
+register, background children never start, advanced behaviours are bypassed in code. The header
+states why: <em>"a hidden feature still interferes. The model detector silently gating a model's
+send keys off is exactly the class of surprise Easy mode exists to remove."</em></li>
+</ul>
+
+<p><code>FEAT_Raw(id)</code> is the checkbox alone, ignoring the mode — the Settings window needs
+it so boxes still show real choices while Easy greys them out.</p>
+
+<h3>The single-writer rule</h3>
+
+<pre><code>FEAT_SetRaw(id, on) {
+    ...
+    was := Trim(IniRead(MODE_CFG, "Settings", f.cfgKey, f.default))
+    if (was != now)
+        LOGI("feat.set", id " " ... "   ([Settings] " f.cfgKey ")")
+    IniWrite(now, MODE_CFG, "Settings", f.cfgKey)
+}
+</code></pre>
+
+<p>Instrumented <em>here</em> rather than in the Features panel, on purpose: this is the single
+writer of every feature key, so one line catches every toggle from everywhere, forever, and
+cannot be forgotten by a future second caller.</p>
+
+<p>Note that <strong>only changes are logged</strong>. Saving the Features tab rewrites all ~24
+keys whether or not you touched them, and 24 identical lines per save would make the one that
+matters unfindable. That is a small detail with a big effect on whether a log is usable.</p>
+
+<h3><code>FEAT_HOTKEY_MAP</code> — one gate instead of a guard everywhere</h3>
+
+<pre><code>global FEAT_HOTKEY_MAP := Map(
+    "altFu",              "altFollowups",
+    "br",                 "altFollowups",
+    "nextFu",             "nextFu",
+    "mFu",                "mouseControl",
+    "mPpv",               "mouseControl",
+    "gui.actions",        "actionsMenu",
+    "marks.",             "tabMarks",
+    "recorder.",          "recorder",
+    "automation.",        "automation",
+    "cap.",               "capitalizer")
+</code></pre>
+
+<p>This ties hotkey-id prefixes to features, so <code>HK_Bind</code> refuses to register a key
+whose feature is off. <strong>One central gate, instead of a guard in every script.</strong></p>
+
+<p>Matching is <em>longest prefix first</em>, so <code>mass.1.altFu1</code> finds
+<code>altFu</code> while plain <code>mass.1.fu1</code> matches nothing and stays unguarded —
+correct, because plain follow-ups are not an optional feature.</p>
+
+<div class="warn">
+<span class="tag">The bug in this matcher, worth studying</span>
+<p><code>FEAT_ForHotkey</code> strips the model out of a mass id before matching:</p>
+<pre><code>if RegExMatch(id, "^mass\.(?:\d+|active)\.(.+)$", &amp;m)
+    slot := m[1]
+</code></pre>
+<p>That <code>|active</code> was added after a real failure. The original pattern was
+<code>\d+</code> only, so <code>mass.active.altFu1</code> and <code>mass.active.mFu1</code> did
+not match, and fell through to being matched on their <em>full</em> id — where no prefix in the
+map can ever match, since they all start "mass.".</p>
+<p>Result: <strong>turning off alt follow-ups or mouse control silenced the numbered keys and
+left the shared ones live.</strong> A feature switch that only half worked, in the direction
+that sends messages.</p>
+</div>
+
+<h3>The one feature that is deliberately <em>not</em> declared</h3>
+
+<p>Read the comment block for <code>sequences</code>. It had a <code>FEAT_Def</code>, and that
+made it the <strong>fourth</strong> switch able to kill the Discord import on its own — after
+the startup-scripts checkbox and the Hotkeys tab, both of which had already done it. Easy mode
+made it a fourth: it killed the import with no checkbox to look at.</p>
+
+<p>Leaving it undeclared is what makes it always-on, because <code>FEAT()</code> answers
+<strong>true</strong> for any id not in the registry. The old cfg key is simply ignored from
+there on.</p>
+
+<div class="note">
+<p><b>Design lesson.</b> "Everything should be configurable" is not free. Every switch is a way
+for the thing to be off when someone did not intend it, and switches multiply: four independent
+ways to disable one feature means four places to check and four ways to be surprised. If
+something is core, give it no switch at all.</p>
+</div>
+
+<hr>
+
+<h2>Registry 2 — Hotkeys (<code>core/hotkeys.ahk</code>)</h2>
+
+<p>1003 lines, and the first thing its header says is: <strong>THIS FILE CONTAINS NO KEYS.</strong></p>
+
+<h3>The separation</h3>
+
+<div class="tablewrap">
+<table>
+<thead><tr><th>Where</th><th>What lives there</th></tr></thead>
+<tbody>
+<tr><td><code>hotkeys.ahk</code></td><td>The <em>declaration</em>: what actions exist, what they are called, what context they may fire in, which script owns them.</td></tr>
+<tr><td><code>userdata/hotkeys.ini</code></td><td>The <em>binding</em>: which physical key each action is on.</td></tr>
+<tr><td>The owning script</td><td>The <em>behaviour</em>: <code>HK_Bind("nav.unread", Unread)</code>.</td></tr>
+</tbody>
+</table>
+</div>
+
+<p>A script attaches behaviour by id and <strong>never names a key</strong>:</p>
+<pre><code>HK_Bind("nav.unread", Unread)
+</code></pre>
+
+<p>To change a key: edit the ini, or use the Hotkeys GUI. Never touch code.<br>
+To add one: <code>HK_Def(...)</code> here + a line in <code>hotkeys.default.ini</code> + one
+<code>HK_Bind</code> call.</p>
+
+<h3>The declaration</h3>
+
+<pre><code>HK_Section("nav", "Navigation")
+HK_Def("nav.unread",  "Mark unread / drag back", , "engine.ahk")
+HK_Def("nav.nextChat","Next chat down",          , "engine.ahk")
+
+HK_Section("seq", "Sequences")
+HK_Def("seq.copyDiscordMsg", "Copy Discord message → parse", "discord", "sequences.ahk")
+</code></pre>
+
+<p>Four fields: <code>id</code>, <code>label</code>, <code>when</code> (a registered context name,
+blank = anywhere), <code>owner</code> (for the Hotkeys GUI's conflict report). The double comma
+is an omitted <code>when</code>.</p>
+
+<p>The id is <code>section.key</code> and it must match <code>hotkeys.ini</code> exactly:</p>
+<pre><code>[nav]
+unread   = !-
+nextChat = Down
+</code></pre>
+
+<div class="warn">
+<span class="tag">The <code>HK_Split</code> exception</span>
+<p>Ids split at the <strong>last</strong> dot — except <code>[hotstring]</code> ids, which split
+at the <strong>first</strong>. Those ids end in a hotstring <em>trigger</em>, and a trigger is
+text the user chose: <code>..intro</code>, <code>..ppv4f2</code>. A fifth of the message library
+starts with two dots.</p>
+<p>Splitting those at the last dot gave section <code>hotstring...intro</code> minus its tail —
+a section that does not exist — so the key was written in one place and read from another and
+never fired. The <em>first</em> attempt at fixing this refused to bind any trigger containing a
+dot, which is "a rule about MMA's id format dressed up as a rule about your triggers", and it
+turned away 23 of them.</p>
+</div>
+
+<h3><code>HK_Key(id)</code> — the ini is the authority</h3>
+
+<pre><code>HK_Key(id) {
+    s := HK_Split(id)
+    v := IniRead(HK_INI, s.section, s.key, HK_UNSET)
+    if (v == HK_UNSET) {
+        HK_Log("[" s.section "] " s.key " missing from hotkeys.ini — '" id "' left unbound")
+        return ""
+    }
+    return Trim(v)
+}
+</code></pre>
+
+<p><strong>Three states, not two:</strong></p>
+<ul>
+<li><em>Absent from the ini</em> → unbound, and logged as a warning (something is wrong).</li>
+<li><em>Present but blank</em> → deliberately disabled, no warning.</li>
+<li><em>Present with a value</em> → bound.</li>
+</ul>
+<p>That distinction is why <code>HK_UNSET</code> is a sentinel string beginning with
+<code>Chr(1)</code> and is compared with <code>==</code>. It is also why
+<code>HK_MergeDefaults</code> can safely add new keys on update without resurrecting a key you
+cleared on purpose.</p>
+
+<h3><code>HK_Bind</code> — every gate, in order</h3>
+
+<pre><code>HK_Bind(id, fn) {
+    if !HK_META.Has(id) {
+        HK_Log("HK_Bind('" id "') — id not declared in hotkeys.ahk; ignored")
+        return
+    }
+    if !FEAT_HotkeyAllowed(id) {
+        LOG_Bail("hk.bind", id " NOT REGISTERED — feature '" FEAT_ForHotkey(id)
+                          . "' is off (or MMA is in Easy mode). Settings ▸ Features.")
+        return
+    }
+    m := HK_META[id]
+    if (m.when != "" &amp;&amp; !HK_CTX.Has(m.when)) {
+        HK_Log("... context '" m.when "' not registered; refusing to bind globally")
+        return
+    }
+    _HK_BOUND[id] := {fn: fn, key: ""}
+    _HK_Apply(id, HK_Key(id))
+}
+</code></pre>
+
+<p>Read the third gate carefully. <strong>Binding a context-limited key with no registered
+context would make it global</strong> — exactly the bug this registry exists to kill (see the
+<code>#HotIf</code> trap in chapter 1). It refuses instead.</p>
+
+<p>And note that the feature gate <em>logs</em>. It is still silent to the user — a key absent
+because a feature is off is not a fault — but "that key does nothing on his machine" and "that
+feature is off on his machine" are the same sentence, and this is the line that says so. It
+names the feature, so the answer is actionable.</p>
+
+<h3><code>_HK_Apply</code> — where <code>HotIf</code> and <code>Hotkey</code> meet</h3>
+
+<pre><code>_HK_Apply(id, key) {
+    m := HK_META[id]
+    b := _HK_BOUND[id]
+    if (m.when != "")
+        HotIf(HK_CTX[m.when])          <span class="c">; scope the registration</span>
+    if (b.key != "")
+        try Hotkey(b.key, "Off")       <span class="c">; release the old key</span>
+    if (key != "") {
+        try {
+            Hotkey(key, _HK_Wrap(id, b.fn))
+            LOGI("hk.bind", id " ← " key ...)
+        } catch as e {
+            HK_Log("'" key "' is not a valid key for " id " — " e.Message)
+            key := ""
+        }
+    } else {
+        LOG_Bail("hk.bind", id " has NO KEY — blank or missing in hotkeys.ini,"
+                          . " so nothing can trigger it")
+    }
+    HotIf()                            <span class="c">; ALWAYS clear it</span>
+    b.key := key
+}
+</code></pre>
+
+<p>The <code>HotIf()</code> with no argument at the end is mandatory. Leave it set and every
+subsequent <code>Hotkey()</code> call anywhere in the script inherits that context.</p>
+
+<div class="note">
+<p><b>Identity matters to <code>HotIf</code>.</b> <code>HK_CTX</code> stores the criterion
+<em>function object</em>, and it must be the same object each time — AHK groups hotkeys by
+criterion identity. That is why contexts are registered once with
+<code>HK_Context(name, fn)</code> and looked up, rather than written inline.</p>
+</div>
+
+<h3><code>_HK_Fire</code> — the anti-fumble gate</h3>
+
+<p>Every hotkey in MMA is wrapped in this before it is registered. It exists because
+<strong>AHK hotkey threads are interruptible</strong> (chapter 1), and a follow-up takes about a
+second to send.</p>
+
+<pre><code>_HK_Fire(id, fn) {
+    now := A_TickCount
+    isSend := _HK_IsSend(id)
+
+    if (HK_WINDOW_MS) {
+        if (_HK_SENDING) {
+            LOG_Bail("hk.fire", id " DROPPED — another send is still in flight."
+                              . " Anti-fumble guard 1 of 3.")
+            return
+        }
+        if (_HK_LAST.Has(id) &amp;&amp; now - _HK_LAST[id] &lt; HK_WINDOW_MS) {
+            LOG_Bail("hk.fire", id " DROPPED — same key repeated after only "
+                              . (now - _HK_LAST[id]) "ms … guard 2 of 3.")
+            return
+        }
+        if (isSend &amp;&amp; _HK_LAST_SEND &amp;&amp; now - _HK_LAST_SEND &lt; HK_WINDOW_MS) {
+            LOG_Bail("hk.fire", id " DROPPED — a different send went out "
+                              . (now - _HK_LAST_SEND) "ms ago … guard 3 of 3.")
+            return
+        }
+    }
+
+    _HK_LAST[id] := now
+    if (isSend) {
+        _HK_LAST_SEND := now
+        _HK_SENDING := true
+        HK_SendBegin()
+    }
+    LOGI("hk.fire", id " → running" (isSend ? "  (send)" : ""))
+    try
+        fn()
+    catch as e {
+        LOGE("hk.fire", id " threw while running", LOG_Err(e))
+        throw
+    }
+    finally {
+        _HK_LAST[id] := A_TickCount
+        if (isSend) {
+            _HK_LAST_SEND := A_TickCount
+            HK_SendEnd()          <span class="c">; hooks run BEFORE the flag clears</span>
+            _HK_SENDING := false
+        }
+        LOGV("hk.fire", id " finished in " (A_TickCount - now) "ms")
+    }
+}
+</code></pre>
+
+<div class="concept">
+<span class="tag">CONCEPT-ENCOUNTERED</span>
+<h3>Debouncing, and three different kinds of it</h3>
+<p><strong>Guard 1 — in-flight.</strong> If any send handler is running, drop this press
+outright. Without it, F2 pressed during F1's one-second send runs <code>DoFu2</code>
+<em>spliced into</em> <code>DoFu1</code> — half a follow-up in each of two chats.</p>
+<p><strong>Guard 2 — same-key repeat.</strong> Swallow an immediate repeat of <em>this</em> id:
+key chatter, or a press that queued during the last run. Measured from both start and end, which
+is why <code>_HK_LAST[id]</code> is written twice.</p>
+<p><strong>Guard 3 — cross-send cooldown.</strong> After any send, a <em>different</em> send
+within the window is dropped, so an accidental F1-then-F2 cannot both go out even once F1
+finished.</p>
+<p>Set <code>DoubleFireWindowMs = 0</code> in <code>hotkeys.ini</code> <code>[meta]</code> to
+disable all three.</p>
+</div>
+
+<p>Two details worth internalising:</p>
+
+<h4>Why "send" is defined the way it is</h4>
+<pre><code>_HK_IsSend(id) {
+    return SubStr(id, 1, 5) = "mass." &amp;&amp; SubStr(id, 1, 12) != "mass.select."
+}
+</code></pre>
+<p>Navigation and utility keys are <em>not</em> sends, so fast chat-hopping is never eaten. And
+<code>mass.select.*</code> is explicitly excluded: it sends nothing, it only records which model
+the shared keys mean. Left in, a select would set the cross-send clock and <strong>swallow the
+follow-up you pressed it in order to send</strong> — the switch-then-send sequence is the one
+pair of presses that must never be debounced against each other.</p>
+
+<h4>Why every branch is logged</h4>
+<p>All three guards are <strong>invisible and intentional</strong>: the key was registered, the
+handler exists, and nothing happened. That is indistinguishable from a broken hotkey from the
+outside. So each drop says which guard ate it <em>and by how many milliseconds it missed</em> —
+a number that also tells you whether the window is simply set too high for how this person
+types.</p>
+
+<h3>The send hooks — dependency inversion in eight lines</h3>
+
+<pre><code>global HK_SEND_HOOKS := []
+
+HK_OnSend(begin, end) {
+    HK_SEND_HOOKS.Push({begin: begin, end: end})
+}
+</code></pre>
+
+<p>The three guards only ever see <em>hotkeys</em>. A mouse click on the conversation list
+mid-send is the same fumble with the same cost, and not one of them can see it coming. So the
+two edges are <em>published</em>, and <code>engine.ahk</code> installs the click wall on them:</p>
+
+<pre><code>HK_OnSend(CW_Arm, CW_Release)
+</code></pre>
+
+<div class="concept">
+<span class="tag">CONCEPT-ENCOUNTERED</span>
+<h3>Callback registry — why not just call the function?</h3>
+<p>Because <code>hotkeys.ahk</code> is included by <strong>every</strong> process MMA runs — the
+GUI, each account script, every background service — and <code>click_wall.ahk</code> is loaded by
+exactly one of them. Naming <code>CW_Arm</code> in <code>hotkeys.ahk</code> would be a load-time
+"nonexistent function" in all the others.</p>
+<p>A registry inverts the dependency: the low-level file <em>publishes an edge</em>, and the
+high-level file that knows about both <em>subscribes</em>. The same pattern appears twice more in
+MMA:</p>
+<ul>
+<li><code>global ALT_ON_PICK := ""</code> in <code>utils.ahk</code> —
+<code>mass/runtime.ahk</code> installs the real one; account scripts that never load the engine
+leave it blank and the commit simply skips it.</li>
+<li><code>SVC_Def(..., {onStop: SVC_ClearDetectorStatus})</code> — a function reference stored
+in a data table.</li>
+</ul>
+<p>Hooks are wrapped in <code>try</code>: a hook that throws must not take the send down with it.
+The message is the job; the hook is a courtesy.</p>
+</div>
+
+<h3><code>HK_Broadcast</code> — reaching every process</h3>
+
+<pre><code>HK_Broadcast(msg, wparam := 0, exceptHwnd := 0) {
+    DetectHiddenWindows true
+    for hwnd in WinGetList("ahk_class AutoHotkey") {
+        if (hwnd = exceptHwnd)
+            continue
+        seen++
+        try {
+            if (InStr(WinGetTitle(hwnd), HK_DIR "\") = 1) {
+                PostMessage(msg, wparam, 0, , "ahk_id " hwnd)
+                sent++
+            }
+        }
+    }
+    ...
+}
+</code></pre>
+
+<p>Enumerated, not a hard-coded list. <code>HK_DIR</code> is the <strong>repo root</strong> —
+and the comment at the top of the file explains that this is not tidiness: if <code>HK_DIR</code>
+were this file's own folder (<code>src\core\</code>), the title test would match nothing, because
+no script lives there. Every rebind, suspend and remote fire would silently stop crossing process
+boundaries.</p>
+
+<p><code>exceptHwnd</code> exists for the Actions menu: it suspends the other scripts while it is
+open, but must keep its own keys alive to close.</p>
+
+<h3>Keeping a user's ini across updates</h3>
+
+<pre><code>HK_MergeDefaults()
+</code></pre>
+
+<p>The updater skips <code>hotkeys.ini</code>, so an update cannot overwrite anyone's keys. That
+alone would <em>freeze</em> the file: a key added in a later release would be absent, and
+<code>HK_Key</code> treats absent as unbound — the action would never work.</p>
+
+<p>So new defaults are merged in <strong>additively</strong>: a key missing from
+<code>hotkeys.ini</code> is copied from <code>hotkeys.default.ini</code>; a key already present
+is left alone, <em>always</em>. A blank value counts as present, so a key you cleared on purpose
+does not come back to life.</p>
+
+<div class="concept">
+<span class="tag">CONCEPT-ENCOUNTERED</span>
+<h3>Additive migration</h3>
+<p>The general shape: <strong>ship defaults in a separate file, merge only what is missing,
+never overwrite.</strong> It works for any user-owned config that a release needs to extend.</p>
+<p>Compare with the one-time migration in <code>MMA.ahk</code> (lifting the shell default) and
+<code>AltStageMigrateSep()</code> in <code>utils.ahk</code>. That second one is worth reading:
+it replaces a bad default value <em>only if it is still the untouched original</em>. A value
+someone deliberately set is left alone. "Silently overwriting a customised setting is its own
+kind of bug."</p>
+</div>
+
+<h3>The dynamic tail</h3>
+
+<p>At the very bottom, after every static <code>HK_Def</code>, the file declares one id per bound
+hotstring — read from the ini, sorted, appended last.</p>
+
+<p><strong>The ordering is load-bearing.</strong> The Actions menu fires an action by
+broadcasting its <em>index</em> in <code>HK_ORDER</code>, so every process must agree on what
+index N is. Static declarations guarantee that because they are the same source read by every
+process. These are not static: a script started before you bound a hotstring has a shorter
+<code>HK_ORDER</code>.</p>
+
+<p>Appending them after every static id keeps indices 1..static identical in every process
+however long it has been running, and a stale process handed an index in the dynamic tail finds
+it out of range and ignores it. Sorted, for the same reason — every process must build the tail
+in the same order, and ini enumeration order is file line order, which changes the moment a line
+is rewritten.</p>
+
+<hr>
+
+<h2>Registry 3 — Messages (<code>core/messages.ahk</code>)</h2>
+
+<p>The smallest registry, and the one whose "before" state is most instructive.</p>
+
+<p>The ten numbers were declared as bare literals in four different files —
+<code>0x8001</code>–<code>0x8005</code> in <code>runtime.ahk</code>, <code>0x8006</code> in
+<code>engine.ahk</code>, <code>0x8010</code> in <code>sequences.ahk</code>,
+<code>0x8020</code>–<code>0x8022</code> in <code>hotkeys.ahk</code>. Four files each owning a
+slice of one number space, and no file listing it.</p>
+
+<p>The senders were worse. <code>main_window.ahk</code> posted the raw numbers, including:</p>
+<pre><code>HK_Broadcast(0x8002 + f, val)     <span class="c">; arithmetic on a magic number</span>
+</code></pre>
+<p>which only works because <code>0x8003</code>–<code>0x8005</code> happen to sit directly above
+<code>0x8002</code>. And at the receiving end, <code>msg - 0x8002</code>. Both correct, and both
+encoding the block's layout at a call site — so moving those three numbers would have broken a
+send and a receive in two different files, silently, <strong>with the wrong follow-up going
+out</strong>.</p>
+
+<p>The fix is a pair of named functions:</p>
+<pre><code>MMA_MSG_EditableFu(n) {
+    return MMA_MSG_EDITABLE_FU1 + (n - 1)
+}
+
+MMA_MSG_EditableFuNo(msg) {
+    if (msg &lt; MMA_MSG_EDITABLE_FU1 || msg &gt; MMA_MSG_EDITABLE_FU3)
+        return 0
+    return msg - MMA_MSG_EDITABLE_FU1 + 1
+}
+</code></pre>
+
+<p>The inverse returns <strong>0</strong> rather than a wrong number, because it runs in an
+<code>OnMessage</code> handler where a bad index would quietly set the wrong toggle.</p>
+
+<div class="note">
+<p><b>The rule:</b> declare it here, in the right block, and use the <em>name</em> at both ends.
+Never a literal — a literal is how <code>0x8002</code> came to mean two things depending on which
+file you read.</p>
+</div>
+
+<hr>
+
+<h2>Registry 4 — Services (<code>core/processes.ahk</code>)</h2>
+
+<p>The clearest before/after in the repo. There were <strong>eleven near-identical
+<code>Launch*</code>/<code>Stop*</code>/<code>*Running</code> triples — 409 lines</strong> —
+differing in four tokens. Then <em>four</em> separate hand-written lists decided when each one
+ran: the boot list, the Features tab's if/else chain, the watchdog, and the Tools window's own
+list.</p>
+
+<h3>The declaration</h3>
+
+<pre><code>SVC_Def(id, kind, path, tag, noun, extra := "")
+</code></pre>
+
+<div class="tablewrap">
+<table>
+<tbody>
+<tr><td><code>id</code></td><td><strong>The FEATURE id</strong> from <code>modes.ahk</code>. Not a new name — the label, the cfg key and the on/off switch all still come from <code>FEAT_META</code>. A service is a feature that happens to be a process.</td></tr>
+<tr><td><code>kind</code></td><td><code>"ahk"</code> (found and closed by window title) or <code>"python"</code> (found and closed by named event).</td></tr>
+<tr><td><code>path</code></td><td>The <code>.ahk</code> file, or the <code>.vbs</code> that starts the Python without a console window.</td></tr>
+<tr><td><code>tag</code></td><td>The log tag.</td></tr>
+<tr><td><code>noun</code></td><td>What to call it in a log line: "the stats overlay".</td></tr>
+<tr><td><code>extra</code></td><td>Optional, only where a service genuinely differs: <code>event</code>, <code>needText</code>, <code>needKey</code>, <code>onStop</code>.</td></tr>
+</tbody>
+</table>
+</div>
+
+<pre><code>SVC_Def("modelDetector", "ahk", MMA_SRC "\screen\model_detector.ahk",
+        "proc.detector", "the model detector",
+        {onStop: SVC_ClearDetectorStatus})
+
+SVC_Def("automation", "python", MMA_SRC "\services\automation\automation_listen.vbs",
+        "proc.automation", "the automation listener",
+        {event: "Global\MMA.automation.listener.stop",
+         needKey: "automation.unsendLast",
+         needText: "The automation listener needs Python…"})
+</code></pre>
+
+<p><code>onStop</code> is a <strong>named function, never a lambda</strong> — "this table is
+meant to be read." That is a deliberate style choice: a data table stops being readable data the
+moment you inline logic into it.</p>
+
+<h3>The verbs</h3>
+
+<div class="tablewrap">
+<table>
+<thead><tr><th>Function</th><th>Does</th></tr></thead>
+<tbody>
+<tr><td><code>SVC_Running(id)</code></td><td>Window title for AHK, event handle for Python. Sets <code>DetectHiddenWindows</code> itself, so a caller who forgot cannot get a false "everything is down".</td></tr>
+<tr><td><code>SVC_Launch(id, announce)</code></td><td>Gates in order: feature off → already running → Python missing → file missing. Each gate has its own log line.</td></tr>
+<tr><td><code>SVC_Stop(id)</code></td><td>ProcessClose or SetEvent. Then <code>onStop</code>, <em>whether or not it was up</em> — the status files it clears are on disk, and a service that died on its own leaves exactly the stale reading this removes.</td></tr>
+<tr><td><code>SVC_Sync(id)</code></td><td>Make the world match the switch: launch if on, stop if off.</td></tr>
+<tr><td><code>SVC_SyncAll()</code></td><td>Walk <code>SVC_ORDER</code>. <strong>This is what fixed the Features tab bug</strong> — its hand-written chain covered seven of nine services.</td></tr>
+<tr><td><code>SVC_LaunchEnabled()</code></td><td>Start what is on, leave everything else alone. Boot and the watchdog want this, not SyncAll: neither is a moment where the user changed a switch.</td></tr>
+<tr><td><code>SVC_RunningCount()</code></td><td>One pass with <code>DetectHiddenWindows</code> held on. Drives the "Tools (2)" button label.</td></tr>
+<tr><td><code>SVC_StopPython()</code></td><td>For <code>KillAllScripts</code>, which closes AutoHotkey windows and these do not have one.</td></tr>
+<tr><td><code>SVC_Label(id)</code></td><td>From <code>FEAT_META</code>, never retyped — a service renamed in <code>modes.ahk</code> is renamed everywhere.</td></tr>
+</tbody>
+</table>
+</div>
+
+<div class="warn">
+<span class="tag">Why <code>SVC_StopPython</code> exists as a loop</span>
+<p>It was four named <code>Stop*</code> calls, one per service — exactly the list a fifth Python
+service would have been forgotten from. And being forgotten <em>there</em> means it survives
+"close all" and goes on running after MMA is gone.</p>
+</div>
+
+<h3>Adding a service, in full</h3>
+
+<ol>
+<li>A <code>FEAT_Def</code> line in <code>core/modes.ahk</code>.</li>
+<li>An <code>SVC_Def</code> line in <code>core/processes.ahk</code>.</li>
+<li>The file itself.</li>
+</ol>
+
+<p>That is the whole change. Boot, the Features tab, the Tools window, the Tools button's count
+and the watchdog all walk <code>SVC_ORDER</code>.
+<code>tools/test/services_test.ahk</code> exists specifically to stop a fifth list growing
+back.</p>
+
+<hr>
+
+<h2>Guarding against future TOCTOU</h2>
+
+<p>One more pattern that shows up throughout <code>processes.ahk</code> and is worth naming:</p>
+
+<div class="concept">
+<span class="tag">CONCEPT-ENCOUNTERED</span>
+<h3>TOCTOU — time of check to time of use</h3>
+<pre><code>if WinExist(path " ahk_class AutoHotkey") {
+    try {
+        pid := WinGetPID(path " ahk_class AutoHotkey")   <span class="c">; ← may already be gone</span>
+        ProcessClose pid
+    } catch as e {
+        LOGW("proc.toggle", fname " vanished while we were closing it")
+    }
+}
+</code></pre>
+<p>The script can exit between the check and the use, and then <code>WinGetPID</code> throws
+"Target window not found". Unguarded, clicking the toggle at the moment a script happens to be
+dying raised an error dialog and left the button's label lying about the state.</p>
+<p>The same problem, worse, in <code>KillAllScripts</code>: <code>WinGetList</code> returns a
+<em>snapshot</em>, and closing scripts is exactly when its entries go stale. The guard is
+<strong>per window inside the loop</strong>, not around the loop — because a throw that escapes
+the loop means "close all running scripts too?" on exit silently left every script after the
+vanished one still running.</p>
+<p>The general rule: <strong>any check on external state is stale by the time you act on it.</strong>
+Guard the action, not the check.</p>
+</div>
+
+<div class="pager"></div>
+</main>
+</div>
+</body>
+</html>

@@ -1,4 +1,4 @@
-#Requires AutoHotkey v2.0
+﻿#Requires AutoHotkey v2.0
 #Include "../core/paths.ahk"
 ; ═══════════════════════════════════════════════════════════════════════════════
 ;  tools_window.ahk — one row per background tool: is it up, switch it on or off.
@@ -67,27 +67,10 @@
 ; deliberate, so "nothing happened because Python is missing" gets said out loud
 ; instead of going to the log.
 TOOLS_List() {
-    return [
-        {id: "pinger",         run: PingerRunning,
-                               start: LaunchPinger.Bind(true),   stop: StopPinger},
-        {id: "statsOverlay",   run: StatsOverlayRunning,
-                               start: LaunchStatsOverlay,        stop: StopStatsOverlay},
-        {id: "modelDetector",  run: DetectorRunning,
-                               start: LaunchDetector,            stop: StopDetector},
-        {id: "fanslyDetector", run: FanslyDetectorRunning,
-                               start: LaunchFanslyDetector,      stop: StopFanslyDetector},
-        {id: "automation",     run: AutomationListenerRunning,
-                               start: LaunchAutomationListener.Bind(true),
-                               stop: StopAutomationListener},
-        {id: "activity",       run: ActivityTrackerRunning,
-                               start: LaunchActivityTracker,
-                               stop: StopActivityTracker},
-        {id: "typelog",        run: TypelogRunning,
-                               start: LaunchTypelog.Bind(true),  stop: StopTypelog},
-        {id: "autoword",       run: AutowordRunning,
-                               start: LaunchAutoword.Bind(true), stop: StopAutoword},
-        {id: "replyBox",       run: ReplyBoxRunning,
-                               start: LaunchReplyBox,            stop: StopReplyBox}]
+    out := []
+    for id in SVC_ORDER
+        out.Push({id: id})
+    return out
 }
 
 ; A tool's label, from the registry.
@@ -118,9 +101,9 @@ TOOLS_Set(t, on) {
     ; an unhandled throw here takes the whole main window down with it.
     try {
         if on
-            t.start.Call()
+            SVC_Launch(t.id, true)
         else
-            t.stop.Call()
+            SVC_Stop(t.id)
     } catch as e {
         LOGE("ui.tools", "could not " (on ? "start " : "stop ") TOOLS_Label(t.id),
              LOG_Err(e))
@@ -151,12 +134,12 @@ TOOLS_Restart(t) {
     ; interpreter or a locked file, and an unhandled throw takes the main window
     ; down with it.
     try {
-        t.stop.Call()
+        SVC_Stop(t.id)
         if !TOOLS_WaitDown(t)
             LOGW("ui.tools", TOOLS_Label(t.id) " has not exited after "
                            . TOOLS_STOP_WAIT_MS " ms — starting anyway, and the"
                            . " launcher may find the old one still holding the name")
-        t.start.Call()
+        SVC_Launch(t.id, true)
     } catch as e {
         LOGE("ui.tools", "could not restart " TOOLS_Label(t.id), LOG_Err(e))
         MsgBox("Could not restart " TOOLS_Label(t.id) ":`n`n" e.Message, "Tools", 0x10)
@@ -172,7 +155,7 @@ TOOLS_WaitDown(t) {
     DetectHiddenWindows true          ; the AHK tools answer through a hidden window
     deadline := A_TickCount + TOOLS_STOP_WAIT_MS
     loop {
-        if !t.run.Call()
+        if !SVC_Running(t.id)
             return true
         if A_TickCount > deadline
             return false
@@ -300,7 +283,7 @@ OpenToolsWindow(ownerHwnd := 0) {
             DetectHiddenWindows true
             for _, r in rows {
                 on := TOOLS_On(r.tool.id)
-                up := r.tool.run.Call()
+                up := SVC_Running(r.tool.id)
                 ; Three states, not two. "on but not running" is the one worth
                 ; seeing: it is what a missing Python or a crashed detector looks
                 ; like, and with a plain on/off it reads as working.

@@ -6,7 +6,10 @@
 #Include "../vendor/OCR.ahk"
 
 DetectHiddenWindows true
-MMA_GUI_WIN := MMA_SRC_GUI " ahk_class AutoHotkey"
+; The GUI is addressed by MMA_GuiWin() at the moment it is needed, not by a
+; MMA_GUI_WIN captured here. MMA has two front ends now and either can be the
+; one running; a title resolved at load would also go stale the moment the
+; shell preference changed. See MMA_GuiWin in core/paths.ahk.
 ; MMA_MSG_AUTOPARSE was `:= 0x8010` here. It is in core/messages.ahk now, reached
 ; through utils.ahk → hotkeys.ahk above, with the other nine.
 COPY_TEXT_IMG := MMA_ASSETS "\copy_text.png"
@@ -279,7 +282,7 @@ _SeqFindMenu(mx, my) {
 }
 
 copyDiscordMessageSeq() {
-    global MMA_GUI_WIN, MMA_MSG_AUTOPARSE, COPY_TEXT_IMG
+    global MMA_MSG_AUTOPARSE, COPY_TEXT_IMG
     global SEQ_MENU_FIRST_MS, SEQ_MENU_STEP_MS, SEQ_MENU_MAX_MS
     ; "The Discord import broke again" starts here. If this line is absent the key
     ; never reached the handler (script not running, key unbound, wrong window) —
@@ -388,13 +391,14 @@ copyDiscordMessageSeq() {
     ; the clipboard, tagged and ready, and if the GUI is not running there is
     ; nothing to receive it. From Discord that looks exactly like the import
     ; having done nothing at all.
-    if WinExist(MMA_GUI_WIN) {
-        PostMessage MMA_MSG_AUTOPARSE, 0, 0, , MMA_GUI_WIN
+    _guiWin := MMA_GuiWin()
+    if WinExist(_guiWin) {
+        PostMessage MMA_MSG_AUTOPARSE, 0, 0, , _guiWin
         LOGI("seq.discord", "told the MMA window to auto-parse the clipboard")
     } else {
         LOGE("seq.discord", "the copied text is on the clipboard, but the MMA window"
                           . " is not running — nothing will parse it",
-                          "looked for window title " MMA_GUI_WIN)
+                          "looked for window title " _guiWin)
     }
 }
 

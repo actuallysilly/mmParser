@@ -1,5 +1,9 @@
 #Requires AutoHotkey v2.0
 #Include "../core/hotkeys.ahk"
+; Everything this editor knows that is not about drawing — the key capture, the
+; pretty names, the defaults, the clash rule. Shared with ui\hotkeys_webview.ahk
+; rather than copied into it; see that file's header.
+#Include "hotkeys_core.ahk"
 ; theme.ahk, because this file now NAMES THEME_Set() and THEME_Accent() — the dark
 ; pass over the list and the accent rule on the capture overlay. Same rule
 ; settings_window.ahk states at its own top: a file that names a function includes
@@ -56,11 +60,6 @@
 ;  AutoHotkey 2.0.26, including registering one WHILE already suspended.
 ; ═══════════════════════════════════════════════════════════════════════════════
 
-; Set by the capture hotkeys, read by HKP_GrabKey. Script-level rather than
-; instance state because a Hotkey() callback has no `this` — and there is only
-; ever one capture in flight, since the overlay is modal in practice.
-global _HKP_GRABBED  := ""
-global _HKP_GRABMODS := ""
 
 class HotkeysPanel {
     ; The "Show" dropdown. Compared by INDEX in Matches(), so the wording here is
@@ -309,13 +308,9 @@ class HotkeysPanel {
         return this.IsChanged(id) ? HotkeysPanel.MARK_CUSTOM : ""
     }
 
-    ; An id with no line in hotkeys.default.ini counts as changed as soon as it has
-    ; a key at all — there is nothing for it to match, so "same as the default"
-    ; cannot be true of it.
-    IsChanged(id) {
-        d := this.defaults[id]
-        return (d == HK_UNSET) ? (this.pending[id] != "") : (this.pending[id] != d)
-    }
+    ; "Not the default", for the ○ mark. The rule is in hotkeys_core.ahk with the
+    ; rest of what the two editors have to agree on.
+    IsChanged(id) => HKP_IsChanged(this.pending[id], this.defaults[id])
 
     ; The counter on the right of the toolbar. Deliberately counts the WHOLE
     ; registry and not the filtered view: "3 unsaved" dropping to 0 because you
@@ -400,38 +395,16 @@ class HotkeysPanel {
     ; ── conflicts ─────────────────────────────────────────────────────────────
 
     ; Two ids clash when they resolve to the same key AND can be live at the same
-    ; time.
+    ; time. The rule itself is in hotkeys_core.ahk, because the WebView editor
+    ; reports the same clashes and a second opinion about what a clash IS would be
+    ; a bug you could only find by having both windows open at once.
     ;
-    ; There used to be an exemption here: model send keys did not count as clashing
-    ; with each other, because three model PROCESSES each bound the same key and
-    ; StartFuGating kept only the active one registered — so three copies of F13
-    ; were normal, and flagging them was crying wolf. One process shares keys
-    ; through a single [mass.active] declaration instead, so there is nothing to
-    ; exempt. Removing it makes the report honest, and it has something to report.
+    ; The list wants the warning glyph in front of the names; the core returns the
+    ; names alone, so the page can draw the same fact its own way.
     Conflicts() {
-        byKey := Map(), out := Map()
-        for id in HK_ORDER {
-            k := this.pending[id]
-            if (k = "")
-                continue
-            if !byKey.Has(k)
-                byKey[k] := []
-            byKey[k].Push(id)
-        }
-        for k, ids in byKey {
-            if (ids.Length < 2)
-                continue
-            for i, a in ids {
-                names := ""
-                for j, b in ids {
-                    if (i = j || !HKP_CanCollide(a, b))
-                        continue
-                    names .= (names = "" ? "" : ", ") HK_META[b].label
-                }
-                if (names != "")
-                    out[a] := Chr(0x26A0) " " names
-            }
-        }
+        out := Map()
+        for id, names in HKP_Conflicts(this.pending)
+            out[id] := Chr(0x26A0) " " names
         return out
     }
 
@@ -526,13 +499,10 @@ class HotkeysPanel {
         ; panel lives inside a script that has hotkeys of its own. The un-suspend
         ; MUST run even if the grab throws, or every hotkey in MMA stays dead with
         ; no clue why.
-        HK_Broadcast(HK_MSG_SUSPEND, 1)
         try
-            k := HKP_GrabKey(lblPrompt)
-        finally {
-            HK_Broadcast(HK_MSG_SUSPEND, 0)
+            k := HKP_Capture(lblPrompt)
+        finally
             ov.Destroy()
-        }
 
         if (k = "<cancel>")
             return
@@ -589,22 +559,11 @@ class HotkeysPanel {
     ; a host window can fold this into its own save message instead of popping a
     ; second one. Safe to call when nothing changed — it writes nothing.
     Save() {
-        n := 0
-        for id in HK_ORDER {
-            s   := HK_Split(id)
-            cur := IniRead(HK_INI, s.section, s.key, HK_UNSET)
-            if (cur == HK_UNSET || Trim(cur) != this.pending[id]) {
-                IniWrite(this.pending[id], HK_INI, s.section, s.key)
-                n++
-            }
+        n := HKP_SaveKeys(this.pending)
+        for id in HK_ORDER
             this.saved[id] := this.pending[id]
-        }
         if (n = 0)
             return 0
-        ; Reset all pulls from hotkeys.default.ini, which carries no SchemaVersion —
-        ; re-stamp it so the one-time cfg migration can't run again over a clean cfg.
-        IniWrite(HK_SCHEMA, HK_INI, "meta", "SchemaVersion")
-        HK_Broadcast(HK_MSG_RELOAD, 0)
         this.dirty := false
         ; Every ● says "edited, not saved yet", and not one of them is true now.
         ; `try`, because a host window is allowed to save and close in the same
@@ -653,29 +612,6 @@ class HotkeysPanel {
 ; function and a variable that share a name (case-insensitively) do not merely
 ; shadow one another, the script fails to load.
 
-; An em dash for "no key", not an empty cell: a blank column reads as a row that
-; failed to draw, and this one is a deliberate state you can put a hotkey into.
-HKP_KeyLabel(k) => (k = "" ? Chr(0x2014) : HKP_Pretty(k))
-
-; ^!+# is how AHK writes it and what the ini stores; spell it out for the list.
-HKP_Pretty(k) {
-    ; Mouse buttons under the name they have on the mouse. "XButton1" is the API's
-    ; word for it and nobody else's, and this label is read by someone deciding
-    ; whether the button they just pressed is the one they meant. Shared with the
-    ; hotstrings window and the main window's Add Hotkey, both of which show a
-    ; captured key back to you the same way.
-    static NICE := Map("LButton", "Left click", "RButton", "Right click",
-                       "MButton", "Middle click", "XButton1", "Mouse 4",
-                       "XButton2", "Mouse 5", "WheelUp", "Wheel up",
-                       "WheelDown", "Wheel down")
-    out := ""
-    while (k != "" && InStr("^!+#", SubStr(k, 1, 1))) {
-        c := SubStr(k, 1, 1)
-        out .= (c = "^") ? "Ctrl+" : (c = "!") ? "Alt+" : (c = "+") ? "Shift+" : "Win+"
-        k := SubStr(k, 2)
-    }
-    return out (NICE.Has(k) ? NICE[k] : k)
-}
 
 ; A grey prompt inside an empty Edit. It says what the box searches without
 ; spending a label and 50 pixels of the toolbar on saying it.
@@ -684,17 +620,6 @@ HKP_Cue(ctrl, text) {
     try SendMessage(EM_SETCUEBANNER, 1, StrPtr(text), ctrl)
 }
 
-; Centre a window over another one, as a Show() option string. WinGetPos cannot see
-; a HIDDEN window and the host is always visible when this is called — but a throw
-; here would take the whole capture down for a cosmetic reason, so it falls back to
-; letting Windows centre it on the screen.
-HKP_CenterOn(hwnd, w, h) {
-    try {
-        WinGetPos(&wx, &wy, &ww, &wh, "ahk_id " hwnd)
-        return "x" (wx + (ww - w) // 2) " y" (wy + (wh - h) // 2) " w" w " h" h
-    }
-    return "w" w " h" h
-}
 
 ; Dark scrollbars, a dark selection band and a dark column header — but ONLY when
 ; the theme is dark. DarkMode_Explorer on a control inside a LIGHT window gives you
@@ -717,103 +642,4 @@ HKP_DarkList(lv, ctrls*) {
         try DllCall("uxtheme\SetWindowTheme", "ptr", hHdr, "str", "DarkMode_Explorer", "ptr", 0)
 }
 
-HKP_CanCollide(a, b) {
-    ma := HK_META[a], mb := HK_META[b]
-    ; different window contexts can never both be active
-    if (ma.when != "" && mb.when != "" && ma.when != mb.when)
-        return false
-    return true
-}
 
-HKP_DefaultKey(id) {
-    s := HK_Split(id)
-    v := IniRead(HK_INI_DEFAULT, s.section, s.key, HK_UNSET)
-    return (v == HK_UNSET) ? HK_UNSET : Trim(v)
-}
-
-; Reads one chord. InputHook covers the keyboard (F13-F24 included); mouse buttons
-; never reach it, so those get temporary hotkeys. Capturing XButton1/2 and the
-; Scimitar keys is exactly why this editor is native AHK, not a web page.
-HKP_GrabKey(fb := "") {
-    static btns := ["LButton", "RButton", "MButton", "XButton1", "XButton2",
-                    "WheelUp", "WheelDown"]
-    ; The eight keys that are modifiers, never a chord's main key.
-    static MOD_KEYS := "{LControl}{RControl}{LAlt}{RAlt}{LShift}{RShift}{LWin}{RWin}"
-    global _HKP_GRABBED  := ""
-    global _HKP_GRABMODS := ""
-
-    ; "S" = exempt from Suspend. The suspend broadcast that protects you from
-    ; firing a real hotkey mid-capture now reaches this script too, and without
-    ; the exemption it would switch off the very keys doing the capturing.
-    for b in btns
-        try Hotkey("*" b, HKP_MouseGrab.Bind(b), "On S")
-
-    ; L0 = no length limit; KeyOpt {All} E makes any key an end key, so this blocks
-    ; until one arrives. No V, so the keypress is swallowed rather than typed into
-    ; whatever is behind the overlay.
-    ih := InputHook("L0")
-    ; Which modifiers were down AT THE INSTANT the end key arrived. Reading them
-    ; afterwards races the user's fingers: release Ctrl a few ms after F1 and the
-    ; chord silently records as plain F1.
-    ih.OnEnd := HKP_GrabEndMods
-    try {
-        ih.KeyOpt("{All}", "E")
-        ; ...but NOT the modifiers. With {All} E they ended the input too, so the
-        ; instant you pressed Ctrl the capture finished with EndKey "LControl"
-        ; while the modifier read also saw Ctrl held — giving "^LControl" and
-        ; leaving no way to type a chord unless you hit the second key in the same
-        ; instant. Excluding them gives the behaviour every other app has: hold the
-        ; modifiers, and the capture waits for a real key.
-        ih.KeyOpt(MOD_KEYS, "-E")
-        ih.Start()
-        while (ih.InProgress && _HKP_GRABBED = "") {
-            ; Show the chord as it builds, so holding Ctrl visibly does something.
-            if IsObject(fb) {
-                m := HKP_Mods()
-                fb.Value := (m = "") ? "Press a key or mouse button…" : HKP_Pretty(m) "…"
-            }
-            Sleep(15)
-        }
-    } finally {
-        if ih.InProgress
-            ih.Stop()
-        for b in btns                ; always release, even if the above threw
-            try Hotkey("*" b, "Off")
-    }
-
-    if (_HKP_GRABBED != "") {
-        got := _HKP_GRABBED
-        _HKP_GRABBED := ""
-        return got
-    }
-    ek := ih.EndKey
-    if (ek = "" || ek = "Escape")
-        return "<cancel>"
-    if (ek = "Backspace")
-        return "<clear>"
-    ; OnEnd is the accurate reading; fall back to a live one if it never ran, so a
-    ; missed callback costs the modifiers rather than the whole chord.
-    return (_HKP_GRABMODS != "" ? _HKP_GRABMODS : HKP_Mods()) ek
-}
-
-; InputHook.OnEnd — the one moment the held modifiers are still true.
-HKP_GrabEndMods(*) {
-    global _HKP_GRABMODS := HKP_Mods()
-}
-
-HKP_MouseGrab(btn, *) {
-    global _HKP_GRABBED := HKP_Mods() btn
-}
-
-HKP_Mods() {
-    s := ""
-    if GetKeyState("Ctrl", "P")
-        s .= "^"
-    if GetKeyState("Alt", "P")
-        s .= "!"
-    if GetKeyState("Shift", "P")
-        s .= "+"
-    if (GetKeyState("LWin", "P") || GetKeyState("RWin", "P"))
-        s .= "#"
-    return s
-}

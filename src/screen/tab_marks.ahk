@@ -1,4 +1,5 @@
 #Requires AutoHotkey v2.0
+#Include "../core/dpi.ahk"
 ; ═══════════════════════════════════════════════════════════════════════════════
 ;  tab_marks.ahk — vertical divider bars you stick onto your own tab strip.
 ; ───────────────────────────────────────────────────────────────────────────────
@@ -265,6 +266,11 @@ MARKS_Save(marks) {
 ;  a menu that is itself only reachable by right-clicking a visible bar. Without
 ;  that, hiding would be a one-way door out of the feature.
 MARKS_Place(*) {
+    ; Per-monitor DPI for the length of this call — see core/dpi.ahk. Without
+    ; it every coordinate below is virtualised on any monitor whose scaling
+    ; differs from the primary's, and the wrong numbers stay self-consistent
+    ; while disagreeing with the screen.
+    _dpi := DpiScope()
     global _marks, _marksOn, MMA_CFG
     cfg := MARKS_Cfg()
     x := 0, y := 0
@@ -292,6 +298,11 @@ MARKS_Place(*) {
 ;  window's rect starts at -8,-8 — the exact offset that would put every bar a few
 ;  pixels off its tab.
 _MARKS_PointerIn(cfg, &x, &y) {
+    ; Per-monitor DPI for the length of this call — see core/dpi.ahk. Without
+    ; it every coordinate below is virtualised on any monitor whose scaling
+    ; differs from the primary's, and the wrong numbers stay self-consistent
+    ; while disagreeing with the screen.
+    _dpi := DpiScope()
     if !WinExist(cfg.win)
         return false
     prev := A_CoordModeMouse
@@ -344,6 +355,11 @@ OnMessage(0x0201, _MARKS_OnLButtonDown)
 ; until it decides otherwise, so its own "I am finished" message is the only reading
 ; guaranteed to come after the final move.
 _MARKS_OnExitSizeMove(wParam, lParam, msg, hwnd) {
+    ; Per-monitor DPI for the length of this call — see core/dpi.ahk. Without
+    ; it every coordinate below is virtualised on any monitor whose scaling
+    ; differs from the primary's, and the wrong numbers stay self-consistent
+    ; while disagreeing with the screen.
+    _dpi := DpiScope()
     global _marksDrag, _marks, _marksRect
     if !_marksDrag
         return
@@ -655,6 +671,11 @@ _MARKS_Reconcile(cfg) {
 ; WS_EX_NOACTIVATE: the browser stays the active window throughout a drag and for as
 ; long as the menu is open, so nothing has to be special-cased for either.
 MARKS_Sync(*) {
+    ; Per-monitor DPI for the length of this call — see core/dpi.ahk. Without
+    ; it every coordinate below is virtualised on any monitor whose scaling
+    ; differs from the primary's, and the wrong numbers stay self-consistent
+    ; while disagreeing with the screen.
+    _dpi := DpiScope()
     global _marks, _marksWins, _marksOn, _marksDrag, _marksMenu, _marksRect
     global _marksShown
     ; Windows owns the mouse and the bar's position for the length of a drag, and the

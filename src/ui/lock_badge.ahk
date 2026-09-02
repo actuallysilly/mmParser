@@ -6,7 +6,7 @@
 ;  every [mass.active] key at one model. That is the whole point of it — and it is
 ;  also, stated plainly, a mode in which a key you press sends to a model nothing
 ;  on screen names. MMA has been wrong in exactly that direction before, and the
-;  cost is one model's message in another model's chat (ARCHITECTURE.md §4.8).
+;  cost is one model's message in another model's chat (docs/decisions.md §4.8).
 ;
 ;  So the lock is not allowed to be invisible. The rule this file exists to keep:
 ;
@@ -169,7 +169,12 @@ _LOCKBADGE_Pos() {
     y := _IniInt(MMA_CFG, "Lock", "BadgeY", -1)
     if (x >= 0 && y >= 0)
         return {x: x, y: y}
-    MouseGetPos(&mx, &my)
+    ; CursorScreenPos, not MouseGetPos, and for the reason written out in full over
+    ; in mass/model_picker.ahk: core/utils.ahk leaves this process defaulting to
+    ; WINDOW-relative mouse coordinates, so a bare read here hands MonitorAreaAt a
+    ; point measured from Infloww's top-left and the badge is parked in the corner of
+    ; whichever monitor that number happens to land on.
+    CursorScreenPos(&mx, &my)
     ma := MonitorAreaAt(mx, my)
     return {x: ma.r - LOCKBADGE_W - 24, y: ma.b - LOCKBADGE_H - 24}
 }

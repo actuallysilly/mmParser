@@ -435,12 +435,35 @@ _PickOpen(group) {
     ; window. The cursor belongs on the HEADER strip above the grid, so that every
     ; route to a send (click, Tab and Enter, or a number key) is a deliberate act.
     winH := hintY + 24
-    MouseGetPos(&mx, &my)
-    x := mx - winW // 2, y := my - 14
+
+    ; Built hidden, measured, then placed, because neither number this needs can be
+    ; taken at face value.
+    ;
+    ; THE CURSOR has to be asked for in screen pixels — see CursorScreenPos. Asked
+    ; plainly, this window opens the Infloww window's own origin away from the
+    ; pointer that called it.
+    ;
+    ; THE SIZE that comes back is not the size that went in. Show's w and h are
+    ; LOGICAL units which it multiplies by the display scaling, while its x and y
+    ; are physical pixels that pass through untouched (measured at 125%: asked
+    ; 600x400, got a 768x547 window at exactly the x and y asked for). So winW is
+    ; the wrong ruler for the clamp below — the 944-wide preview grid is 1180 real
+    ; pixels, and clamping in logical units leaves a quarter of it off the right-hand
+    ; edge, which is the one thing the clamp exists to prevent. GetWindowRect reads
+    ; the true outer size and, unlike WinGetPos, answers for a window still hidden.
+    pg.Show("Hide w" winW " h" winH)
+    realW := winW, realH := winH
+    rc := Buffer(16, 0)
+    if DllCall("GetWindowRect", "ptr", pg.Hwnd, "ptr", rc) {
+        realW := NumGet(rc,  8, "int") - NumGet(rc, 0, "int")
+        realH := NumGet(rc, 12, "int") - NumGet(rc, 4, "int")
+    }
+    CursorScreenPos(&mx, &my)
+    x := mx - realW // 2, y := my - 14
     ma := MonitorAreaAt(mx, my)
-    x := Max(ma.l, Min(x, ma.r - winW))
-    y := Max(ma.t, Min(y, ma.b - winH))
-    pg.Show("x" x " y" y " w" winW " h" winH)
+    x := Max(ma.l, Min(x, ma.r - realW))
+    y := Max(ma.t, Min(y, ma.b - realH))
+    pg.Show("x" x " y" y)
     _pickHwnd := pg.Hwnd
 }
 
@@ -461,6 +484,28 @@ MonitorAreaAt(x, y) {
     }
     MonitorGetWorkArea(MonitorGetPrimary(), &l, &t, &r, &b)
     return {l: l, t: t, r: r, b: b}
+}
+
+; The cursor in SCREEN pixels, whatever the thread happens to have CoordMode set to.
+;
+; Not defensive tidiness — it is load-bearing, and the trap is a whole file away.
+; core/utils.ahk ends with a top-level `CoordMode "Mouse", "Window"`, and a CoordMode
+; set in the auto-execute section becomes the DEFAULT FOR EVERY THREAD in the process
+; — every hotkey, every timer, including this one. mass/runtime.ahk includes utils.ahk
+; four lines above this file, so a bare MouseGetPos here answers in coordinates
+; relative to whatever window is active, while Gui.Show's x and y are screen pixels.
+;
+; The two agree exactly when the active window sits at 0,0, which is why this looked
+; right for as long as Infloww was maximised on the primary monitor. Move that window
+; — or put it on a monitor to the LEFT of the primary, where its origin is negative —
+; and the picker opens the window's origin away from the pointer, on the wrong monitor,
+; clamped against the work area of a screen the cursor is not on. Same trap and same
+; fix as screen/tab_marks.ahk and screen/ocr_grab.ahk.
+CursorScreenPos(&x, &y) {
+    prev := A_CoordModeMouse
+    CoordMode "Mouse", "Screen"
+    MouseGetPos(&x, &y)
+    CoordMode "Mouse", prev
 }
 
 _PickRetitle() {

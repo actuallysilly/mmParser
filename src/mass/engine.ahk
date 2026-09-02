@@ -3,7 +3,7 @@
 ; ═══════════════════════════════════════════════════════════════════════════════
 ;  mass/engine.ahk — the mass process. ONE of them, for all models.
 ; ───────────────────────────────────────────────────────────────────────────────
-;  Replaces 1_mass.ahk, 2_mass.ahk and 3_mass.ahk (ARCHITECTURE.md §5).
+;  Replaces 1_mass.ahk, 2_mass.ahk and 3_mass.ahk (docs/decisions.md §5).
 ;
 ;  Those were three processes holding three copies of the same behaviour around
 ;  three blocks of data. The data moved to userdata\masses.json (mass/store.ahk)
@@ -79,6 +79,23 @@ NavBind()
 ;  and a way to be out of date.
 LOCKBADGE_Sync()
 SetTimer(LOCKBADGE_Sync, 700)
+
+; ── the Fansly rail readout ───────────────────────────────────────────────────
+;  Says which model the rail detector is seeing, beside the rail, while you are on
+;  it (ui/fansly_badge.ahk). Off unless [Debug] FanslyRail is ticked in
+;  Settings ▸ Debug, and the tick below is one cached ini read while it is off.
+;
+;  Same 700ms as the badge above, and deliberately the same timer rate rather than
+;  something faster: it has to keep up with you clicking a card, not with you
+;  typing, and every tick that finds nothing changed is a tick that did no work.
+;
+;  In THIS process because this is the one that resolves the model — the badge
+;  shows FanslyStatus(), the same cached call every [mass.active] key goes through,
+;  so it cannot drift from what the keys would actually do. A separate overlay
+;  process would be a second opinion, which is the one thing a readout must not be.
+FANBADGE_Sync()
+SetTimer(FANBADGE_Sync, 700)
+HK_Bind("gui.toggleRailBadge", FANBADGE_Toggle)
 
 ; ── the tab bars ──────────────────────────────────────────────────────────────
 ;  Divider bars you stick on your own tab strip — decoration, and deliberately

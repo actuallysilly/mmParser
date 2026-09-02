@@ -5,20 +5,37 @@
 ; away from failing to load — the include is free (AHK loads a file once however
 ; many times it is named) and it makes this file stand on its own.
 #Include "paths.ahk"
+; FEAT() decides whether every service below may start, and the service
+; registry reads its labels out of FEAT_META. Included for the reason the
+; header gives for the logger: a file that depends on its INCLUDER having
+; pulled in the feature registry first is one refactor away from failing to
+; load, and the include is free.
+#Include "modes.ahk"
 ; ═══════════════════════════════════════════════════════════════════════════════
 ;  processes.ahk — starting, stopping and watching everything MMA runs.
 ; ───────────────────────────────────────────────────────────────────────────────
-;  Five children, two kinds:
-;    • AHK scripts (the model files, general.ahk, acc\*.ahk) — found and closed
-;      by window title, ahk_class AutoHotkey.
-;    • Python (automation.py, pinger.pyw) — no AHK window to find, so each signs
-;      its presence with a NAMED EVENT. Opening the event answers "is it up?" in
-;      one DllCall; setting it means "please exit". That is why these cannot ride
-;      on startupScripts or be closed by KillAllScripts.
+;  Children of two kinds, and the count is not written down here on purpose —
+;  it is however many rows SVC_ORDER has, plus the engine and sequences:
+;    • AHK scripts (the engine, sequences.ahk, content\general.ahk, the account
+;      files, and the AHK services) — found and closed by window title,
+;      ahk_class AutoHotkey, because a script's main window IS its full path.
+;    • Python (automation, pinger, typelog, autoword) — no AHK window to find,
+;      so each signs its presence with a NAMED EVENT. Opening the event answers
+;      "is it up?" in one DllCall; setting it means "please exit". That is why
+;      these cannot ride on startupScripts or be closed by KillAllScripts.
 ;
-;  WatchdogTick re-launches anything that has died, if AutoRestart is on.
+;  The optional ones are declared once in the SERVICE REGISTRY below and are
+;  never named individually anywhere else. The engine and sequences.ahk are the
+;  exception and are hand-written further down: they have no switch.
 ;
-;  Split out of main_window.ahk; included by it and shares its globals.
+;  WatchdogTick re-launches anything that has died. TWO switches gate that:
+;  AutoRestart decides whether the 5-second timer runs at all (main_core.ahk
+;  and the Settings checkbox start it), and the tick itself returns early
+;  unless the startupScripts feature is on — which is how Easy mode stops the
+;  watchdog restarting the children it just switched off.
+;
+;  Split out of main_window.ahk; included by BOTH shells (main_window.ahk and
+;  webview_main_window.ahk) and shares their globals.
 ; ═══════════════════════════════════════════════════════════════════════════════
 
 ; ─── Script toggles ──────────────────────────────────────────────────────────
@@ -85,10 +102,12 @@ KillAllScripts() {
     global SCRIPT_DIR
     LOGI("proc.killall", "tearing down every MMA script under " SCRIPT_DIR)
     try SetTimer(WatchdogTick, 0)        ; stop watchdog first so it can't relaunch anything
-    StopAutomationListener()             ; not an AHK window, so the loop below misses it
-    StopPinger()                         ; likewise
-    StopTypelog()                        ; likewise
-    StopAutoword()                       ; likewise
+    ; The python services have no AutoHotkey window, so the loop below cannot see
+    ; them and each has to be asked to leave. This was four named Stop* calls, one
+    ; per service, which is exactly the list a fifth python service would have been
+    ; forgotten from — and being forgotten HERE means it survives "close all" and
+    ; goes on running after MMA is gone.
+    SVC_StopPython()
     myPID := ProcessExist()
     DetectHiddenWindows true
     closed := 0
@@ -219,263 +238,348 @@ PythonAvailable() {
     return found
 }
 
-; ── the Python automation listener ────────────────────────────────────────────
-;  automation.py serves the [automation] hotkeys. It cannot ride on startupScripts:
-;  that path tests WinExist("… ahk_class AutoHotkey") and KillAllScripts only closes
-;  AutoHotkey windows, neither of which sees a Python process.
+; ═══════════════════════════════════════════════════════════════════════════════
+;  The service registry — one line per background service.
+; ───────────────────────────────────────────────────────────────────────────────
+;  There were eleven near-identical Launch*/Stop*/*Running triples here, 409 lines
+;  of them, differing in four tokens: the feature id, the path, the log tag and
+;  the noun. Three separate hand-written lists then decided WHEN each one ran —
+;  CORE_BootServices in ui/main_core.ahk, the if/else chain in
+;  ui/features_panel.ahk, and WatchdogTick below — plus a fourth, TOOLS_List in
+;  ui/tools_window.ahk, restating ids the feature registry already held.
 ;
-;  It signs its presence with a named event, so we can ask "is it up?" with one
-;  DllCall instead of shelling out to `--status` (which would spawn a whole Python
-;  every watchdog tick, every 5 seconds).
+;  Four lists maintained by hand had drifted, and the drift was silent:
 ;
-;  Launched via the .vbs so there is no console window; it is single-instance on its
-;  own (a named mutex), so a double-launch is harmless — the second copy just exits.
+;    • fanslyDetector, activity and autoword were missing from the BOOT list, so
+;      they did not start until the first watchdog tick five seconds later — and
+;      never at all with startupScripts off.
+;    • activity and autoword were missing from the FEATURES chain, so unticking
+;      either wrote the cfg key and left the process running. Untick "Activity
+;      tracker" and it kept counting your keystrokes until you restarted MMA,
+;      with the checkbox saying it was off. For a feature whose whole defence is
+;      "you switched it on deliberately", that is the wrong bug to have.
+;
+;  So the list moved to where the ids already lived. Every service is declared
+;  ONCE below; everything that acts on services walks SVC_ORDER, and a service
+;  that is declared cannot be missing from a list, because there are no lists.
+;
+;  ── Declaring one ────────────────────────────────────────────────────────────
+;      SVC_Def(id, kind, path, tag, noun, extra)
+;
+;  id    — the FEATURE id from core/modes.ahk. Not a new name: the label, the cfg
+;          key and the on/off switch all still come from FEAT_META, so a service
+;          is a feature that happens to be a process.
+;  kind  — "ahk"    : an AHK script, found and closed by its window title.
+;          "python" : a .vbs launcher, found and closed by a named event.
+;  path  — the .ahk file, or the .vbs that starts the Python.
+;  tag   — the log tag, unchanged from when each of these was its own function.
+;  noun  — what to call it in a log line: "the stats overlay".
+;  extra — optional, and only where a service genuinely differs:
+;            event    — python only. Must match the STOP_EVENT_NAME in the .py.
+;            needText — python only. Shown when Python is missing AND the user
+;                       just clicked this on by hand. `{key}` is replaced with
+;                       the binding named by needKey.
+;            needKey  — a hotkey id to name in needText.
+;            onStop   — a function to run after stopping. Named, never a lambda:
+;                       this table is meant to be read.
+;
+;  ── Adding one ───────────────────────────────────────────────────────────────
+;  A FEAT_Def line in core/modes.ahk, an SVC_Def line here, and the file. That is
+;  the whole change — boot, the Features tab, the Tools window, the Tools button
+;  count and the watchdog all pick it up from SVC_ORDER.
+;
+;  NOT every child is here. The mass engine and sequences.ahk are further down
+;  and stay hand-written, deliberately: they have no feature switch and must
+;  start unconditionally, which is the one property this registry does not model.
+;  Making them rows would mean inventing a "cannot be switched off" flag, and the
+;  reason they are not switchable is that MMA lost each of them exactly once,
+;  silently, to a switch.
+; ═══════════════════════════════════════════════════════════════════════════════
 
-; Open the listener's own named event. Its mere existence means "a listener is up";
-; setting it means "please exit". Must match STOP_EVENT_NAME in automation.py.
-_AutomationOpenEvent() {
-    static EVENT_MODIFY_STATE := 0x0002
-    static EVENT_NAME := "Global\MMA.automation.listener.stop"
-    return DllCall("OpenEventW", "UInt", EVENT_MODIFY_STATE, "Int", false,
-                   "Str", EVENT_NAME, "Ptr")
+global SVC_META  := Map()      ; id -> the record below
+global SVC_ORDER := []         ; declaration order — boot order, and display order
+
+SVC_Def(id, kind, path, tag, noun, extra := "") {
+    s := {id: id, kind: kind, path: path, tag: tag, noun: noun,
+          event: "", needText: "", needKey: "", onStop: ""}
+    if IsObject(extra)
+        for k, v in extra.OwnProps()
+            s.%k% := v
+    SVC_META[id] := s
+    SVC_ORDER.Push(id)
 }
 
-AutomationListenerRunning() {
-    h := _AutomationOpenEvent()
-    if !h
-        return false
-    DllCall("CloseHandle", "Ptr", h)
-    return true
-}
+; ─── The AHK services ─────────────────────────────────────────────────────────
 
-; announce := true when the user just switched this on by hand, so "nothing
-; happened" gets an explanation. Silent at startup — see PythonAvailable().
-LaunchAutomationListener(announce := false) {
-    global SCRIPT_DIR
-    if AutomationListenerRunning() {
-        LOGV("proc.automation", "already running (its named event exists)")
-        return
-    }
-    ; FEAT reads the cfg key, so it is right the moment Settings writes it. This
-    ; used to ALSO check an `automationListener` global that the old Settings
-    ; window assigned on save — and once the Features tab became the only writer
-    ; of that key, nothing assigned the global any more. It kept its startup value
-    ; for the whole session, so switching the listener on and pressing Save
-    ; returned here, read a stale 0, and silently did nothing.
-    if !FEAT("automation") {
-        LOG_Bail("proc.automation", "feature 'automation' is off — listener not started")
-        return
-    }
-    if !PythonAvailable() {
-        LOG_Bail("proc.automation", "no Python — listener not started, so every"
-                                  . " [automation] hotkey is dead")
-        if announce
-            MsgBox "The automation listener needs Python, which isn't installed.`n`n"
+; Pixel-scans the Infloww tab strip for the lit model pill and OCRs its name.
+; Stopping it clears the status file: with nothing updating that name,
+; ActiveModelNo() would go on gating every model's keys against a stale reading.
+; Clearing it disables gating, which is the correct "no detector" behaviour.
+SVC_Def("modelDetector", "ahk", MMA_SRC "\screen\model_detector.ahk",
+        "proc.detector", "the model detector",
+        {onStop: SVC_ClearDetectorStatus})
+
+; A SECOND detector, running alongside the Infloww one rather than instead of it.
+; They cannot collide: each refuses to scan unless its own window is in front, and
+; each writes its own status file (see the note beside MMA_FANSLY in paths.ahk).
+SVC_Def("fanslyDetector", "ahk", MMA_SRC "\screen\fansly_detector.ahk",
+        "proc.fansly", "the Fansly rail detector",
+        {onStop: SVC_ClearFanslyStatus})
+
+; Owns the gui.toggleStats hotkey and the OCR overlay.
+SVC_Def("statsOverlay", "ahk", MMA_SRC "\screen\stats_overlay.ahk",
+        "proc.stats", "the stats overlay")
+
+; Boxes conversation rows by how long they have waited. Holds gui.toggleReplyBox.
+SVC_Def("replyBox", "ahk", MMA_SRC "\screen\reply_box.ahk",
+        "proc.replybox", "the reply timers")
+
+; Counts keystrokes, clicks and active seconds into userdata\activity\, and owns
+; the gui.activity key that opens the chart. Stopping it is a real stop, not a
+; pause: the minute in progress is flushed by its OnExit and nothing is recorded
+; until it is back. That is why it is in the watchdog like the rest — a tracker
+; that quietly died at 11am makes the afternoon look like a day off.
+SVC_Def("activity", "ahk", MMA_SRC "\activity\tracker.ahk",
+        "proc.activity", "the activity tracker")
+
+; ─── The Python services ──────────────────────────────────────────────────────
+;  None of these has an AHK window, so KillAllScripts cannot see them and they
+;  cannot ride on startupScripts. Each signs its presence with a NAMED EVENT:
+;  opening it answers "is it up?" in one DllCall instead of shelling out to
+;  `--status` (which would spawn a whole Python every watchdog tick, every five
+;  seconds), and setting it means "please exit".
+;
+;  All four start through a .vbs so there is no console window, and each is
+;  single-instance on its own (a named mutex), so a double-launch is harmless —
+;  the second copy just exits.
+
+SVC_Def("automation", "python", MMA_SRC "\services\automation\automation_listen.vbs",
+        "proc.automation", "the automation listener",
+        {event: "Global\MMA.automation.listener.stop",
+         needKey: "automation.unsendLast",
+         needText: "The automation listener needs Python, which isn't installed.`n`n"
                  . "Run install.bat to set it up, or leave this off — the "
-                 . "[automation] hotkeys (" HK_Key("automation.unsendLast") " and friends) "
-                 . "are the only thing that needs it.", "No Python found", 0x40
-        return
-    }
-    vbs := MMA_SRC "\services\automation\automation_listen.vbs"
-    ; A .vbs has nowhere to report a failure, so if the file is not even there,
-    ; this function returns having done nothing at all and looks like success.
-    if !FileExist(vbs) {
-        LOGE("proc.automation", "the launcher script is missing — the listener"
-                              . " cannot start and the [automation] keys are dead", vbs)
-        return
-    }
-    LOGI("proc.automation", "starting the listener via " vbs)
-    LOG_Try("proc.automation", "run automation_listen.vbs",
-            () => Run('wscript.exe "' vbs '"', SCRIPT_DIR, "Hide"))
+                 . "[automation] hotkeys ({key} and friends) are the only thing "
+                 . "that needs it."})
+
+SVC_Def("pinger", "python", MMA_SRC "\services\pinger\pinger_start.vbs",
+        "proc.pinger", "the pinger",
+        {event: "Global\MMA.pinger.stop",
+         needText: "The unread pinger needs Python, which isn't installed.`n`n"
+                 . "Run install.bat to set it up."})
+
+SVC_Def("typelog", "python", MMA_SRC "\services\typelog\typelog_start.vbs",
+        "proc.typelog", "the typelog recorder",
+        {event: "Global\MMA.typelog.stop",
+         needText: "The typelog recorder needs Python, which isn't installed.`n`n"
+                 . "Run install.bat to set it up."})
+
+SVC_Def("autoword", "python", MMA_SRC "\services\autoword\autoword_start.vbs",
+        "proc.autoword", "the autoword suggester",
+        {event: "Global\MMA.autoword.stop",
+         needText: "Autoword needs Python, which isn't installed.`n`n"
+                 . "Run install.bat to set it up."})
+
+; ─── The extra teardown two services need ─────────────────────────────────────
+;  Named functions rather than lambdas in the table above, so the table stays
+;  readable as data.
+
+SVC_ClearDetectorStatus() {
+    LOGI("proc.detector", "clearing detector_status.ini active_model — model gating"
+                       . " is now off, so every model's keys respond again")
+    try IniWrite("", MMA_DETECTOR, "detector", "active_model")
 }
 
-; Ask it to exit cleanly (it has no console to Ctrl+C, and it is not an AHK window
-; so KillAllScripts cannot see it).
-StopAutomationListener() {
-    h := _AutomationOpenEvent()
-    if !h
-        return
-    LOGI("proc.automation", "asking the listener to exit (setting its stop event)")
-    DllCall("SetEvent", "Ptr", h)
-    DllCall("CloseHandle", "Ptr", h)
+; The row index goes with the name: a stale active_index is worse than a stale
+; name, because positional mode believes it without needing OCR.
+SVC_ClearFanslyStatus() {
+    LOGI("proc.fansly", "clearing fansly_status.ini — Fansly gating is now off")
+    try IniWrite("", MMA_FANSLY, "fansly", "active_model")
+    try IniWrite(0,  MMA_FANSLY, "fansly", "active_index")
 }
 
-; ─── Pinger ───────────────────────────────────────────────────────────────────
-; Beeps when an Infloww fan tab goes unread. Same shape as the automation
-; listener above: a python process with no console and no AHK window, so the
-; named event is both the "is it up?" probe and the only way to close it.
+; ═══════════════════════════════════════════════════════════════════════════════
+;  What you can do to a service. Every one of these takes an id and works for
+;  both kinds — the kind only decides how "is it up?" and "go away" are spelled.
+; ═══════════════════════════════════════════════════════════════════════════════
 
-_PingerOpenEvent() {
+; The window title an AHK service answers to. An AHK script's hidden main window
+; is titled with its FULL PATH, which is what makes this work at all.
+SVC_Title(id) {
+    return SVC_META[id].path " ahk_class AutoHotkey"
+}
+
+; A python service's stop event, or 0 when it is not running.
+SVC_OpenEvent(id) {
     static EVENT_MODIFY_STATE := 0x0002
-    static EVENT_NAME := "Global\MMA.pinger.stop"
     return DllCall("OpenEventW", "UInt", EVENT_MODIFY_STATE, "Int", false,
-                   "Str", EVENT_NAME, "Ptr")
+                   "Str", SVC_META[id].event, "Ptr")
 }
 
-PingerRunning() {
-    h := _PingerOpenEvent()
-    if !h
+SVC_Running(id) {
+    if !SVC_META.Has(id)
         return false
-    DllCall("CloseHandle", "Ptr", h)
-    return true
+    s := SVC_META[id]
+    if (s.kind = "python") {
+        h := SVC_OpenEvent(id)
+        if !h
+            return false
+        DllCall("CloseHandle", "Ptr", h)
+        return true
+    }
+    ; The AHK services are found through a HIDDEN window, so this only answers
+    ; correctly with DetectHiddenWindows on. The shells set it at load and the
+    ; old per-service Running() functions relied on that; setting it here means a
+    ; caller that has not cannot get a false "everything is down".
+    prev := A_DetectHiddenWindows
+    DetectHiddenWindows true
+    up := WinExist(SVC_Title(id)) ? true : false
+    DetectHiddenWindows prev
+    return up
 }
 
-LaunchPinger(announce := false) {
+; Its label, from the FEATURE registry — never retyped here, so a service renamed
+; in modes.ahk is renamed everywhere.
+SVC_Label(id) {
+    return FEAT_META.Has(id) ? FEAT_META[id].label : id
+}
+
+; Start it, if it is switched on and not already up.
+;
+; announce := true when the user just clicked this on by hand, so "nothing
+; happened because Python is missing" gets said out loud instead of going to the
+; log. Silent at startup and from the watchdog.
+;
+; The gates run feature → running → file, which is one order for both kinds where
+; the python launchers used to check running first. Nothing starts either way;
+; only the log line differs.
+SVC_Launch(id, announce := false) {
+    if !SVC_META.Has(id) {
+        LOGW("proc.svc", "'" id "' is not a declared service — nothing started")
+        return
+    }
+    s := SVC_META[id]
+    if !FEAT(id) {
+        LOG_Bail(s.tag, "feature '" id "' is off — " s.noun " was not started")
+        return
+    }
+    if SVC_Running(id) {
+        LOGV(s.tag, "already running")
+        return
+    }
+    if (s.kind = "python") && !PythonAvailable() {
+        LOG_Bail(s.tag, "no Python — " s.noun " not started")
+        if (announce && s.needText != "") {
+            msg := s.needText
+            if (s.needKey != "")
+                msg := StrReplace(msg, "{key}", HK_Key(s.needKey))
+            MsgBox msg, "No Python found", 0x40
+        }
+        return
+    }
+    ; A missing file is the whole failure, and for a .vbs it is a SILENT one: a
+    ; .vbs has nowhere to report anything, so without this the function returns
+    ; having done nothing and looks exactly like success.
+    if !FileExist(s.path) {
+        LOGE(s.tag, s.noun " cannot start — the file does not exist", s.path)
+        return
+    }
+    LOGI(s.tag, "starting " s.noun)
+    if (s.kind = "python")
+        LOG_Try(s.tag, "run " SVC_BaseName(s.path), SVC_RunVbs.Bind(s.path))
+    else
+        LOG_Try(s.tag, "Run " SVC_BaseName(s.path), SVC_RunAhk.Bind(s.path))
+}
+
+; The two ways to start something, as named functions so SVC_Launch above binds a
+; name rather than carrying a lambda.
+SVC_RunAhk(path) {
+    Run(path)
+}
+SVC_RunVbs(path) {
     global SCRIPT_DIR
-    if PingerRunning() {
-        LOGV("proc.pinger", "already running (its named event exists)")
-        return
-    }
-    if !FEAT("pinger") {
-        LOG_Bail("proc.pinger", "feature 'pinger' is off — not started")
-        return
-    }
-    if !PythonAvailable() {
-        LOG_Bail("proc.pinger", "no Python — pinger not started")
-        if announce
-            MsgBox "The unread pinger needs Python, which isn't installed.`n`n"
-                 . "Run install.bat to set it up.", "No Python found", 0x40
-        return
-    }
-    vbs := MMA_SRC "\services\pinger\pinger_start.vbs"
-    if !FileExist(vbs) {
-        LOGE("proc.pinger", "the launcher script is missing — the pinger cannot start", vbs)
-        return
-    }
-    LOGI("proc.pinger", "starting the pinger via " vbs)
-    LOG_Try("proc.pinger", "run pinger_start.vbs",
-            () => Run('wscript.exe "' vbs '"', SCRIPT_DIR, "Hide"))
+    Run('wscript.exe "' path '"', SCRIPT_DIR, "Hide")
 }
 
-StopPinger() {
-    h := _PingerOpenEvent()
-    if !h
+SVC_BaseName(path) {
+    SplitPath path, &fname
+    return fname
+}
+
+; Stop it. For python that is a REQUEST — it has no console to Ctrl+C and no AHK
+; window for KillAllScripts to find, so setting its event is the only way to ask.
+SVC_Stop(id) {
+    if !SVC_META.Has(id)
         return
-    LOGI("proc.pinger", "asking the pinger to exit (setting its stop event)")
-    DllCall("SetEvent", "Ptr", h)
-    DllCall("CloseHandle", "Ptr", h)
-}
-
-; ─── Typelog ──────────────────────────────────────────────────────────────────
-; Records the text you type in Infloww into userdata\typelog\, to mine for
-; hotstrings. Same shape as the pinger above: a python process with no console
-; and no AHK window, so the named event is both the "is it up?" probe and the only
-; way to close it. OFF by default (it records WHAT you type — see its FEAT_Def).
-_TypelogOpenEvent() {
-    static EVENT_MODIFY_STATE := 0x0002
-    static EVENT_NAME := "Global\MMA.typelog.stop"
-    return DllCall("OpenEventW", "UInt", EVENT_MODIFY_STATE, "Int", false,
-                   "Str", EVENT_NAME, "Ptr")
-}
-
-TypelogRunning() {
-    h := _TypelogOpenEvent()
-    if !h
-        return false
-    DllCall("CloseHandle", "Ptr", h)
-    return true
-}
-
-LaunchTypelog(announce := false) {
-    global SCRIPT_DIR
-    if TypelogRunning() {
-        LOGV("proc.typelog", "already running (its named event exists)")
-        return
+    s := SVC_META[id]
+    if (s.kind = "python") {
+        h := SVC_OpenEvent(id)
+        if h {
+            LOGI(s.tag, "asking " s.noun " to exit (setting its stop event)")
+            DllCall("SetEvent", "Ptr", h)
+            DllCall("CloseHandle", "Ptr", h)
+        }
+    } else {
+        prev := A_DetectHiddenWindows
+        DetectHiddenWindows true
+        if WinExist(SVC_Title(id)) {
+            LOGI(s.tag, "stopping " s.noun)
+            try ProcessClose(WinGetPID(SVC_Title(id)))
+        } else
+            LOGV(s.tag, "stop requested but it was not running")
+        DetectHiddenWindows prev
     }
-    if !FEAT("typelog") {
-        LOG_Bail("proc.typelog", "feature 'typelog' is off — recorder not started")
-        return
-    }
-    if !PythonAvailable() {
-        LOG_Bail("proc.typelog", "no Python — typelog not started")
-        if announce
-            MsgBox "The typelog recorder needs Python, which isn't installed.`n`n"
-                 . "Run install.bat to set it up.", "No Python found", 0x40
-        return
-    }
-    vbs := MMA_SRC "\services\typelog\typelog_start.vbs"
-    if !FileExist(vbs) {
-        LOGE("proc.typelog", "the launcher script is missing — typelog cannot start", vbs)
-        return
-    }
-    LOGI("proc.typelog", "starting the typelog recorder via " vbs)
-    LOG_Try("proc.typelog", "run typelog_start.vbs",
-            () => Run('wscript.exe "' vbs '"', SCRIPT_DIR, "Hide"))
+    ; Runs whether or not it was up: the status files these clear are on disk, and
+    ; a service that died on its own leaves exactly the stale reading this removes.
+    if (s.onStop != "")
+        s.onStop.Call()
 }
 
-StopTypelog() {
-    h := _TypelogOpenEvent()
-    if !h
-        return
-    LOGI("proc.typelog", "asking typelog to exit (setting its stop event)")
-    DllCall("SetEvent", "Ptr", h)
-    DllCall("CloseHandle", "Ptr", h)
+; Make the world match the switch — start it if it is on, stop it if it is off.
+;
+; This is what the Features tab wants, and having it as one function is what fixes
+; the bug that tab had: its hand-written chain covered seven of the nine services,
+; so two of them could be switched off and go on running.
+SVC_Sync(id, announce := false) {
+    if FEAT(id)
+        SVC_Launch(id, announce)
+    else
+        SVC_Stop(id)
 }
 
-; ─── Autoword ─────────────────────────────────────────────────────────────────
-; Suggests the next word as you type, from a model trained on the typelog corpus.
-; Same shape as typelog above — a python process with no console and no AHK
-; window, so the named event is both the "is it up?" probe and the only way to
-; close it. OFF by default: it can type into the message box (Tab accepts), and
-; it ships in Render=off so switching the feature on still draws nothing until
-; userdata\autoword.ini says otherwise. See src/services/autoword/README.md.
-_AutowordOpenEvent() {
-    static EVENT_MODIFY_STATE := 0x0002
-    static EVENT_NAME := "Global\MMA.autoword.stop"
-    return DllCall("OpenEventW", "UInt", EVENT_MODIFY_STATE, "Int", false,
-                   "Str", EVENT_NAME, "Ptr")
+SVC_SyncAll(announce := false) {
+    for id in SVC_ORDER
+        SVC_Sync(id, announce)
 }
 
-AutowordRunning() {
-    h := _AutowordOpenEvent()
-    if !h
-        return false
-    DllCall("CloseHandle", "Ptr", h)
-    return true
+; Start everything that is switched on, and leave everything else alone. Boot and
+; the watchdog both want this rather than SyncAll: neither is a moment where the
+; user changed a switch, so there is nothing to stop.
+SVC_LaunchEnabled() {
+    for id in SVC_ORDER
+        if FEAT(id)
+            SVC_Launch(id)
 }
 
-LaunchAutoword(announce := false) {
-    global SCRIPT_DIR
-    if AutowordRunning() {
-        LOGV("proc.autoword", "already running (its named event exists)")
-        return
-    }
-    if !FEAT("autoword") {
-        LOG_Bail("proc.autoword", "feature 'autoword' is off — suggester not started")
-        return
-    }
-    if !PythonAvailable() {
-        LOG_Bail("proc.autoword", "no Python — autoword not started")
-        if announce
-            MsgBox "Autoword needs Python, which isn't installed.`n`n"
-                 . "Run install.bat to set it up.", "No Python found", 0x40
-        return
-    }
-    vbs := MMA_SRC "\services\autoword\autoword_start.vbs"
-    if !FileExist(vbs) {
-        LOGE("proc.autoword", "the launcher script is missing — autoword cannot start", vbs)
-        return
-    }
-    LOGI("proc.autoword", "starting the autoword suggester via " vbs)
-    LOG_Try("proc.autoword", "run autoword_start.vbs",
-            () => Run('wscript.exe "' vbs '"', SCRIPT_DIR, "Hide"))
+; The python services only, for KillAllScripts — it closes AutoHotkey windows, and
+; these do not have one.
+SVC_StopPython() {
+    for id in SVC_ORDER
+        if (SVC_META[id].kind = "python")
+            SVC_Stop(id)
 }
 
-StopAutoword() {
-    h := _AutowordOpenEvent()
-    if !h
-        return
-    LOGI("proc.autoword", "asking autoword to exit (setting its stop event)")
-    DllCall("SetEvent", "Ptr", h)
-    DllCall("CloseHandle", "Ptr", h)
-}
-
-; ─── Model detector ───────────────────────────────────────────────────────────
-; An AHK script (not python), so its hidden main window — titled with its full
-; path, class AutoHotkey — is both the "is it up?" probe and the kill target.
-_DetectorTitle() {
-    global SCRIPT_DIR
-    return MMA_SRC "\screen\model_detector.ahk ahk_class AutoHotkey"
+; How many are up right now. One pass with DetectHiddenWindows held on, rather
+; than SVC_Running's save/restore per service.
+SVC_RunningCount() {
+    prev := A_DetectHiddenWindows
+    DetectHiddenWindows true
+    n := 0
+    for id in SVC_ORDER
+        if SVC_Running(id)
+            n++
+    DetectHiddenWindows prev
+    return n
 }
 
 ; ─── the mass engine ──────────────────────────────────────────────────────────
@@ -589,223 +693,28 @@ StopSequences() {
     DetectHiddenWindows prev
 }
 
-DetectorRunning() {
-    return WinExist(_DetectorTitle()) != 0
-}
-LaunchDetector() {
-    if !FEAT("modelDetector") {
-        LOG_Bail("proc.detector", "feature 'modelDetector' is off — the"
-                                . " [mass.active] shared keys have nothing to follow")
-        return
-    }
-    global SCRIPT_DIR
-    path := MMA_SRC "\screen\model_detector.ahk"
-    if !FileExist(path) {
-        LOGE("proc.detector", "model_detector.ahk is missing", path)
-        return
-    }
-    if DetectorRunning() {
-        LOGV("proc.detector", "already running")
-        return
-    }
-    LOGI("proc.detector", "starting the model detector")
-    LOG_Try("proc.detector", "Run model_detector.ahk", () => Run(path))
-}
-StopDetector() {
-    global SCRIPT_DIR
-    if WinExist(_DetectorTitle()) {
-        LOGI("proc.detector", "stopping the model detector")
-        try ProcessClose(WinGetPID(_DetectorTitle()))
-    }
-    ; clear the gate so every model responds again once detection is off
-    LOGI("proc.detector", "clearing detector_status.ini active_model — model gating"
-                       . " is now off, so every model's keys respond again")
-    try IniWrite("", MMA_DETECTOR, "detector", "active_model")
-}
 
-; ─── Fansly rail detector ─────────────────────────────────────────────────────
-; A SECOND detector, running alongside the Infloww one rather than instead of it.
-; They cannot collide: each refuses to scan unless its own window is in front, and
-; each writes its own status file (see the note beside MMA_FANSLY in paths.ahk).
-; So on a mixed setup both can be on, and whichever platform you are looking at is
-; the one that answers.
-_FanslyTitle() {
-    return MMA_SRC "\screen\fansly_detector.ahk ahk_class AutoHotkey"
-}
-FanslyDetectorRunning() {
-    return WinExist(_FanslyTitle()) != 0
-}
-LaunchFanslyDetector() {
-    if !FEAT("fanslyDetector") {
-        LOG_Bail("proc.fansly", "feature 'fanslyDetector' is off — the"
-                              . " [mass.active] shared keys have nothing to follow"
-                              . " while you are in Fansly")
-        return
-    }
-    path := MMA_SRC "\screen\fansly_detector.ahk"
-    if !FileExist(path) {
-        LOGE("proc.fansly", "fansly_detector.ahk is missing", path)
-        return
-    }
-    if FanslyDetectorRunning() {
-        LOGV("proc.fansly", "already running")
-        return
-    }
-    LOGI("proc.fansly", "starting the Fansly rail detector")
-    LOG_Try("proc.fansly", "Run fansly_detector.ahk", () => Run(path))
-}
-StopFanslyDetector() {
-    if WinExist(_FanslyTitle()) {
-        LOGI("proc.fansly", "stopping the Fansly rail detector")
-        try ProcessClose(WinGetPID(_FanslyTitle()))
-    }
-    ; Clear the name so nothing downstream matches against a reading nobody is
-    ; updating. The row index goes with it: a stale active_index is worse than a
-    ; stale name, because positional mode believes it without needing OCR.
-    LOGI("proc.fansly", "clearing fansly_status.ini — Fansly gating is now off")
-    try IniWrite("", MMA_FANSLY, "fansly", "active_model")
-    try IniWrite(0,  MMA_FANSLY, "fansly", "active_index")
-}
-
-; ─── Stats overlay ────────────────────────────────────────────────────────────
-; Resident AHK script that owns the gui.toggleStats hotkey and the OCR overlay.
-_StatsTitle() {
-    global SCRIPT_DIR
-    return MMA_SRC "\screen\stats_overlay.ahk ahk_class AutoHotkey"
-}
-StatsOverlayRunning() {
-    return WinExist(_StatsTitle()) != 0
-}
-LaunchStatsOverlay() {
-    if !FEAT("statsOverlay") {
-        LOG_Bail("proc.stats", "feature 'statsOverlay' is off — the overlay and its"
-                             . " toggle key are dead")
-        return
-    }
-    global SCRIPT_DIR
-    path := MMA_SRC "\screen\stats_overlay.ahk"
-    if !FileExist(path) {
-        LOGE("proc.stats", "stats_overlay.ahk is missing", path)
-        return
-    }
-    if StatsOverlayRunning() {
-        LOGV("proc.stats", "already running")
-        return
-    }
-    LOGI("proc.stats", "starting the stats overlay")
-    LOG_Try("proc.stats", "Run stats_overlay.ahk", () => Run(path))
-}
-StopStatsOverlay() {
-    if WinExist(_StatsTitle()) {
-        LOGI("proc.stats", "stopping the stats overlay")
-        try ProcessClose(WinGetPID(_StatsTitle()))
-    }
-}
-
-; ─── Reply timers ─────────────────────────────────────────────────────────────
-; Resident AHK script that boxes conversation rows by how long they have waited.
-; Same shape as the stats overlay above: an AHK process, found by its own script
-; path, holding the gui.toggleReplyBox key.
-_ReplyBoxTitle() {
-    global SCRIPT_DIR
-    return MMA_SRC "\screen\reply_box.ahk ahk_class AutoHotkey"
-}
-ReplyBoxRunning() {
-    return WinExist(_ReplyBoxTitle()) != 0
-}
-LaunchReplyBox() {
-    if !FEAT("replyBox") {
-        LOG_Bail("proc.replybox", "feature 'replyBox' is off — no boxes and no"
-                                . " toggle key")
-        return
-    }
-    global SCRIPT_DIR
-    path := MMA_SRC "\screen\reply_box.ahk"
-    if !FileExist(path) {
-        LOGE("proc.replybox", "reply_box.ahk is missing", path)
-        return
-    }
-    if ReplyBoxRunning() {
-        LOGV("proc.replybox", "already running")
-        return
-    }
-    LOGI("proc.replybox", "starting the reply timers")
-    LOG_Try("proc.replybox", "Run reply_box.ahk", () => Run(path))
-}
-StopReplyBox() {
-    if WinExist(_ReplyBoxTitle()) {
-        LOGI("proc.replybox", "stopping the reply timers")
-        try ProcessClose(WinGetPID(_ReplyBoxTitle()))
-    }
-}
-
-; ─── Activity tracker ─────────────────────────────────────────────────────────
-; Resident AHK script that counts keystrokes, clicks and active seconds into
-; userdata\activity\, and owns the gui.activity key that opens the chart.
-;
-; Stopping it is a real stop, not a pause: the minute in progress is flushed by
-; its OnExit and nothing is recorded until it is back. That is why it is in the
-; watchdog like the rest — a tracker that quietly died at 11am makes the
-; afternoon look like a day off.
-_ActivityTitle() {
-    return MMA_SRC "\activity\tracker.ahk ahk_class AutoHotkey"
-}
-ActivityTrackerRunning() {
-    return WinExist(_ActivityTitle()) != 0
-}
-LaunchActivityTracker() {
-    if !FEAT("activity") {
-        LOG_Bail("proc.activity", "feature 'activity' is off — nothing is being"
-                                . " recorded and the chart key is dead")
-        return
-    }
-    path := MMA_SRC "\activity\tracker.ahk"
-    if !FileExist(path) {
-        LOGE("proc.activity", "tracker.ahk is missing — no activity is being"
-                            . " recorded", path)
-        return
-    }
-    if ActivityTrackerRunning() {
-        LOGV("proc.activity", "already running")
-        return
-    }
-    LOGI("proc.activity", "starting the activity tracker")
-    LOG_Try("proc.activity", "Run tracker.ahk", () => Run(path))
-}
-StopActivityTracker() {
-    if WinExist(_ActivityTitle()) {
-        LOGI("proc.activity", "stopping the activity tracker — nothing will be"
-                            . " recorded until it is started again")
-        try ProcessClose(WinGetPID(_ActivityTitle()))
-    }
-}
+; ═══════════════════════════════════════════════════════════════════════════════
+;  The Tools button, and the watchdog.
+; ═══════════════════════════════════════════════════════════════════════════════
 
 ; The main window's Tools button, which is a running indicator as well as a door:
-; "Tools (2)" means two of the seven background tools are up right now.
+; "Tools (2)" means two of the background services are up right now.
 ;
 ; TogglePinger used to live here — the Pinger button's click handler, writing the
-; cfg key before launching because LaunchPinger gates on FEAT("pinger") and reads
+; cfg key before launching because LaunchPinger gated on FEAT("pinger") and read
 ; that very key. That rule did not go away; it moved to TOOLS_Set in
-; ui/tools_window.ahk, which now applies it to all of them instead of one.
+; ui/tools_window.ahk, which applies it to all of them instead of one.
 ;
-; The list below mirrors TOOLS_List() over there, deliberately duplicated rather
-; than shared: processes.ahk is core and must load without the UI files (the
-; Settings build test includes it on its own), so it cannot call into them.
-; Getting out of step costs a wrong number on one button, and nothing else.
+; The nine-service list that used to be spelled out here is gone: it was a
+; hand-kept mirror of TOOLS_List() in the UI, with a comment explaining that
+; going out of step costs a wrong number on one button. Both now read SVC_ORDER,
+; so there is nothing left to keep in step.
 RefreshToolsLabel() {
     global btnTools
     if !(IsSet(btnTools) && btnTools)
         return
-    prev := A_DetectHiddenWindows
-    DetectHiddenWindows true
-    n := 0
-    for _, up in [PingerRunning(), StatsOverlayRunning(), DetectorRunning(),
-                  FanslyDetectorRunning(), AutomationListenerRunning(),
-                  ActivityTrackerRunning(), TypelogRunning(), AutowordRunning(),
-                  ReplyBoxRunning()]
-        if up
-            n++
-    DetectHiddenWindows prev
+    n := SVC_RunningCount()
     try btnTools.Text := n ? "Tools (" n ")" : "Tools"
 }
 
@@ -837,28 +746,13 @@ WatchdogTick() {
     LaunchEngine()                  ; core, not optional — see _EngineFile
     LaunchSequences()               ; likewise — it owns the seq.* hotkeys
     LaunchStartupScripts()
-    LaunchAutomationListener()
-    ; FEAT, not the pinger/autoDetect/statsOverlay globals these used to test.
-    ; Each Launch* already refuses when its own feature is off, so the test here
-    ; was only ever a shortcut — and a shortcut that went stale the moment the
-    ; Features tab became the sole writer of those keys. A watchdog reading
-    ; last-startup's values is worse than no watchdog: it silently stops
-    ; restarting the thing you just switched on.
-    if FEAT("pinger")
-        LaunchPinger()
-    if FEAT("modelDetector")
-        LaunchDetector()
-    if FEAT("fanslyDetector")
-        LaunchFanslyDetector()
-    if FEAT("statsOverlay")
-        LaunchStatsOverlay()
-    if FEAT("activity")
-        LaunchActivityTracker()
-    if FEAT("typelog")
-        LaunchTypelog()
-    if FEAT("autoword")
-        LaunchAutoword()
-    if FEAT("replyBox")
-        LaunchReplyBox()
+
+    ; Every declared service that is switched on. This was eleven hand-written
+    ; lines, each testing FEAT and calling one Launch* — and the FEAT test was not
+    ; redundant with the one inside each launcher, it was a shortcut past it. The
+    ; shortcut is now SVC_LaunchEnabled's business, and a service cannot be left
+    ; out of it, because there is no list to leave it out of.
+    SVC_LaunchEnabled()
+
     RefreshToolsLabel()
 }

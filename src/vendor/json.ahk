@@ -3,7 +3,7 @@
 ;  json.ahk — JSON for AutoHotkey v2. Parse and Stringify, nothing else.
 ; ───────────────────────────────────────────────────────────────────────────────
 ;  AHK v2 has no JSON built in, and MMA needs one because the mass library stopped
-;  being generated AHK source (ARCHITECTURE.md §5). This sits in vendor\ next to
+;  being generated AHK source (docs/decisions.md §5). This sits in vendor\ next to
 ;  OCR.ahk for the same reason: it is a general-purpose dependency, not MMA logic,
 ;  and nothing in here should ever learn what a "mass" is.
 ;

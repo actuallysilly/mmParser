@@ -98,3 +98,75 @@
     snd("Where I try to numb the pain by fucking it out of me")
     snd("Will you help?")
 }
+
+; @added 2026-08-28 05:01
+:*:..ALICE_RAND_BUMP::
+{
+    Sendt("You must be so incredibly engorged by the sights of my naked body", 1000)
+    Sendt("I bet your cock is feeling an urge to submit and follow me into paradise", 1000)
+    Sendt("A paradise when I take it all off", 1000)
+    Sendt("And show you everything there is to show", 1000)
+}
+
+; @added 2026-08-29 02:29
+:*:__BDAY_INSECURE::
+{
+    snd("Perhaps you're a little afraid this will end like last time")
+    snd("Not at all!")
+    snd("It's my bday, a day where I'm supposed to be happy and joyful and yet sorrow and nothingness are eating me from the inside")
+    snd("So I won't really gatekeep stuff... I'll just let you see so much more so easily")
+    snd("Let's try to numb the pain together")
+}
+
+; @added 2026-08-29 03:36
+:*:..BDAY111111::
+{
+    snd("Do you think you could make this bday a little different that all my previous ones?")
+    snd("So some celebration is in order, let us see if me taking my top off completely is going to improve the mood a little?")
+}
+
+; @added 2026-08-29 05:36
+:*:...BUMPNOBUY::
+{
+    snd("I guess you don't want me naked on my bday")
+}
+
+; @added 2026-08-29 06:59
+:*:..BDAY_BUMP1::
+{
+    snd("As you know IVe never had a good bday")
+    snd("But I want to change that")
+    snd("I want to replace the bad memories with amazing ones")
+    snd("And I want you and your throbbing cock to help me")
+}
+
+; @added 2026-08-29 08:08
+:*:.....3::
+{
+    snd("I want you to treat me like the fountain of life")
+    snd("You need to slurp up my pussy juices like you're dead inside (like me)")
+    snd("And you need my pussy nectar to revive you")
+    snd("You need to slide your tongue as deep inside of me as you can")
+    snd("You need to explore me and make me moan")
+    snd("Tongue punch my G spot... You know it's desperate right?")
+}
+
+; @added 2026-08-30 02:48
+:*:2..bday::
+{
+    Sendt("Since I've finally dropped my walls a little bit when it comes to enjoying my body image more", 1500)
+    Sendt("I think it's about time where I put a stop to the moping and try to enjoy this with you, since you're here to bring light to the darkness", 1500)
+    Sendt("So what do you say we take our dildo birthday hats on, and have a little nude fun on this weird day? :D", 1500)
+}
+
+; @added 2026-09-01 08:51
+:*:..curr::
+{
+    snd("Are you going to rip those knickers off me and show me the burning passion in your heart?")
+    snd("Or the tip of your warm tongue")
+    snd("Your nose is poking me...")
+    snd("It's like a sniper")
+    snd("Touching the worst spot")
+    snd("The spot thats the most sensitive")
+    snd("I wont last long...")
+}

@@ -1,0 +1,1041 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>7 — The send path</title>
+<link rel="stylesheet" href="guide.css">
+<script src="nav.js"></script>
+</head>
+<body>
+<div class="shell">
+<nav class="side"></nav>
+<main>
+
+<p class="eyebrow">Chapter 7</p>
+<h1>The send path</h1>
+
+<p class="lede">One keypress, eleven functions, four files, and every decision made along the
+way. This is the chapter to read with the source open beside it. If you understand this trace
+you understand MMA.</p>
+
+<h2>The trace, at a glance</h2>
+
+<pre><code>you press F1
+   │
+   ▼  Windows delivers the key to the ENGINE process
+_HK_Wrap  ──▶  _HK_Fire(id, fn)                      core/hotkeys.ahk
+   │           three anti-fumble guards, the send flag, HK_SendBegin
+   ▼
+_ModelFire(1, DoFu1)   or   _ActiveFire(DoFu1, "fu1")    mass/runtime.ahk
+   │           sets MASS_CUR_MODEL — either from the KEY, or by resolving the screen
+   ▼
+DoFu1()                                              mass/runtime.ahk
+   │           LOGD breadcrumb
+   ▼
+_DoFuGroup(1, editableFu1, false)                    mass/runtime.ahk
+   │           feature gates · LOG_Kv state dump · MASS_RememberSent
+   ▼
+AltIntercept(m, 1, editable, activeBranch)           core/utils.ahk
+   │           more than one wording? → stage them, TAB walks, RETURN TRUE
+   ▼  (no)
+_FuParts(m, 1)                                       mass/runtime.ahk
+   │           [fu1, fu1_5, fu1_7], or the DefaultFu3 fallback for group 3
+   ▼
+sndFu(1, parts*)                                     core/utils.ahk
+   │           FuSingle: one message or three?
+   ▼
+Snd(part)  × N                                       core/utils.ahk
+   │           clipboard → ClipWait → Ctrl+V → Enter → Sleep(waitTime)
+   ▼
+the fan receives it
+   │
+   ▼  back up the stack, in `finally`
+HK_SendEnd()  ──▶  CW_Release()                      screen/click_wall.ahk
+               plays back any click that was held
+</code></pre>
+
+<h2>Step 0 — how the key got bound at all</h2>
+
+<p>Before anything can fire, <code>engine.ahk</code> ran this at startup:</p>
+
+<pre><code>Loop MASS_MODELS
+    MassBindModel(A_Index)
+MassBindActive()
+MassBindSelect()
+</code></pre>
+
+<h3><code>MassSlotHandlers()</code> — the action table</h3>
+
+<pre><code>MassSlotHandlers() {
+    return Map(
+        "fu1",      DoFu1,  "fu1short", DoFu1,  "mFu1", DoFu1,
+        "fu2",      DoFu2,  "fu2short", DoFu2,  "mFu2", DoFu2,
+        "fu3",      DoFu3,  "fu3short", DoFu3,  "mFu3", DoFu3,
+        "ppv",      DoPpv,      "mPpv",    DoPpv,
+        "ppvFus",   DoPpvFus,   "mPpvFus", DoPpvFus,
+        "b1Ppv",    DoPpvFus,
+        "mass",     DoMass,
+        "nextFu",   DoNextFu,
+        "altFu1",   DoFu1,
+        "altFu2",   DoFu2,
+        "altFu3",   DoFu3)
+}
+</code></pre>
+
+<div class="concept">
+<span class="tag">CONCEPT-ENCOUNTERED</span>
+<h3>Key overloading — several ids, one action</h3>
+<p><code>fu1short</code>, <code>mFu1</code>, <code>altFu1</code> and <code>fu1</code> are four ids
+for one action. That is deliberate: <strong>one action can carry a keyboard key, a mouse button
+and a Scimitar side button at once without any of them knowing about the others.</strong></p>
+<p>Add an id to <code>hotkeys.ahk</code>, add a line here, done. No branching anywhere, no
+"which kind of key is this" test.</p>
+<p>Some of these are historical. <code>altFu1</code> was once "pick an alternative for follow-up
+1", back when that was a separate key. It is now simply a second binding for <code>DoFu1</code>,
+kept only so an existing <kbd>Ctrl+F1</kbd> binding does not go dead — because the plain key now
+stages every alt <em>and</em> every branch, so there is nothing left for a "pick alt" key to
+do.</p>
+</div>
+
+<h3>Two ways in, and they never overlap</h3>
+
+<pre><code>MassBindModel(n) {
+    for slot, fn in MassSlotHandlers() {
+        id := "mass." n "." slot
+        if HK_META.Has(id)
+            HK_Bind(id, _ModelFire(n, fn))
+    }
+    _MassApplyMouseControl("mass." n)
+}
+
+MassBindActive() {
+    for slot, fn in MassSlotHandlers() {
+        id := "mass.active." slot
+        if HK_META.Has(id)
+            HK_Bind(id, _ActiveFire(fn, slot))
+    }
+    _MassApplyMouseControl("mass.active")
+}
+</code></pre>
+
+<div class="tablewrap">
+<table>
+<thead><tr><th></th><th><code>[mass.&lt;n&gt;]</code> — numbered</th><th><code>[mass.active]</code> — shared</th></tr></thead>
+<tbody>
+<tr><td>Default keys</td><td>F1–F3 model 1, F9–F11 model 2, F6–F8 model 3</td><td>XButton1/2, Ctrl+MButton, F13–F15</td></tr>
+<tr><td>Which model</td><td><strong>The key you press IS the model selector.</strong> No detection.</td><td>Resolved at fire time from the screen, the lock, or a picker window.</td></tr>
+<tr><td>Works with detector off</td><td>Yes, identically.</td><td>No — with no answer they do nothing.</td></tr>
+<tr><td>Wrapper</td><td><code>_ModelFire(n, fn)</code></td><td><code>_ActiveFire(fn, slot)</code></td></tr>
+</tbody>
+</table>
+</div>
+
+<div class="note">
+<p><b>Why this matters historically.</b> There used to be three processes —
+<code>1_mass.ahk</code>, <code>2_mass.ahk</code>, <code>3_mass.ahk</code> — and all three bound
+the same physical keys. <strong>Five separate mechanisms</strong> existed purely to arbitrate
+between them: a 350 ms timer per process re-reading the detector status to switch other models'
+keys off, a re-check inside every handler, a list of which ids were shared, and an exemption in
+the Hotkeys window's conflict report so it would not flag three copies of one key as a clash.</p>
+<p>One process needs none of it. All five are gone. In v1, with the detector on and model 2 in
+front, model 1's F1 went <em>dead</em> — that is what this design fixed.</p>
+</div>
+
+<h3>Mouse control, applied after binding</h3>
+
+<pre><code>_MassApplyMouseControl(section) {
+    if mouseControl
+        return
+    for slot in MassSlotHandlers() {
+        if (SubStr(slot, 1, 1) != "m" || SubStr(slot, 1, 4) = "mass")
+            continue
+        id := section "." slot
+        if !HK_META.Has(id)
+            continue
+        if !_IsMouseKey(HK_Key(id))
+            continue
+        HK_SetState(id, "Off")
+    }
+}
+</code></pre>
+
+<p>Done <em>after</em> binding rather than by skipping the bind, so flipping the setting back on
+only needs a reload, not a rebind.</p>
+
+<p>Two guards worth noticing. <code>SubStr(slot, 1, 4) = "mass"</code> excludes the
+<code>mass</code> slot, which starts with "m" but is not a mouse key. And more subtly:</p>
+
+<blockquote><p>"The slot name says <em>overload</em>, not <em>mouse</em>. Nothing stops a keyboard
+key going in one — <code>mPpv</code>/<code>mPpvFus</code> hold F4/F5 — and a setting labelled
+'Mouse-button follow-ups' must not reach across and darken those. Test the KEY, which is the
+thing the setting is actually about."</p></blockquote>
+
+<pre><code>_IsMouseKey(key) {
+    key := RegExReplace(Trim(key), "^[\^!+#&lt;&gt;*~$]+")     <span class="c">; strip modifiers</span>
+    return RegExMatch(key, "i)^(?:L|R|M|X)Button[12]?$|^XButton[12]$"
+                         . "|^Wheel(?:Up|Down|Left|Right)$") &gt; 0
+}
+</code></pre>
+<p>Wheel is included: <code>WheelUp</code> on a follow-up is exactly the kind of accident "mouse
+control off" is meant to prevent.</p>
+
+<hr>
+
+<h2>Step 1 — <code>_HK_Fire</code></h2>
+
+<p>Covered in detail in <a href="04-registries.html">chapter 4</a>. In one sentence: three
+anti-fumble guards, then set <code>_HK_SENDING</code>, call <code>HK_SendBegin()</code> (which
+arms the click wall), run the handler in a <code>try</code>, and clear everything in a
+<code>finally</code>.</p>
+
+<p>One detail that only makes sense now:</p>
+
+<pre><code>finally {
+    if (isSend) {
+        _HK_LAST_SEND := A_TickCount
+        HK_SendEnd()          <span class="c">; hooks run BEFORE the flag clears</span>
+        _HK_SENDING := false
+    }
+}
+</code></pre>
+
+<blockquote><p>"The hooks run BEFORE the flag clears, so the whole guarded window — including a
+click the wall plays back — is one unbroken 'still sending'. Clearing first would open a
+several-millisecond gap in which a real keypress could land between the last Enter and the
+playback, which is the fumble, just narrower."</p></blockquote>
+
+<hr>
+
+<h2>Step 2 — which model is firing</h2>
+
+<h3>The numbered path: <code>_ModelFire</code></h3>
+
+<pre><code>_ModelFire(modelNo, fn) {
+    return (*) =&gt; (_SetCurModel(modelNo), fn())
+}
+_SetCurModel(n) {
+    global MASS_CUR_MODEL := n
+}
+</code></pre>
+
+<p>Two lines. This is what lets <code>mass.1.fu1</code> (F1) and <code>mass.2.fu1</code> (F9) be
+two live keys in one process, with no gating and no timer: <strong>the key you press IS the model
+selector.</strong></p>
+
+<p><code>MASS_CUR_MODEL</code> is declared in <code>core/utils.ahk</code>, not in
+<code>runtime.ahk</code>, because <code>sndFu</code> reads it there and <code>utils.ahk</code> is
+also included by scripts that never load the mass engine (<code>content/general.ahk</code>, the
+account files). An unset global would throw the moment one of them touched it.</p>
+
+<h3>The shared path: <code>_RunOnActiveModel</code></h3>
+
+<p>This is the interesting one. Read the order of its gates carefully — each one exists because
+of a specific failure.</p>
+
+<pre><code>_RunOnActiveModel(fn, slot := "") {
+
+    <span class="c">; ── 1. switched off in Settings ▸ Models ──────────────────</span>
+    if !SharedKeysOn() {
+        LOG_Bail("mass.active", "…'Use a single hotkey for all masses' is switched"
+                              . " off… the numbered per-model keys still work.")
+        return
+    }
+
+    <span class="c">; ── 2. LOCKED: one model, no question and no pixels ───────</span>
+    lock := LockedModelNo()
+    if lock {
+        _SetCurModel(lock)
+        fn()
+        return
+    }
+
+    <span class="c">; ── 3. "I pick" mode: ask, don't assume ───────────────────</span>
+    if (ModelMatchMode() = "manual") {
+        group := PickGroupForSlot(slot)
+        if group {
+            MassPickThenFu(group)
+            return
+        }
+    }
+
+    <span class="c">; ── 4. resolve from the screen ────────────────────────────</span>
+    st := ActiveModelStatus()
+    if !st.no {
+        LOG_Bail("mass.active", "…MMA does not know which model is on screen (state: "
+                              . st.state "). Nothing sent — that is deliberate,"
+                              . " since guessing would send to the wrong fan.")
+        return
+    }
+    _SetCurModel(st.no)
+    fn()
+}
+</code></pre>
+
+<h4>Gate 1 — checked at fire time, not bind time</h4>
+<blockquote><p>"Unbinding would need a restart of the engine to take effect either way round, and
+the whole point of the switch is for the shift where the detector has started lying: you turn it
+off, the shared keys stop guessing, and the numbered keys — which never come through here —
+carry on working from the same keypress."</p></blockquote>
+
+<h4>Gate 2 — the lock comes first, before everything</h4>
+<p>Because that is what "locked" means: nothing else gets a vote. Not the mode, not the
+detector, not the picker. And the badge on screen naming the model is <em>the condition on which
+this branch is allowed to exist at all</em>, since it sends to a model nothing on screen
+identifies. Chapter 8 covers lock mode properly.</p>
+
+<h4>Gate 3 — why manual mode asks</h4>
+<blockquote><p>"Manual mode never reads the screen — <code>ActiveModelStatus</code> always answers
+'ok' with whatever model you last selected, however long ago that was. For a follow-up key that
+is the worst possible shape of confident: <strong>it sends, to a model nothing on screen
+names.</strong>"</p></blockquote>
+<p>Which slots ask is <code>PickGroupForSlot</code>'s call — the follow-ups always, the PPV pair
+behind its own feature switch, the mass key and next-follow-up never (a window in front of
+<em>every</em> shared key would be a window in front of everything).</p>
+
+<h4>Gate 4 — "no answer" means do nothing</h4>
+<p>That is the correct choice — guessing sends one model's message to another model's fan — but
+it is also <strong>the single most confusing thing MMA does</strong>, because the key is bound,
+the feature is on, and nothing happens. <code>ActiveModelStatus</code> has already logged
+<em>why</em> it has no answer; this adds the consequence, so the two lines sit together and the
+chain is readable end to end.</p>
+
+<hr>
+
+<h2>Step 3 — <code>_DoFuGroup</code>, the decision point</h2>
+
+<pre><code>_DoFuGroup(group, editable, openTab) {
+    <span class="c">; each extra is BOTH a user setting AND a feature</span>
+    editable := editable &amp;&amp; FEAT("editableFu")
+    openTab  := openTab  &amp;&amp; FEAT("openTab")
+    sendBoth := doubleMM &amp;&amp; FEAT("doubleMM")
+
+    LOG_Kv("mass.fu", Map("group",    group,
+                          "model",    MASS_CUR_MODEL,
+                          "massNo",   MASS_MassNo(MASS_DOC, MASS_CUR_MODEL),
+                          "branch",   ActiveBranchNo(),
+                          "editable", editable ? "y" : "n",
+                          "openTab",  openTab ? "y" : "n",
+                          "doubleMM", sendBoth ? "y" : "n"))
+
+    MASS_RememberSent(MASS_CUR_MODEL, MASS_MassNo(MASS_DOC, MASS_CUR_MODEL),
+                      "fu" group)
+
+    if AltIntercept(CurMass(), group, editable, ActiveBranchNo())
+        return
+
+    m := CurMass()
+    if editable {
+        SndFuEditable(_FuParts(m, group)*)
+        return
+    }
+    if sendBoth {
+        sndFu(group, _FuParts(CurMassSlot(1), group)*)
+        sndFu(group, _FuParts(CurMassSlot(2), group)*)
+    } else {
+        sndFu(group, _FuParts(m, group)*)
+    }
+    if openTab
+        clickReturn(openInNewTabButton)
+}
+</code></pre>
+
+<h3>The <code>LOG_Kv</code> line is the most useful line in the file</h3>
+
+<p>Seven values, on one line, <em>before any of them is acted on</em>. Which model, which mass
+slot, which branch, and the three modifiers. When somebody says "it sent the wrong thing" or "it
+sent nothing", these are the four things you would ask for first.</p>
+
+<h3><code>MASS_RememberSent</code> is called on the press, not on a successful send</h3>
+
+<blockquote><p>"…because a follow-up that sent nothing (you never wrote it) is precisely the one
+you are about to go and write."</p></blockquote>
+
+<p>The note feeds the "Add Hotkey ▸ Replace follow-up" capture window, whose three dropdowns open
+on the follow-up you last aimed at.</p>
+
+<h3><code>_FuParts</code>, and the group-3 fallback</h3>
+
+<pre><code>_FuParts(m, group) {
+    parts := [m.%"fu" group%, m.%"fu" group "_5"%, m.%"fu" group "_7"%]
+    if (group != 3)
+        return parts
+    for p in parts
+        if Trim(p) != ""
+            return parts
+    return DefaultFu3Parts()
+}
+</code></pre>
+
+<p>Group 3 alone has a fallback: a mass with no f3 at all sends the <code>DefaultFu3</code> text
+from Settings instead of nothing.</p>
+
+<p><strong>Why here and not in <code>sndFu</code>:</strong> <code>SndFuEditable</code> takes the
+same parts and has no idea which group it is holding. One place covers the plain send, the
+editable paste, and <em>both halves of a double-MM</em> — so a second model with no f3 still gets
+the default.</p>
+
+<pre><code>DefaultFu3Parts() {
+    if !FEAT("defaultFu3")
+        return ["", "", ""]
+    return MASS_SplitParts(IniRead(MMA_CFG, "Settings", "DefaultFu3", ""))
+}
+</code></pre>
+
+<p>Read <em>per press</em> rather than cached, so editing it in Settings takes effect without
+restarting the engine. And it goes through <code>MASS_SplitParts</code> because the ini stores
+line breaks as <code>``n</code> — the same escape the branch fields use, so the record format's
+own reader already knows how to handle it.</p>
+
+<hr>
+
+<h2>Step 4 — <code>AltIntercept</code> and TAB staging</h2>
+
+<p>This is the biggest single subsystem in <code>utils.ahk</code>, and its history is worth
+knowing before its code.</p>
+
+<h3>The one-key rule</h3>
+
+<pre><code>AltIntercept(m, group, editable := false, activeBranch := 0) {
+    if !FEAT("altFollowups") {
+        LOG_Bail("alt.intercept", "feature 'altFollowups' is off — follow-up "
+                                . group " sends its main wording, no picker")
+        return false
+    }
+    variants := AltVariants(m, group)
+    if (variants.Length &lt;= 1) {
+        LOG_Bail("alt.intercept", "follow-up " group " has " variants.Length
+                                . " variant(s) — nothing to choose between, so it"
+                                . " sends directly with no picker")
+        return false
+    }
+    ...
+    AltStageBegin(group, variants, editable, AltStartIndex(variants, activeBranch))
+    return true
+}
+</code></pre>
+
+<p><strong>Returns true = "I took over the send."</strong> Returns false = fall through to the
+plain send.</p>
+
+<p>There is no ctrl-variant to press and no "prompt using ctrl+hotkey" setting any more. If this
+follow-up can be answered more than one way, the key stages the choices and TAB walks them. If it
+cannot, the key sends, exactly as it always did.</p>
+
+<p>Note the second <code>LOG_Bail</code>. "The alt picker did not come up" is the commonest
+confused report about this feature — with one variant there is nothing to pick between, so it
+correctly sends straight away, <em>which is indistinguishable from the feature being broken
+unless something says so.</em></p>
+
+<h3><code>AltVariants</code> — one list of ways to answer</h3>
+
+<pre><code>AltVariants(m, group) {
+    out := []
+    base := []
+    for _, sfx in ["", "_5", "_7"] {
+        key := "fu" group sfx
+        if m.HasOwnProp(key) &amp;&amp; Trim(m.%key%) != ""
+            base.Push(Trim(m.%key%))
+    }
+    if base.Length
+        out.Push({ parts: base, label: "main", branch: 0 })
+
+    for bi, b in BranchList(m) {
+        if !b.fu[group].Length
+            continue                <span class="c">; f1-only branches are NORMAL</span>
+        out.Push({ parts: b.fu[group], label: b.name, branch: bi })
+    }
+    return out
+}
+</code></pre>
+
+<p>Each variant is <code>{parts, label, branch}</code>: the messages to send, what the list calls
+it, and <strong>which branch it commits you to</strong> (0 = trunk).</p>
+
+<p>A branch with nothing in <em>this</em> group is skipped rather than shown empty — branches are
+commonly f1-only, and an empty row you can TAB onto and send is a way to send silence.</p>
+
+<h3>Where the preview goes — and why that is the whole bug</h3>
+
+<div class="warn">
+<span class="tag">The failure that shaped this design</span>
+<p>The preview used to go <strong>into the chat box</strong>. That read beautifully — the variants
+in the font and width they would actually send at, no window taking focus off the chat. And it
+had one failure that costs a real message to a real person:</p>
+<pre><code>Enter → clear the box (Ctrl+A, Delete) → paste the chosen variant → Enter</code></pre>
+<p><strong>The clear is not reliable.</strong> Infloww's composer is a web editor, and Ctrl+A in
+one of those does not always mean "select what is in this box" — it can be swallowed outright, or
+select the page instead. When it misses, Delete removes nothing, the preview is <em>still
+there</em>, and the chosen variant is pasted onto the end of it. Then Enter sends the lot: every
+variant, the markers, the labels, as one message to the fan.</p>
+<p>That is the "it sent the whole sequence" report. <strong>No amount of settling delay fixes it,
+because the failure is not a race — it is the composer refusing the keystroke.</strong></p>
+<p>So the preview goes in a small always-on-top window that never takes focus, and the chat box is
+never written to and never cleared. <em>The variants cannot be sent because they were never in the
+thing that sends.</em></p>
+<p>The chat-box mode is still there, one checkbox away (Settings ▸ Sending, "Don't use a GUI for
+alt FUs"), because a picker that does not draw on your machine is worse than one that occasionally
+over-sends.</p>
+</div>
+
+<h3>The staging state machine</h3>
+
+<pre><code>AltStageBegin(group, variants, editable := false, startAt := 1) {
+    _altVariants := variants
+    _altStaged   := (startAt &gt;= 1 &amp;&amp; startAt &lt;= variants.Length) ? startAt : 1
+    _altGroup    := group
+    _altEditable := editable
+    _altWin      := WinExist("A")        <span class="c">; BEFORE the window exists — the CHAT window</span>
+    _altInBox    := !AltStageUseGui()
+    AltPaintStage()
+    if !_altHotkeysOn {
+        HotIf AltStageActive
+        Hotkey "*Tab",    AltStageNext,   "On"
+        Hotkey "*+Tab",   AltStagePrev,   "On"
+        Hotkey "*Enter",  AltStageCommit, "On"
+        Hotkey "*Escape", AltStageCancel, "On"
+        HotIf
+        _altHotkeysOn := true
+    }
+    SetTimer(AltStageTimeout, -ALT_STAGE_TIMEOUT_MS)   <span class="c">; 45 s, one-shot</span>
+    SetTimer(AltStageWatch, ALT_STAGE_WATCH_MS)        <span class="c">; 250 ms, repeating</span>
+}
+</code></pre>
+
+<div class="concept">
+<span class="tag">CONCEPT-ENCOUNTERED</span>
+<h3>Hijacking universal keys safely</h3>
+<p>Tab, Enter and Escape are the three keys you cannot afford to break. While a choice is staged
+they are claimed, and <strong>three</strong> independent mechanisms make sure they come back:</p>
+<ol>
+<li><strong>A context.</strong> <code>HotIf AltStageActive</code> restricts them to the window
+staging began in <em>and</em> to the staged state. Without it, a stray Enter hook would swallow
+Enter in every application on the machine.</li>
+<li><strong>A timeout.</strong> 45 seconds, one-shot. A forgotten staging gives the keys back on
+its own — and it logs a <code>WARN</code>, because a user who walked away mid-pick and came back
+to "Enter does not work in my chat" is looking at exactly this.</li>
+<li><strong>A watchdog.</strong> Every 250 ms: if the chat window is <em>gone</em>, end the
+staging (there is nothing left to send into). If it is merely <em>not active</em>, hide the
+picker and keep the staging — you alt-tabbed; come back and it is where you left it.</li>
+</ol>
+<p>Note the order in <code>AltStageEnd</code>: hotkeys released <em>first</em>, then the window
+closed. "A picker still on screen with Tab and Enter handed back is a window that ignores
+you."</p>
+</div>
+
+<pre><code>AltStageActive(*) {
+    if !_altVariants.Length
+        return false
+    if (_altWin &amp;&amp; WinActive("ahk_id " _altWin))
+        return true
+    return _altGui &amp;&amp; WinActive("ahk_id " _altGui.Hwnd)
+}
+</code></pre>
+
+<p>The <code>(*)</code> is required, not stylistic — <code>HotIf</code> calls its criterion with
+the hotkey name, and a zero-parameter function is rejected with "Invalid callback function".</p>
+
+<p>The picker being in the criterion is a <em>safety net</em>, not a feature: the window is
+<code>WS_EX_NOACTIVATE</code> and should never be active, but if anything ever does activate it,
+without that line Escape stops working and the only way out of a window with no title bar is the
+timeout.</p>
+
+<h3>The commit</h3>
+
+<pre><code>AltStageCommit(*) {
+    v    := _altVariants[_altStaged]
+    grp  := _altGroup
+    edit := _altEditable
+    LOGI("alt.stage", "committed variant " _altStaged " of " _altVariants.Length
+                   . " — '" v.label "'"
+                   . (v.branch ? "  (this commits the conversation to branch "
+                               . v.branch ", so f2/f3 will open on it)" : "") ...)
+    if _altInBox {
+        Send "^a"
+        Sleep 20
+        Send "{Delete}"
+    }
+    AltStageEnd()
+    if ALT_ON_PICK
+        try ALT_ON_PICK.Call(v.branch)
+    HK_SendBegin()
+    try
+        SendAltVariant(grp, v.parts, edit)
+    finally
+        HK_SendEnd()
+}
+</code></pre>
+
+<p>Four things happen here that are each worth a sentence:</p>
+
+<p><strong>Only chat-box mode clears.</strong> The unreliable step runs on exactly the mode that
+cannot do without it, and never on the one that can.</p>
+
+<p><strong>The branch is recorded BEFORE sending.</strong> So if the send throws, the next
+follow-up still knows where the conversation went.</p>
+
+<p><strong>It is a callback, not a direct call.</strong> Remembering a branch needs the mass
+document and the active model, which live in <code>runtime.ahk</code> — and
+<code>utils.ahk</code> is also included by account scripts that never load the engine. Calling
+<code>_BranchKey()</code> from here would throw in those.</p>
+
+<p><strong>The send edges are raised by hand.</strong> This send does <em>not</em> come through
+<code>_HK_Fire</code> — Enter is a hotkey <code>AltStageBegin</code> registered directly — so
+nothing in <code>hotkeys.ahk</code> knows a message is about to go out. Missing it here would
+leave the one send path that involves a deliberate pause as the only unguarded one.</p>
+
+<h3>Escape does not clear the box</h3>
+
+<pre><code>AltStageCancel(*) {
+    LOGI("alt.stage", "cancelled with Escape — nothing sent"
+                   . (_altInBox ? ", chat box cleared"
+                                : "; the chat box was never touched"))
+    if _altInBox { Send "^a"; Sleep 20; Send "{Delete}" }
+    AltStageEnd()
+}
+</code></pre>
+
+<p>In window mode there is nothing to put back — the chat box was never written to — so clearing
+it would <strong>delete whatever the user had typed there</strong>, which Escape has no business
+doing.</p>
+
+<h3>Where the marker starts</h3>
+
+<pre><code>AltStartIndex(variants, activeBranch) {
+    if !activeBranch
+        return 1
+    for i, v in variants
+        if (v.branch = activeBranch)
+            return i
+    return 1
+}
+</code></pre>
+
+<p>Once you have picked a branch at f1, f2 opens on <em>that</em> branch — so walking a branch is
+Enter, Enter, Enter rather than TAB-hunting for the same name three times. TAB still reaches
+everything, so it is a starting point and never a lock. Falls back to 1 when that branch has
+nothing in this group, which is the normal case for an f1-only branch reaching f2.</p>
+
+<h3>Remembering the branch</h3>
+
+<pre><code>ActiveBranchNo() {
+    k := _BranchKey()
+    if !_activeBranch.Has(k)
+        return 0
+    n := _activeBranch[k]
+    return (n &gt;= 1 &amp;&amp; n &lt;= BranchList(CurMass()).Length) ? n : 0
+}
+
+_BranchKey() {
+    return MASS_CUR_MODEL "." MASS_MassNo(MASS_DOC, MASS_CUR_MODEL)
+}
+</code></pre>
+
+<p>The key includes the <strong>model</strong>, not just the slot: with several models in one
+process, "mass 1" alone would let model 2's chosen branch overwrite model 1's.</p>
+
+<p>And the range check guards against a mass edited since the pick — the branch may no longer
+exist, and indexing past the end of <code>BranchList</code> would throw <em>inside a hotkey
+handler</em>.</p>
+
+<hr>
+
+<h2>Step 5 — <code>sndFu</code></h2>
+
+<pre><code>sndFu(group, parts*) {
+    nonEmpty := []
+    for p in parts
+        if Trim(p) != ""
+            nonEmpty.Push(p)
+
+    if !nonEmpty.Length {
+        LOG_Bail("send.fu", "model " MASS_CUR_MODEL " follow-up " group " is EMPTY"
+                          . " in the selected mass — nothing to send. (Sparse masses"
+                          . " are normal; check the mass in the GUI if you expected text.)")
+        return
+    }
+
+    fuSingle := IniRead(MMA_CFG, "Settings",
+                        "FuSingle_" MASS_CUR_MODEL "_" group, "0") = "1"
+
+    if !fuSingle {
+        for p in nonEmpty
+            snd(p)
+        return
+    }
+    combined := ""
+    for p in nonEmpty
+        combined .= (combined != "" ? "`n" : "") p
+    A_Clipboard := ""
+    A_Clipboard := combined
+    if !ClipWait(1)
+        LOGE("send.fu", "…about to paste the PREVIOUS clipboard and press Enter", ...)
+    Send("^v")
+    Send("{Enter}")
+    Sleep(waitTime)
+}
+</code></pre>
+
+<p><strong>The empty-parts bail is the most reported "the key did nothing".</strong> Masses are
+legitimately sparse — f1-only and f1+f3 with a gap are both normal — so this is correct behaviour
+and not a fault. It is still the answer to the question, so it names which model and which
+follow-up was empty.</p>
+
+<p><strong>FuSingle</strong> joins the parts into one message instead of three. The key is
+<code>FuSingle_&lt;model&gt;_&lt;group&gt;</code> — and the comment warns that the model number
+must be the one whose key was pressed, because read from the wrong one
+<code>IniRead</code> just returns its default and the setting appears to do nothing with nothing
+saying why.</p>
+
+<hr>
+
+<h2>Step 6 — <code>Snd</code>, the one function that actually sends</h2>
+
+<pre><code>Snd(arg) {
+    if (arg = "") {
+        LOG_Bail("send.snd", "empty message — nothing sent")
+        return
+    }
+    A_Clipboard := ""
+    A_Clipboard := arg
+    if !ClipWait(1) {
+        LOGE("send.snd", "the clipboard never accepted the message — Ctrl+V is"
+                       . " about to paste WHATEVER WAS ON THE CLIPBOARD BEFORE"
+                       . " and press Enter",
+                       "wanted to send: " SubStr(arg, 1, 120))
+    }
+    LOGI("send.snd", "sending " StrLen(arg) " chars: " SubStr(arg, 1, 90))
+    Send("^v")
+    Send("{Enter}")
+    Sleep(waitTime)
+}
+</code></pre>
+
+<p>Ten lines. <strong>Everything else in MMA is a decision about which message; this is the
+send.</strong></p>
+
+<div class="warn">
+<span class="tag">Why this is instrumented so heavily</span>
+<p>If the clipboard does not take the text — another app owns it, a clipboard manager is holding
+it, the text is enormous — <code>ClipWait</code> returns false and <strong>the very next line
+presses Ctrl+V anyway</strong>.</p>
+<p>That does not send nothing. It sends <em>whatever was on the clipboard before</em>, into a real
+fan's chat, and then presses Enter. There is no way to see that from the outside except by
+reading the sent message.</p>
+<p>It is a <code>FAIL</code> rather than a warning for that reason: it is the one failure in the
+file with a consequence you cannot take back.</p>
+</div>
+
+<p><code>waitTime</code> is 400 ms by default (1500 for <code>WaitTimeLong</code>), declared at
+the top of <code>utils.ahk</code>. That pause between parts is what makes a three-part follow-up
+take over a second — and therefore what makes the anti-fumble guards and the click wall
+necessary.</p>
+
+<h3>The editable variant</h3>
+
+<pre><code>SndFuEditable(parts*) {
+    ... join non-empty parts with "`n" ...
+    A_Clipboard := ""
+    A_Clipboard := combined
+    ClipWait(1)
+    Send "^v"                <span class="c">; NO Enter</span>
+}
+</code></pre>
+
+<p>Pastes the whole group as one block and does not press Enter, so you can edit before it goes
+out. This is what the Editable and Wallet-check toggles switch to.</p>
+
+<hr>
+
+<h2>The click wall — the mouse half of the guard</h2>
+
+<p><code>src/screen/click_wall.ahk</code>, installed by <code>engine.ahk</code> as
+<code>HK_OnSend(CW_Arm, CW_Release)</code>.</p>
+
+<p>A follow-up is three messages with a <code>waitTime</code> pause between each, so one keypress
+owns the chat box for over a second. <strong>Click the next conversation inside that second and
+the parts still in flight land in the chat you just moved to.</strong> The fan you were talking
+to gets half a follow-up, and a stranger gets the other half.</p>
+
+<p>None of the hotkey guards can see it coming, because a click on the conversation list is not a
+hotkey — it is the browser doing exactly what it was told.</p>
+
+<div class="concept">
+<span class="tag">CONCEPT-ENCOUNTERED</span>
+<h3>Choosing a mechanism by how it fails, not how it works</h3>
+<p>"An invisible wall" describes a transparent always-on-top window over the list, and that is the
+more literal build: clicks land on the window, so there is no criterion to evaluate and nothing
+can slip past while the script is busy.</p>
+<p>It was <strong>not</strong> built that way because of how it fails:</p>
+<blockquote><p>"A window is state that outlives the code that raised it. If the engine dies
+mid-send — a crash, a reload at the wrong moment, a throw nothing catches — the wall is still up,
+still invisible, and still eating every click on the conversation list, with no window on screen
+to explain why and no hotkey left alive to take it down. That is a machine somebody has to reboot
+to fix, having never once seen the cause."</p></blockquote>
+<p>A hotkey cannot do that. It belongs to the process; when the process goes, the claim goes with
+it. The cost is that <code>HotIf</code> has to evaluate at click time and could in principle time
+out under a wedged script — which loses one wall, <em>the same click that gets through today,
+every single time</em>.</p>
+<p><strong>Losing the guard occasionally beats a desk that cannot be clicked.</strong> Apply this
+question to any mechanism you add: what state does it leave behind if the process dies at the
+worst moment?</p>
+</div>
+
+<h3>And it verifies before playing the click back</h3>
+
+<p>Infloww sorts the conversation list by most recent message — and <em>the send that is holding
+your click is what makes a conversation most recent</em>. So the list can reorder underneath a
+held click, and a point that meant "Jess, row 4" when you pressed it can mean "Marie, row 4" a
+second later.</p>
+
+<p>Playing that back is the exact failure the file exists to prevent, arriving by the front door.
+So the swallow keeps a small bitmap of what was under the pointer, the playback re-grabs it and
+compares, and different pixels mean the rows moved — <strong>a moved row is not clicked</strong>.
+It says so and leaves the click to you.</p>
+
+<hr>
+
+<h2>The other send handlers</h2>
+
+<div class="tablewrap">
+<table>
+<thead><tr><th>Handler</th><th>Behaviour</th></tr></thead>
+<tbody>
+<tr><td><code>DoMass()</code></td><td><strong>Pastes only, never Enter.</strong> You review the opener before it goes. Bails with a message naming the slot number when the mass is empty — "almost always <code>massNo</code> pointing at a slot the user never filled in".</td></tr>
+<tr><td><code>DoPpv()</code></td><td>Paste-only, same reason. Goes through <code>AltInterceptPpv</code> first, so branch PPVs stage alongside the trunk's.</td></tr>
+<tr><td><code>DoPpvFus()</code></td><td>Sends <code>ppv_f1/f2/f3</code> through <code>snd</code>. Counts non-empty parts first so the bail can say "no PPV follow-ups" rather than sending three blanks.</td></tr>
+<tr><td><code>DoNextFu()</code></td><td>Reads the chat and sends whichever follow-up comes next. Below.</td></tr>
+</tbody>
+</table>
+</div>
+
+<p>Note that <code>SendAltVariant</code> takes group <code>0</code> for the PPV, and group 0
+takes the paste path <em>regardless of <code>editable</code></em> — or a staged PPV choice would
+send itself the moment you picked it.</p>
+
+<hr>
+
+<h2><code>next_fu.ahk</code> — one key for f1 → f2 → f3</h2>
+
+<p>310 lines, and the most interesting design decision in the mass folder.</p>
+
+<h3>Why it reads the screen instead of remembering</h3>
+
+<blockquote><p>"The obvious implementation is for MMA to remember what it sent. It cannot, not
+usefully: <strong>'which follow-up is next' is per FAN</strong>, and MMA has no fan identity — it
+would need to OCR the chat header to get one, which is the same cost as this and gives an answer
+that is still wrong after a restart, after you send from your phone, or the first time you open a
+chat you were mid-way through."</p>
+<p>"The conversation already holds the answer. The follow-up text is known — it is in
+masses.json, MMA wrote it — so finding it is a <strong>substring search, not
+recognition</strong>."</p></blockquote>
+
+<p>Reading it back means: per chat for free, per model for free, correct after a restart, and
+correct in a chat MMA never sent in.</p>
+
+<h3>The matching</h3>
+
+<pre><code>NFU_Norm(s) {
+    return RegExReplace(StrLower(s), "[^a-z0-9]", "")
+}
+</code></pre>
+
+<p>Everything that survives OCR reliably: letters and digits, lower-cased. <strong>Spaces go
+too</strong> — OCR engines disagree about them constantly, dropping them outright or inserting
+them inside words at line breaks, so any needle containing one is a coin flip. Punctuation and
+emoji go for the same reason. What is left still identifies a message: <em>two different
+follow-ups do not share twenty-four consecutive letters by accident.</em></p>
+
+<pre><code>NFU_Needles(part, cfg) {
+    n := NFU_Norm(part)
+    if (StrLen(n) &lt; cfg.minNeedle)      <span class="c">; 12 — below this, "hey" matches everything</span>
+        return []
+    L := cfg.needleLen                  <span class="c">; 24</span>
+    if (StrLen(n) &lt;= L)
+        return [n]
+    mid  := ((StrLen(n) - L) // 2) + 1
+    last := StrLen(n) - L + 1
+    out  := [SubStr(n, 1, L)]
+    if (mid &gt; 1)   out.Push(SubStr(n, mid, L))
+    if (last &gt; mid) out.Push(SubStr(n, last, L))
+    return out
+}
+</code></pre>
+
+<p>Three needles from one message, at the start, middle and end. One would be enough if OCR were
+perfect. It is not, and a single mangled character inside a 24-character window silently turns
+"already sent" into "not sent" — <strong>which sends the fan the same follow-up twice</strong>.
+Three windows spread across the message means a slip has to land in all three.</p>
+
+<h3><code>InStr</code> with a negative start</h3>
+
+<pre><code>at := InStr(hay, needle, true, -1)
+</code></pre>
+
+<p>Searches <em>backwards from the end</em>, finding the <strong>last</strong> occurrence. A long
+thread can hold the same follow-up from a previous round, and what matters is the most recent
+one.</p>
+
+<h3>Position, not group number</h3>
+
+<pre><code>NFU_LastGroup(m, hay, cfg) {
+    hits := [], best := 0, bestAt := 0
+    Loop 3 {
+        at := NFU_GroupAt(m, A_Index, hay, cfg)
+        hits.Push(at)
+        if (at &gt; bestAt)
+            best := A_Index, bestAt := at
+    }
+    return {group: best, at: bestAt, hits: hits}
+}
+</code></pre>
+
+<p>What is wanted is the last one <em>sent</em>, and the pane reads top to bottom, so furthest
+down is most recent. Taking the highest group number instead would get this wrong the moment you
+deliberately re-send an earlier follow-up — the thing this key exists to let you do.</p>
+
+<h3>The three refusals</h3>
+
+<div class="tablewrap">
+<table>
+<thead><tr><th>Situation</th><th>Action</th></tr></thead>
+<tbody>
+<tr><td>Nothing found, <strong>mass visible</strong></td><td>Send f1. The sequence genuinely starts here.</td></tr>
+<tr><td>Nothing found, <strong>no mass either</strong></td><td><strong>Send nothing.</strong></td></tr>
+<tr><td>Last follow-up already found</td><td><strong>Send nothing.</strong></td></tr>
+<tr><td>OCR read nothing at all</td><td><strong>Send nothing</strong>, and say why loudly.</td></tr>
+</tbody>
+</table>
+</div>
+
+<p>The second one is the subtle one. "No follow-up found" has two very different causes that look
+identical to a substring search: <em>the sequence has not started</em>, or <em>we cannot see
+it</em> — scrolled up, or a chat the mass never went to. Sending f1 in the second case either
+repeats a follow-up that <em>is</em> in the thread just out of view, or opens with "did you see
+what I sent?" to someone who was sent nothing.</p>
+
+<p><strong>The mass is the evidence that tells them apart</strong>, so f1 waits for it
+(<code>NFU_MassPresence</code>).</p>
+
+<h3>"Next" means the next one that <em>exists</em></h3>
+
+<pre><code>NFU_NextWithContent(m, after) {
+    g := after
+    while (++g &lt;= 3)
+        for part in _FuParts(m, g)
+            if (Trim(part) != "")
+                return g
+    return 0
+}
+</code></pre>
+
+<p>Not <code>group + 1</code>. A mass is not required to carry all three follow-ups. Counting
+blindly broke both ends: on an f1-only mass, press two resolved to f2, and <code>sndFu</code>
+returns silently when every part is empty — <strong>so the key did nothing at all while the toast
+said "sending f2".</strong> A key that lies about having sent is worse than one that refuses,
+because you believe it and move on.</p>
+
+<p>Note that it calls <code>_FuParts</code>, not the three stored fields. Those are the same thing
+for groups 1 and 2 and <em>not</em> for group 3, where the DefaultFu3 fallback means the message
+that lands in the conversation is the default — and matching the stored fields, which are blank,
+meant the walker could never find its own f3, and would send the default again to a fan who had
+already had it.</p>
+
+<hr>
+
+<h2>Live settings, without a restart</h2>
+
+<p>Eight settings are read once at engine load and then kept current by messages:</p>
+
+<pre><code>mouseControl   := LOG_IniInt(MMA_CFG, "Settings", "MouseControl",   1, "mass.boot")
+openTabFu2     := LOG_IniInt(MMA_CFG, "Settings", "OpenTabFu2",     0, "mass.boot")
+...
+walletCheckFu3 := LOG_IniInt(MMA_CFG, "Settings", "WalletCheckFu3", 0, "mass.boot")
+
+OnMessage(MMA_MSG_EDITABLE_FU1, SetEditableFuMsg)
+OnMessage(MMA_MSG_EDITABLE_FU2, SetEditableFuMsg)
+OnMessage(MMA_MSG_EDITABLE_FU3, SetEditableFuMsg)
+</code></pre>
+
+<div class="warn">
+<span class="tag">Why every one is <code>LOG_IniInt</code></span>
+<p>These eight lines run at the <strong>top level</strong> of the mass engine. A throw here is not
+a wrong setting — it is <em>an engine that does not start</em>: every follow-up key, every PPV
+key, every branch and every <code>__mm</code> trigger in MMA silently dead.</p>
+<p>And <code>Integer()</code> throws on anything non-numeric, so all it takes is one hand-edited
+<code>MouseControl=yes</code> in a file MMA itself invites you to edit.</p>
+</div>
+
+<p>They are then dumped at boot with <code>LOG_Kv</code>, and that is deliberate too: eight values
+that decide what every follow-up key does, read <em>once</em>, then kept live by messages — so a
+stale one is invisible and permanent for the life of the process. <em>Writing them down at boot
+is what makes "editable was on the whole time" a thing you can see rather than deduce.</em></p>
+
+<hr>
+
+<h2>The <code>__mm</code> triggers</h2>
+
+<pre><code>:*X:__mm::MassSendOrPick()
+</code></pre>
+
+<p>Ask, then paste. One model configured and there is nothing to ask, so it pastes that one; past
+that it opens a picker window whose buttons show <strong>the first line of each model's live
+mass</strong>.</p>
+
+<p>The preview is the point, not decoration. It is also the only place in MMA that shows an
+<em>empty</em> mass slot before you paste it — the "<code>__mm</code> does nothing" complaint is
+always a live <code>massNo</code> pointing at a slot nobody filled in, and here that slot reads
+"(empty)" instead of failing after the keypress.</p>
+
+<h3>Why the numbered form is <code>__1mm</code> and not <code>__mm1</code></h3>
+
+<p><code>__mm</code> is declared <code>:*X:</code>, and <code>*</code> means "fire the moment the
+trigger is typed, no ending character". So while <code>__mm</code> was live it expanded on the
+second <code>m</code> and <strong>the <code>1</code> in <code>__mm1</code> was never
+reached</strong>.</p>
+
+<p>The two could only ever be mutually exclusive — which is what a whole mechanism called
+<code>NumberedSendActive</code> existed to arrange: <code>__mm1</code> was live precisely when
+<code>__mm</code> was dead.</p>
+
+<p>Putting the number in front dissolves that. <code>__1mm</code> shares no prefix with
+<code>__mm</code>, both are live at once, and neither has to be gated on the other. It also does
+not run out at nine: <code>__mm11</code> could never have fired (the <code>__mm1</code> before it
+would have), while <code>__11mm</code> is just another trigger — which is what lets these follow
+<code>MASS_MODELS</code> up to twelve.</p>
+
+<div class="concept">
+<span class="tag">CONCEPT-ENCOUNTERED</span>
+<h3>Dissolving a problem instead of arbitrating it</h3>
+<p>Two things could not coexist, so a mechanism was built to decide which one was live. The
+mechanism was correct, and it was a workaround for the trigger <em>names</em>, dressed as a policy
+about detector state.</p>
+<p>Renaming removed the conflict outright and deleted the mechanism. Look for this shape: when you
+find arbitration code, ask whether the two things need to conflict at all.</p>
+</div>
+
+<hr>
+
+<h2>Debugging the send path</h2>
+
+<div class="tablewrap">
+<table>
+<thead><tr><th>Symptom</th><th>Grep for</th><th>Reading it</th></tr></thead>
+<tbody>
+<tr><td>Key does nothing at all</td><td><code>hk.fire</code></td><td>No line → not bound (check <code>hk.bind</code> at startup). <code>BAIL</code> → one of the three guards, and it says which and by how many ms.</td></tr>
+<tr><td>Key fires, nothing sends</td><td><code>mass.fu</code> then the next <code>BAIL</code></td><td><code>send.fu … is EMPTY</code> → the slot has no text. <code>mass.active … does not know which model</code> → detection.</td></tr>
+<tr><td>Wrong model's message</td><td><code>mass.fu</code></td><td><code>model=</code> and <code>massNo=</code>. Compare with <code>model.resolve</code> just above it.</td></tr>
+<tr><td>Wrong text sent</td><td><code>mass.load</code> at engine start</td><td>Which slot is live per model, and which slots have text.</td></tr>
+<tr><td>Picker did not appear</td><td><code>alt.intercept</code></td><td>"has 1 variant(s)" → correct, nothing to choose between.</td></tr>
+<tr><td>Sent the whole variant list</td><td><code>alt.stage</code></td><td><code>shown=chat box</code> → you are in the legacy mode. Untick "Don't use a GUI for alt FUs".</td></tr>
+<tr><td>Sent the previous clipboard</td><td><code>send.snd</code> at FAIL</td><td>ClipWait timed out. A clipboard manager is usually the cause.</td></tr>
+<tr><td>Half a follow-up in the wrong chat</td><td><code>clickwall</code></td><td>Check <code>FEAT("clickWall")</code> and whether a region is configured.</td></tr>
+</tbody>
+</table>
+</div>
+
+<div class="pager"></div>
+</main>
+</div>
+</body>
+</html>

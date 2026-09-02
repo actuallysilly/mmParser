@@ -9,15 +9,47 @@
 ; tree, and it is what stops "a key bound to a hotstring" being a load-time
 ; 'nonexistent function' in every message script.
 #Include "../hotstrings/index.ahk"
+; The quick menu, and through it hotstrings\usage.ahk. Included from HERE, in the
+; file every message script already has, because the menu has to be owned by a
+; process that can SEND — and the send helpers are in this file. Only one script
+; ends up binding its key; see HSQ_Register for how that is decided without
+; asking what is running.
+#Include "../hotstrings/quick_menu.ahk"
 ; Model identity moved to its own file so the GUI can use it too — main_window
 ; must not include utils.ahk (hotstrings, send helpers), and calling these from
 ; there was a load-time error until they lived somewhere both could reach.
 #Include "active_model.ahk"
+; AltVariants / AltPpvVariants / BranchList / MASS_FuSingle — what a mass
+; sends, with no sending in it. They lived in THIS file until the chat
+; simulator needed the same answers; see the note where they stood, below.
+#Include "../mass/shape.ahk"
 
 SetKeyDelay(-1, -1)
 
-; config
-WaitTime     := 400
+; ── the pause after every send ────────────────────────────────────────────────
+;  [Settings] WaitTime in mass_gui.cfg, like every other setting in MMA.
+;
+;  It was a LITERAL in this file until now, and it was the only setting stored as
+;  source code. That is not a small distinction: saving it meant Settings had to
+;  REWRITE utils.ahk — the file every message script and the mass engine
+;  #Include — through a regex, a temp file and a FileMove, guarded three ways
+;  because a partial write breaks every script at once. Two more places then read
+;  the value by scraping the same regex back out (main_window.ahk and
+;  settings_webview.ahk), so renaming this line broke reading and writing in
+;  three files that had no other reason to know utils.ahk's text.
+;
+;  All of that was the cost of one number living in the wrong kind of file. It is
+;  config, so it is in the config, and the whole apparatus is deleted.
+;
+;  Read at LOAD, deliberately, exactly as the literal was: the alternative is an
+;  IniRead in the typing path. So changing it still restarts the scripts, and
+;  Settings still says so.
+;
+;  The default is 1500 because that is the number this line shipped with. The
+;  350 that used to sit in SW_SaveWaitTime's callers was never a default anybody
+;  ran with — it was what they answered when the regex MISSED, i.e. when the line
+;  was gone. A default is what a fresh install gets, and a fresh install got 1500.
+WaitTime     := LOG_IniInt(MMA_CFG, "Settings", "WaitTime", 1500, "send.wait")
 WaitTimeLong := 1500
 
 ; Which model the key that is currently firing belongs to. Declared HERE, not in
@@ -40,6 +72,45 @@ global topChat := 300
 ; ! ALT
 ; + shift
 
+; ── "which hotstring am I inside right now?" ───────────────────────────
+;  Called by the two senders below so the quick menu has a recent list. It is
+;  the only way to know: a hotstring body is `snd("…")` and nothing else — there
+;  is no trigger in scope, and adding one to 120 hand-written blocks would be a
+;  line you have to remember to write, which is a line that will be missing.
+;
+;  A_ThisHotkey answers it. Inside a firing hotstring it holds the definition
+;  minus the trailing colons — `:*:_gns1` or `::_gns2`, MEASURED, not assumed —
+;  and inside anything else it holds a KEY (`F1`, `^!m`) or nothing. So the
+;  leading colon is the whole test, and every other caller of snd() — sndFu, the
+;  mass engine, the quick menu itself — falls through it untouched.
+;
+;  ─── ONE RECORD PER FIRE, NOT ONE PER LINE ───────────────────────────
+;  Plenty of hotstrings send three messages, which is three calls to snd() with
+;  one trigger behind them. A_TimeSinceThisHotkey is what separates the cases
+;  exactly: within one fire it only ever GOES UP (measured: 0, 406, 812 across
+;  three steps), and a new fire of the same trigger resets it to 0. So a value
+;  that did not go up is a new fire, whatever the wait time is set to — which a
+;  time threshold could not have promised, since the wait time is a setting and
+;  can be shorter than any threshold worth picking.
+global _HSU_ThisTrigger := ""      ; the A_ThisHotkey of the fire last recorded
+global _HSU_ThisAge     := 0       ; and how old it was when we recorded it
+HSU_NoteThisHotstring() {
+    global _HSU_ThisTrigger, _HSU_ThisAge
+    th := A_ThisHotkey
+    if (th = "" || SubStr(th, 1, 1) != ":")
+        return                              ; a key, or nothing — not a hotstring
+    age := A_TimeSinceThisHotkey
+    if (th = _HSU_ThisTrigger && age >= _HSU_ThisAge) {
+        _HSU_ThisAge := age                 ; a later step of the same fire
+        return
+    }
+    _HSU_ThisTrigger := th, _HSU_ThisAge := age
+    ; `:opts:trigger` — options never contain a colon, so the trigger is
+    ; everything after the second one, colons and all.
+    if RegExMatch(th, "^:([^:]*):(.+)$", &hm)
+        HSU_Note(hm[2])
+}
+
 ; ── the one function that actually puts a message in the chat ─────────────────
 ;  Everything else in MMA is a decision about WHICH message; this is the send.
 ;
@@ -57,6 +128,7 @@ Snd(arg){
         LOG_Bail("send.snd", "empty message — nothing sent")
         return
     }
+    HSU_NoteThisHotstring()
     A_Clipboard := ""
     A_Clipboard := arg
     if !ClipWait(1) {
@@ -77,6 +149,7 @@ Sendt(arg,time){
         LOG_Bail("send.sendt", "empty message — nothing sent")
         return
     }
+    HSU_NoteThisHotstring()
     A_Clipboard := arg
     if !ClipWait(0.1)
         LOGE("send.sendt", "the clipboard never accepted the message in 100ms —"
@@ -130,102 +203,19 @@ global ALT_ON_PICK := ""
 ; Splitting a stored alt field back into its parts is MASS_SplitParts() in
 ; store.ahk now — it is the record format, not a send-path detail.
 
-; ── One list of ways to answer this follow-up ─────────────────────────────────
-;  Alts and branches were two features with two keys and two pickers. They are one
-;  question — "which wording goes out for f<N>?" — so they are one list and one
-;  key now, and TAB walks the whole thing.
+; ── alts, branches and the follow-up parts ──────────────────────────────
+;  AltVariants, AltPpvVariants, BranchList and BranchParts stood here. They
+;  are in mass\shape.ahk now, unchanged — the comment above BranchList in this
+;  file already said what made the move necessary: "these helpers are pure
+;  (take the mass object)". Pure answers about a mass belong where anything can
+;  ask them, and nothing outside the send path could include this file: it
+;  registers hotstrings and binds keys the moment it loads, which is why
+;  main_window.ahk must not include it either.
 ;
-;  The merge finished in the DATA, not just here: there are no alt fields any
-;  more. Everything that is not the trunk is a named branch, and "alt" is simply
-;  the name you give one when the wording has no better name — see the record
-;  shape in mass/store.ahk and the `::name` marker in mass/parser.ahk. This
-;  function used to concatenate two lists (alts, then branches); it now reads one,
-;  and the picker looks exactly the same.
-;
-;  What a branch carries that a loose wording did not is the IMPLICATION: pick a
-;  branch variant at f1 and f2/f3/ppv start on that same branch. That is what
-;  `branch` on each variant is for, and it is now true of every alternative there
-;  is — which is the point. An "alt" that answered f1 and then left you back on
-;  the trunk at f2 was never a different thing, only a branch nobody had named.
-;
-;  Each variant is { parts, label, branch }:
-;      parts   the messages to send, in order
-;      label   what the staged list calls it ("main", or the branch's name)
-;      branch  0 for the trunk, else which branch it commits you to
-AltVariants(m, group) {
-    out := []
-    base := []
-    for _, sfx in ["", "_5", "_7"] {
-        key := "fu" group sfx
-        if m.HasOwnProp(key) && Trim(m.%key%) != ""
-            base.Push(Trim(m.%key%))
-    }
-    if base.Length
-        out.Push({ parts: base, label: "main", branch: 0 })
-    ; The branches, as the other ways to answer the same question. A branch with
-    ; nothing in THIS group is skipped rather than shown empty — branches are
-    ; commonly f1-only, and an empty row you can TAB onto and send is a way to
-    ; send silence.
-    for bi, b in BranchList(m) {
-        if !b.fu[group].Length
-            continue
-        out.Push({ parts: b.fu[group], label: b.name, branch: bi })
-    }
-    return out
-}
-
-; The same question for the PPV: the trunk's ppv, then each branch's.
-AltPpvVariants(m) {
-    out := []
-    if m.HasOwnProp("ppv_base") && Trim(m.ppv_base) != ""
-        out.Push({ parts: [Trim(m.ppv_base)], label: "main", branch: 0 })
-    for bi, b in BranchList(m) {
-        if Trim(b.ppv) = ""
-            continue
-        out.Push({ parts: [Trim(b.ppv)], label: b.name, branch: bi })
-    }
-    return out
-}
-
-; ── Named branches (`::name`) ─────────────────────────────────────────────────
-; A branch is a named alternative to the trunk: its own fu1/fu2/fu3/ppv, any of
-; which may be empty. Picking one at f1 continues on it at f2/f3/ppv. Since the
-; alt fields went, this is the ONLY kind of alternative there is — "alt" is just
-; the name people give a branch that has no better one.
-;
-; These helpers are pure (take the mass object) so utils.ahk stays free of any
-; CurMass/massNo dependency — the model files own the hotkey handlers.
-
-; Non-empty branches on a mass: [{name, fu:[[p..],[p..],[p..]], ppv}].
-BranchList(m) {
-    global MASS_BRANCH_MAX
-    out := []
-    ; No branches means every branch key and window finds nothing to do, which is
-    ; the pre-branch behaviour. Gating here rather than at each of the six call
-    ; sites keeps the mass data itself untouched — switch branches back on and the
-    ; `::name` wordings are still there.
-    if !FEAT("altFollowups")
-        return out
-    Loop MASS_BRANCH_MAX {
-        k  := A_Index
-        f1 := "br" k "_fu1", f2 := "br" k "_fu2", f3 := "br" k "_fu3", pk := "br" k "_ppv"
-        got := false
-        for _, key in [f1, f2, f3, pk]
-            if m.HasOwnProp(key) && Trim(m.%key%) != ""
-                got := true
-        if !got
-            continue
-        nk := "br" k "_name"
-        nm := (m.HasOwnProp(nk) && Trim(m.%nk%) != "") ? Trim(m.%nk%) : "branch " k
-        out.Push({ name: nm,
-                   fu:   [BranchParts(m, f1), BranchParts(m, f2), BranchParts(m, f3)],
-                   ppv:  (m.HasOwnProp(pk) ? Trim(m.%pk%) : "") })
-    }
-    return out
-}
-BranchParts(m, key) {
-    return m.HasOwnProp(key) ? MASS_SplitParts(m.%key%) : []
-}
+;  What needed them was the chat simulator (ui\chat_window.ahk), which draws
+;  the conversation a mass turns into. Working the order out a second time in
+;  that window would have been a second set of rules, agreeing with this one
+;  until somebody changed one of them.
 
 ; BranchSendGroup() and BranchSendPpv() stood here — the send half of the four
 ; branch keys. A branch variant goes out through SendAltVariant() like every other
@@ -977,11 +967,10 @@ sndFu(group, parts*) {
                           . " are normal; check the mass in the GUI if you expected text.)")
         return
     }
-    ; FuSingle_<model>_<group>. The model number must be the one whose key was
-    ; pressed — read from the wrong one and IniRead just returns its default, so
-    ; the setting appears to do nothing and nothing says why.
-    fuSingle := IniRead(MMA_CFG, "Settings",
-                        "FuSingle_" MASS_CUR_MODEL "_" group, "0") = "1"
+    ; MASS_FuSingle, not the IniRead spelled out here, because the chat
+    ; simulator has to show the SAME join — and a transcript that splits what
+    ; the engine joins is worse than no transcript.
+    fuSingle := MASS_FuSingle(MASS_CUR_MODEL, group)
     LOGI("send.fu", "model " MASS_CUR_MODEL " follow-up " group ": " nonEmpty.Length
                  . " part(s), " (fuSingle ? "joined into ONE message (FuSingle_"
                                           . MASS_CUR_MODEL "_" group "=1)"
@@ -1233,33 +1222,58 @@ HotstringKeys_Register() {
                             . notMine " belong to other message files)")
 }
 
-; What the key sends. Resolved at PRESS time, not at bind time, for the overload:
-; you can overload a trigger while MMA is running, and the key must follow it the
-; same moment the trigger does.
+; ═══════════════════════════════════════════════════════════════════════════════
+;  SEND THE HOTSTRING NAMED X — from anything that is not its own trigger
+; ───────────────────────────────────────────────────────────────────────────────
+;  Two things reach a hotstring without typing it: the key you can bind to one
+;  (below), and the quick menu (hotstrings\quick_menu.ahk). Both must send what
+;  the trigger sends, including the overload — so both go through here, and
+;  "what does firing this hotstring mean" has one answer.
 ;
-; `rec` is this trigger's parsed source, captured at load. That is the one thing
-; read ahead of time, because re-parsing the file on every keypress to send one
-; message would be a disk read in the typing path.
-HotstringKey_Handler(trigger, rec, *) {
+;  The overload is resolved at SEND time, not at bind time: you can overload a
+;  trigger while MMA is running, and every way of firing it must follow within
+;  the same moment the trigger does.
+;
+;  `rec` is the trigger's parsed source. The key path captures it at load, so
+;  pressing a key is never a disk read in the typing path; the menu has just
+;  built a fresh index anyway. `how` names the caller, for the log line only.
+Hotstring_Fire(trigger, rec, how) {
+    ; The use is recorded HERE and not in snd(), because snd() finds out which
+    ; hotstring it is inside by reading A_ThisHotkey — and on this path
+    ; A_ThisHotkey is the KEY that was pressed, or the quick menu's key, never
+    ; the trigger. Same list, other door.
+    HSU_Note(trigger)
     e := OL_LoadOne(trigger)
     if IsObject(e) && e.variants.Length {
-        LOGV("hotstring.key", trigger " is overloaded — the key offers the same"
-                            . " variants the trigger does")
+        LOGV("hotstring.fire", trigger " is overloaded — " how " offers the same"
+                             . " variants the trigger does")
         Overload_Run(e.variants, e.mode)
         return
     }
     if !rec.steps.Length {
-        LOG_Bail("hotstring.key", trigger " has a key bound but its block sends"
-                                . " nothing — nothing was sent. Has the hotstring"
-                                . " been emptied or deleted since MMA started?")
+        LOG_Bail("hotstring.fire", trigger " was fired by " how " but its block"
+                                 . " sends nothing — nothing went out. Has the"
+                                 . " hotstring been emptied or deleted since MMA"
+                                 . " started?")
         return
     }
-    LOGI("hotstring.key", "sending " trigger " (" rec.steps.Length " step(s)) from"
-                        . " its key rather than its trigger")
+    LOGI("hotstring.fire", "sending " trigger " (" rec.steps.Length " step(s))"
+                         . " from " how " rather than from its trigger")
     Overload_Send(rec.steps)
 }
 
+; What the key sends. One line, because the key is not special: it is one of the
+; two doors into Hotstring_Fire above.
+HotstringKey_Handler(trigger, rec, *) {
+    Hotstring_Fire(trigger, rec, "its key")
+}
+
 HotstringKeys_Register()
+; And the one key that is not per hotstring: the quick menu. Bound here, beside
+; the per-hotstring keys, because it is the same kind of thing — a way into the
+; message library that is not typing its abbreviation — and because only a
+; script that can SEND may own it. HSQ_Register decides which script that is.
+HSQ_Register()
 
 Unread() {
     MouseGetPos &cx, &cy

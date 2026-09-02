@@ -1,0 +1,735 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>8 — Detection</title>
+<link rel="stylesheet" href="guide.css">
+<script src="nav.js"></script>
+</head>
+<body>
+<div class="shell">
+<nav class="side"></nav>
+<main>
+
+<p class="eyebrow">Chapter 8</p>
+<h1>Detection — which model is on screen</h1>
+
+<p class="lede">The shared <code>[mass.active]</code> keys need an answer to one question: which
+of your models am I looking at? Three files answer it — a pure pixel scanner, a background
+service, and a resolver — and the most instructive thing about all three is how often they refuse
+to answer.</p>
+
+<h2>Why this is hard, and what happens when it is wrong</h2>
+
+<p>Infloww shows your models as a horizontal strip of tabs. The lit one is the model you are
+working. That is the whole signal.</p>
+
+<p>The failure mode is specific and expensive: <strong>when detection is wrong, it is
+confidently wrong.</strong> A scan that groups two tabs into one run reports "tab 1 of 1"
+forever, and every shared key then sends model 1's messages no matter which model you are looking
+at. That is not hypothetical — it is what <code>detector_status.ini</code> said while
+<code>active_model.ahk</code> was being written, and the comment says so.</p>
+
+<div class="note">
+<p><b>The design rule that follows from that</b>, and it is stated a dozen times across these
+files: <strong>0 means "I cannot see", never "tab 1".</strong> A key that does nothing costs a
+keypress. A key that guesses costs a real message to a real person.</p>
+</div>
+
+<hr>
+
+<h2>Part one — <code>screen/pill_scan.ahk</code>: pure functions</h2>
+
+<p>296 lines. <strong>Nothing here reads an ini, writes a file, or starts a timer.</strong> That
+is not a stylistic preference:</p>
+
+<blockquote><p>"<code>model_detector.ahk</code> (the background service),
+<code>core/active_model.ahk</code> (the hotkey path) and
+<code>tools/detector_probe.ahk</code> (the calibrator) ALL include this and have to agree down to
+the pixel. <strong>A calibrator that reads the strip with its own copy of the scan is one you
+cannot trust</strong> — you would tune numbers that satisfy the tool and leave the service
+wrong."</p></blockquote>
+
+<div class="concept">
+<span class="tag">CONCEPT-ENCOUNTERED</span>
+<h3>Separating the measurement from the service</h3>
+<p>The general shape: pure scanners with no side effects, and services built on them. MMA splits
+<code>src/screen/</code> in two along exactly this line — <code>pill_scan</code>,
+<code>rail_scan</code>, <code>reply_scan</code> are pure; <code>model_detector</code>,
+<code>fansly_detector</code>, <code>reply_box</code>, <code>stats_overlay</code> are services.</p>
+<p>The payoff is not testability in the abstract — it is that a service and its calibration UI
+<strong>cannot disagree about geometry</strong>. Any time you have a "tuning tool" and a
+"production path" reading the same thing, they must share the reading code or the tool is
+lying.</p>
+</div>
+
+<h3>The performance discovery that made this file exist</h3>
+
+<div class="warn">
+<span class="tag">Measured, not estimated</span>
+<p>Everything used to call <code>PixelGetColor</code> per pixel. On this machine that is
+<strong>~30 milliseconds each</strong>:</p>
+<pre><code>sampling 3 tab slots (~150 px)    4,632 ms
+one sweep of the 330×50 band     10,828 ms</code></pre>
+<p>The background detector polls every 500 ms and did a full sweep each time — so it was roughly
+<strong>20× slower than its own poll interval</strong>. Permanently behind, never once returning a
+current reading.</p>
+<p>"That is the real reason auto-detection never worked, and it is why every explanation before it
+(wrong colours, wrong geometry, tab counting) fitted the symptoms without fixing anything:
+<em>the data those theories were tested against was stale by seconds.</em>"</p>
+</div>
+
+<p><code>PixelGetColor</code> goes through GDI <code>GetPixel</code> on the screen device
+context, which on a composited desktop can round-trip the GPU per call. One <code>BitBlt</code>
+of the whole band into a memory bitmap costs about the same as a <em>single</em>
+<code>GetPixel</code>, and every pixel after that is a memory read.</p>
+
+<p><strong>Grab once, then read from the buffer.</strong></p>
+
+<h3><code>PILL_Grab</code> — the capture</h3>
+
+<pre><code>PILL_Grab(x, y, w, h) {
+    hdcScreen := DllCall("GetDC", "ptr", 0, "ptr")          <span class="c">; 0 = the whole screen</span>
+    hdcMem := DllCall("CreateCompatibleDC", "ptr", hdcScreen, "ptr")
+    bi := Buffer(40, 0)                                     <span class="c">; BITMAPINFOHEADER</span>
+    NumPut("uint", 40, bi, 0)          <span class="c">; biSize</span>
+    NumPut("int",   w, bi, 4)          <span class="c">; biWidth</span>
+    NumPut("int",  -h, bi, 8)          <span class="c">; biHeight, NEGATIVE = top-down</span>
+    NumPut("ushort", 1, bi, 12)        <span class="c">; biPlanes</span>
+    NumPut("ushort", 32, bi, 14)       <span class="c">; biBitCount</span>
+    NumPut("uint", 0, bi, 16)          <span class="c">; BI_RGB</span>
+    hbm := DllCall("CreateDIBSection", ..., "ptr*", &amp;pBits, ...)
+    old := DllCall("SelectObject", "ptr", hdcMem, "ptr", hbm, "ptr")
+    ok := DllCall("gdi32\BitBlt", "ptr", hdcMem, "int", 0, "int", 0,
+                  "int", w, "int", h, "ptr", hdcScreen,
+                  "int", x, "int", y, "uint", 0x00CC0020)   <span class="c">; SRCCOPY</span>
+    if ok {
+        data := Buffer(w * h * 4)
+        DllCall("RtlMoveMemory", "ptr", data, "ptr", pBits, "uptr", w * h * 4)
+        img := {data: data, w: w, h: h, x: x, y: y}
+    }
+    <span class="c">; …every handle released, in reverse order…</span>
+    return img
+}
+</code></pre>
+
+<div class="concept">
+<span class="tag">CONCEPT-ENCOUNTERED</span>
+<h3>GDI, device contexts, and DIBs</h3>
+<p><strong>Device context (DC)</strong> — a Windows handle representing a drawing surface.
+<code>GetDC(0)</code> gives you the screen; <code>CreateCompatibleDC</code> gives you an
+off-screen one in memory.</p>
+<p><strong>DIB section</strong> — a device-independent bitmap whose raw pixel bytes you can
+address directly. <code>CreateDIBSection</code> hands back both a bitmap handle and a
+<em>pointer</em> to those bytes.</p>
+<p><strong>BitBlt</strong> — a block transfer. Copy a rectangle from one DC to another.
+<code>SRCCOPY</code> (0x00CC0020) means straight copy.</p>
+<p><strong>Every handle must be released.</strong> <code>SelectObject</code> back to the original,
+<code>DeleteObject</code> the bitmap, <code>DeleteDC</code> the memory DC,
+<code>ReleaseDC</code> the screen DC. This function polls twice a second forever; a leak here is a
+machine that runs out of GDI handles in an afternoon.</p>
+</div>
+
+<p>Two flags worth knowing:</p>
+
+<p><strong>Negative height</strong> makes the DIB <em>top-down</em>, so row 0 is the top row and
+the index arithmetic in <code>PILL_Px</code> is the obvious one. Bottom-up DIBs (the default) are
+the classic source of vertically mirrored reads.</p>
+
+<p><strong><code>CAPTUREBLT</code> is deliberately NOT set.</strong> It pulls in layered windows —
+tooltips and overlays — and MMA's own toast can sit over the strip at exactly the moment a select
+key is pressed.</p>
+
+<h3><code>PILL_Px</code> — one pixel, in screen coordinates</h3>
+
+<pre><code>PILL_Px(img, sx, sy) {
+    ix := sx - img.x, iy := sy - img.y
+    if (ix &lt; 0 || iy &lt; 0 || ix &gt;= img.w || iy &gt;= img.h)
+        return -1
+    return NumGet(img.data, (iy * img.w + ix) * 4, "uint") &amp; 0xFFFFFF
+}
+</code></pre>
+
+<p>A DIB row is <code>B,G,R,A</code>. A little-endian <code>NumGet</code> of a <code>uint</code>
+therefore yields <code>A&lt;&lt;24 | R&lt;&lt;16 | G&lt;&lt;8 | B</code>, so masking off the alpha
+gives <code>0xRRGGBB</code> directly — <em>the same format <code>PixelGetColor</code> returns</em>,
+which is what lets the calibrated <code>[Detector]</code> colours stay exactly as they were.</p>
+
+<p>Addressed in <strong>screen</strong> coordinates so callers never have to think about the
+capture's origin. <code>-1</code> when outside.</p>
+
+<h3><code>PILL_CountIn</code> — the whole of positional detection</h3>
+
+<pre><code>PILL_CountIn(img, x1, x2, y1, y2, rgb, tol, xstep, ystep) {
+    n := 0
+    x := x1
+    while (x &lt;= x2) {
+        y := y1
+        while (y &lt;= y2) {
+            c := PILL_Px(img, x, y)
+            if (c &gt;= 0 &amp;&amp; PILL_ColorDist(c, rgb) &lt;= tol)
+                n++
+            y += ystep
+        }
+        x += xstep
+    }
+    return n
+}
+</code></pre>
+
+<blockquote><p>"This is the whole of positional detection. <strong>Tab positions are FIXED</strong>,
+so there is nothing to search for: look at where tab 2 is and ask whether it is lit."</p></blockquote>
+
+<p><code>PILL_ColorDist</code> is per-channel max distance, not Euclidean — cheaper, and a
+tolerance expressed in "how far off can any one channel be" is easier to reason about when you
+are hand-tuning a value in an ini.</p>
+
+<h3><code>PILL_PickLit</code> — the decision, split out so it is testable</h3>
+
+<pre><code>PILL_PickLit(counts, minCount) {
+    best := 0, bestN := 0, secondN := 0
+    for i, n in counts {
+        if (n &lt; 0)
+            continue
+        if (n &gt; bestN)
+            secondN := bestN, best := i, bestN := n
+        else if (n &gt; secondN)
+            secondN := n
+    }
+    if (!best || bestN &lt; minCount)
+        return 0
+    if (secondN * 2 &gt; bestN)
+        return 0
+    return best
+}
+</code></pre>
+
+<p>Split from the sampling <em>"so the DECISION is testable without a screen — every wrong-model
+bug here has been in the decision, and none were reachable by a test that needed the live Infloww
+strip in front of it."</em></p>
+
+<p><strong>Two refusals, and both matter more than picking a winner:</strong></p>
+<ul>
+<li>Nothing reaches <code>minCount</code> → no tab is lit, or the colour/region is wrong.</li>
+<li>The runner-up is more than half the winner → two slots both look lit, which is not what one
+active tab looks like. <em>It IS what a wrong <code>TabPitch</code> looks like</em>, with one pill
+straddling two slots.</li>
+</ul>
+
+<h3><code>PILL_Scan</code> — the sweep, and the bug it encodes</h3>
+
+<p>Used by the OCR path (which needs a rectangle to read a name out of) and by the probe. The
+hotkey path never calls it — it already knows where the tabs are.</p>
+
+<div class="warn">
+<span class="tag">Why there are two separate column lists</span>
+<p>The active and inactive colours used to share <em>one</em> list — a column counted if it held
+<em>either</em> — and the runs, including the rectangle handed to OCR, came from that.</p>
+<p>That works only while the inactive colour really is the inactive pill and nothing else. On
+Infloww it is not: <code>#0d0d0d</code> is the inactive tab <strong>and the empty strip either
+side of the tabs</strong>, measured in <em>82 of 83 columns</em>.</p>
+<p>So every column qualified, no gap ever appeared, and the single run spanned everything. OCR
+returned <strong>"AW Bellarama"</strong> — two model names as one string — and the tab count came
+back 1.</p>
+<p>That one string then got auto-claimed into a model's map and permanently gated its keys off.
+Two symptoms, one root cause, and neither pointed at the colour list.</p>
+</div>
+
+<hr>
+
+<h2>Part two — <code>screen/model_detector.ahk</code>: the service</h2>
+
+<p>254 lines. No hotkeys, no window, no output except an ini file. Started and stopped by the
+"Auto-detect active model" switch.</p>
+
+<h3>The hybrid: cheap scan every poll, expensive OCR only on change</h3>
+
+<pre><code>Poll() {
+    if (WinMatch != "" &amp;&amp; !WinActive(WinMatch)) {
+        LOG_Heartbeat("detector.idle", "alive, but '" WinMatch "' is not in front…")
+        WriteActive(""), WritePos(0, 0), WriteX(-1)
+        _lastCentre := -99999, _lastName := ""
+        return
+    }
+    LOG_Heartbeat("detector.poll", "alive and scanning; last name read: …")
+
+    img := PILL_Grab(RegionX, RegionY, RegionW + 1, RegionH + 1)
+    r := PILL_Scan(img, …)
+    if (r.count &lt; MinGrey) {
+        WriteActive(""), WritePos(0, 0), WriteX(-1)     <span class="c">; no pill → gating off</span>
+        _lastCentre := -99999, _lastName := ""
+        return
+    }
+
+    <span class="c">; OCR only when the pill has MOVED (a tab switch) or we have no name yet</span>
+    if (_lastName = "" || Abs(r.avgX - _lastCentre) &gt; MoveTol) {
+        name := OcrPill(r.minX, RegionY, r.maxX - r.minX, RegionH, OcrScale)
+        if (name != "") {
+            LOGI("detector", "OCR read '" name "'  pill x " r.minX "-" r.maxX
+                           . "  tab " r.index " of " r.total)
+            _lastName := name, _lastCentre := r.avgX
+        } else {
+            LOGW("detector", "found the lit pill at x " r.minX "-" r.maxX " but OCR"
+                           . " read nothing from it. Name mode has no answer;"
+                           . " positional mode is unaffected and still works.")
+        }
+    }
+    if (_lastName != "")
+        WriteActive(_lastName)
+    WritePos(r.index, r.total)
+    WriteX(r.avgX)
+}
+</code></pre>
+
+<h4>The window gate is not optional</h4>
+<blockquote><p>"This MUST default to the Infloww window, not to "" — the scan looks at a
+<strong>fixed screen rectangle</strong>, not at a window, so with no gate it happily OCRs whatever
+else is sitting at those coordinates. That is not hypothetical: with <code>WinMatch</code> empty
+it read <strong>VS Code's menu bar</strong> and wrote 'File Edit Selection View Go R' as the
+active model, which then got auto-claimed into a slot and permanently gated that model's keys
+off."</p></blockquote>
+
+<h4>Everything is written through a dedupe</h4>
+<pre><code>WriteActive(name) {
+    if (name = _written)
+        return                      <span class="c">; ← the early return that keeps the log usable</span>
+    LOGI("detector", "active model name: '" … "' → '" … "'")
+    _written := name
+    try IniWrite(name, STATUS, "detector", "active_model")
+}
+</code></pre>
+<p>This runs every 500 ms. Without the early return the log would fill with one identical line
+twice a second. What is left is <strong>a clean record of every tab switch MMA believed in</strong>
+— which is exactly what you want when reconstructing "it sent the wrong model's message at
+14:03".</p>
+
+<h4>Positional data is free; the name is not</h4>
+<p><code>WritePos</code> and <code>WriteX</code> run every poll because they fall straight out of
+the scan and need no OCR. <strong>So positional mode keeps working even when OCR reads nothing at
+all.</strong> That distinction is why the OCR-failure branch says so explicitly.</p>
+
+<h4>Top-level initialisation order</h4>
+<div class="warn">
+<span class="tag">A real crash, worth remembering</span>
+<pre><code>_lastCentre := -99999
+_lastName   := ""
+_written    := "«?»"
+_wPos       := -1
+_wTot       := -1
+_wX         := -99999
+
+<span class="c">; …150 lines later…</span>
+Poll()
+SetTimer(Poll, PollMs)</code></pre>
+<p>All of these must be assigned <strong>before the first <code>Poll()</code></strong>, not merely
+somewhere in the file. Top-level statements run in order and function bodies are skipped, so an
+initialiser sitting further down — next to the function that uses it, which reads better — has
+simply not run yet when <code>Poll()</code> fires.</p>
+<p>That is what "<code>_wPos</code> has not been assigned a value" was: the very first poll,
+reading a variable initialised 130 lines later.</p>
+</div>
+
+<hr>
+
+<h2>Part three — <code>core/active_model.ahk</code>: the resolver</h2>
+
+<p>783 lines, and the one file in the core with the most refusals per line. It answers "which
+model?" for the send path, and it is reached from a <em>hotkey context expression</em> — which AHK
+re-evaluates on every keystroke.</p>
+
+<div class="warn">
+<span class="tag">This is a typing-hot-path file</span>
+<p>Every consequence in this file follows from that:</p>
+<ul>
+<li><code>_IniInt</code> must never throw, or one hand-typed <code>CurrentModel=one</code> is
+<strong>an error dialog per character typed into a fan's chat</strong>.</li>
+<li>The positional scan is cached for 250 ms, or a paragraph is a few hundred pixel scans.</li>
+<li>It is <strong>read-only</strong>. It never writes an ini and never opens a dialog. The GUI
+owns the asking (<code>PromptUnmappedModel</code>), on a timer, in a process that has a window.</li>
+</ul>
+</div>
+
+<h3>The three strategies</h3>
+
+<div class="tablewrap">
+<table>
+<thead><tr><th>Mode</th><th>How</th><th>Survives</th><th>Breaks when</th></tr></thead>
+<tbody>
+<tr><td><strong>name</strong> (default)</td><td>OCR the tab, match against <code>[ActiveMap]</code> / <code>[ModelAliases]</code> / the display name.</td><td>Reordering your tabs.</td><td>Names differ across MMA, Infloww and Discord — and OCR has to read a 13 px pill.</td></tr>
+<tr><td><strong>position</strong></td><td>Which tab is lit, by arithmetic. No OCR at all.</td><td>Bad OCR, unreadable names.</td><td>You drag a tab, or open them in a different order tomorrow.</td></tr>
+<tr><td><strong>manual</strong> ("I pick")</td><td>You say so with a key; MMA remembers. Reads no pixels.</td><td>Everything.</td><td>You switch tabs without pressing the key. <em>The toast is the safety mechanism.</em></td></tr>
+</tbody>
+</table>
+</div>
+
+<h3>Positional mode, in two steps that are deliberately separate</h3>
+
+<blockquote><p>"Two steps, deliberately separate, <strong>because only ONE of them is a
+measurement</strong>:</p>
+<p>1. <em>Which tab is in front</em> — from the screen. Pure colour, no OCR.<br>
+2. <em>Which model that tab is</em> — from Settings. You said so; nothing is read.</p>
+<p>Step 2 is not something a detector should ever try to work out. <strong>Tab 1 is Aliw because
+you put it there, and no pixel on screen carries that fact.</strong> Every round of this that went
+wrong went wrong by trying to infer it."</p></blockquote>
+
+<p>And step 1 is arithmetic, not a search:</p>
+
+<pre><code>TabIndexFromX(x, cfg) {
+    if (x &lt; 0)                      return 0
+    if (cfg.pitch &lt; 1 || x &lt; cfg.origin) return 0
+    return ((x - cfg.origin) // cfg.pitch) + 1
+}
+</code></pre>
+
+<blockquote><p>"The entire positional detection, in one line of arithmetic. Everything that came
+before it — grouping runs, counting tabs, matching centroids against taught coordinates within a
+derived tolerance — was an elaborate attempt to <strong>discover something that was never
+unknown: where tab 2 is.</strong>"</p></blockquote>
+
+<div class="concept">
+<span class="tag">CONCEPT-ENCOUNTERED</span>
+<h3>Ask what you actually need to measure</h3>
+<p>Counting tabs requires seeing the tabs you are <em>not</em> on — and on a theme that draws
+inactive tabs as bare background, they cannot be seen at all. That is why every "count the tabs"
+approach failed.</p>
+<p>A <em>position</em> requires only the tab you <em>are</em> on, and that one is always visible by
+definition. Reframing the question from "how many tabs and which index" to "where is the lit one"
+made an unsolvable measurement into a division.</p>
+<p>This is the highest-leverage debugging move in any pixel-reading code: <strong>list what you are
+inferring, and check whether any of it was already known.</strong></p>
+</div>
+
+<h3><code>ActiveModelStatus()</code> — the answer, plus <em>why</em></h3>
+
+<pre><code>return {no: …, name: …, state: …}
+</code></pre>
+
+<div class="tablewrap">
+<table>
+<thead><tr><th><code>state</code></th><th>Means</th><th>What a caller can do</th></tr></thead>
+<tbody>
+<tr><td><code>"ok"</code></td><td>Exactly one slot owns the name; <code>.no</code> is it.</td><td>Send.</td></tr>
+<tr><td><code>"none"</code></td><td>Detector off, or Infloww not in front.</td><td>Nothing. Manual keys are the answer.</td></tr>
+<tr><td><code>"unknown"</code></td><td>A plausible single name that maps to no slot.</td><td><strong>Worth asking about</strong> — e.g. Infloww says "Bellarama" and nothing claims it.</td></tr>
+<tr><td><code>"ambiguous"</code></td><td>The text matches more than one slot.</td><td><strong>Never ask.</strong> The answer would put a string containing both models' names into one model's map.</td></tr>
+<tr><td><code>"unlearned"</code></td><td>Positional mode, a pill on screen, nothing taught yet.</td><td>Tell the user to press a select key on each tab.</td></tr>
+</tbody>
+</table>
+</div>
+
+<p>The gate order inside it is itself a design statement:</p>
+
+<pre><code>1. manual mode        <span class="c">; reads no pixels on ANY platform — must win everywhere</span>
+2. Fansly             <span class="c">; routed by which WINDOW is in front, not by a setting</span>
+3. positional         <span class="c">; if that is the mode</span>
+4. name               <span class="c">; the default</span>
+</code></pre>
+
+<p>Fansly sits <em>after</em> manual deliberately: "you said model 2" must keep meaning model 2
+wherever you are. And routing is by which window is in <em>front</em>, not by a setting, "because
+a setting is a thing that can be wrong."</p>
+
+<h3><code>_SlotOwnsName</code> — three ways to claim a name</h3>
+
+<ol>
+<li><code>[ActiveMap] File&lt;n&gt;</code> — an explicit, <strong>comma-separated</strong> list.
+One model wears more than one name: MMA calls it Rama, Infloww's tab says Bellarama, Discord's
+channel says something else again.</li>
+<li><code>[ModelAliases]</code> — the alias table the Discord import already uses. <em>It existed
+and this never read it</em>, which is why an alias of <code>rama=2</code> did nothing here.</li>
+<li><code>[Settings] Model&lt;n&gt;</code> — the display name, as a <strong>substring</strong>.
+Requiring equality meant a name you would call a match was not one.</li>
+</ol>
+
+<div class="warn">
+<span class="tag">More than one match returns 0</span>
+<p>If the detected text contains two models' names there is no way to tell which tab is in front,
+and the cost of guessing is one model's mass sent to the other's fan.</p>
+<p>And note <em>why matching is by substring</em>, which is not the obvious reason: it matters for
+the <strong>ambiguity check</strong> as much as for matching. "AW Bellarama" (two tabs read as
+one) has to count as evidence for slot 1 <em>as well as</em> slot 2 — or exactly one slot matches,
+the caller sees no ambiguity, and it confidently returns the wrong model.</p>
+</div>
+
+<h3>The auto-claim that had to be removed</h3>
+
+<pre><code>IsAskableModelName(name) {
+    name := Trim(name)
+    if (name = "" || StrLen(name) &gt; 24)
+        return false
+    return !RegExMatch(name, "\s")        <span class="c">; no whitespace = one plausible name</span>
+}
+</code></pre>
+
+<p>This replaced a silent auto-claim that gave any unrecognised string to the first empty slot.
+That is how <em>"File Edit Selection View Go R"</em> became a model's identity and permanently
+gated its keys off.</p>
+
+<p><strong>A wrong slot claim is silent and sticky; a question is neither.</strong> And the names
+genuinely do not match across Discord, Infloww and MMA, so there is no rule that could get this
+right without being told.</p>
+
+<hr>
+
+<h2>Lock mode</h2>
+
+<p>The picker window is the right answer to "which model am I on?" and <strong>the wrong answer to
+the way the work is actually done</strong>: you answer every message for one model, then move to
+the next. Over a shift that is a window per keypress asking a question whose answer has not
+changed in twenty minutes — and <em>a window you dismiss by reflex is a window that is not
+protecting you from anything.</em></p>
+
+<p>A lock gives the answer once. While one is set:</p>
+<ul>
+<li>Every <code>[mass.active]</code> key sends that model — no window, no pixels read.</li>
+<li><strong>The badge sits on screen naming it</strong>, because a mode that silently re-aims
+every shared key has to be visible from the chat you are sending into, not from MMA's window
+behind it.</li>
+<li>An "active model = N" key <strong>moves</strong> the lock instead of being ignored by it —
+which is exactly "done with this one, on to the next". Refusing would mean unlock, select, lock
+again: three keys for one thought.</li>
+<li>Unlocking gives the picker back, unchanged.</li>
+</ul>
+
+<div class="concept">
+<span class="tag">CONCEPT-ENCOUNTERED</span>
+<h3>The visible-state requirement</h3>
+<p>From the header of <code>ui/lock_badge.ahk</code>, and repeated in <code>runtime.ahk</code>:
+the badge is <strong>not decoration bolted on the side — it is the condition on which the lock
+branch is allowed to exist at all</strong>, since it sends to a model nothing on screen
+identifies.</p>
+<p>Generalise: any mode that changes what an action does, invisibly, needs an indicator that is
+present for exactly as long as the mode is. If you cannot make it visible, reconsider the
+mode.</p>
+</div>
+
+<pre><code>ToggleMassLock(*) {
+    if MassIsLocked() { … unlock, beep 600 Hz, toast … ; return }
+
+    st := ActiveModelStatus()
+    if !st.no {
+        SoundBeep(300, 250)
+        _MassToast("Cannot lock — MMA does not know which model is on screen…")
+        LOG_Bail("model.lock", "lock key pressed with no resolvable model … nothing"
+                             . " locked, because locking to a guess is the one thing"
+                             . " this feature must not do")
+        return
+    }
+    LockToModel(st.no)
+}
+</code></pre>
+
+<p>It locks to <em>whichever model is already resolved</em>, rather than asking. In "I pick" mode
+that is the model you last selected — the one whose messages you are in the middle of — and with a
+detector running it is the tab in front. Either way the press means "keep sending to this one",
+which needs no second question.</p>
+
+<p><strong>A resolve that comes back with nothing is refused</strong>, not filled in from the
+remembered model. "MMA does not know which model is on screen" and "lock every shared key to
+model 1" are very different sentences, and only one of them is what the key promises.</p>
+
+<p>And the refusal is <em>audible</em>: 300 Hz for 250 ms. You pressed a key expecting a lock, so
+silence would read as "locked" and every send after it would be a surprise.</p>
+
+<hr>
+
+<h2>Teaching by pointing</h2>
+
+<pre><code>TeachPosition(n) {
+    cfg := DetectorCfg()
+
+    if !DetectorWindowUp(cfg) {
+        _TeachFail("Click Infloww first.`nNothing changed — MMA only reads the tab"
+                 . " strip while that window is in front.")
+        return
+    }
+    t := TabLitIndex(cfg)
+    if (t.index &lt; 1) {
+        _TeachFail("No single tab is lit at the expected positions."
+                 . "`nper-tab pixels: " _CountsLine(t.counts)
+                 . "`nNothing changed. All zeros means the colour or region is"
+                 . " wrong — run tools\detector_probe.ahk. Two large numbers"
+                 . " means TabPitch is wrong.")
+        return
+    }
+    if !SetTabOrderFor(t.index, n) { … }
+    SoundBeep(880, 90)
+    _MassToast("Tab " t.index " = " ModelLabel(n) "`n" _OrderSummary())
+}
+</code></pre>
+
+<p>Pressing "active model = 2" while model 2's tab is in front records "whatever tab index that
+is, is model 2". The same fact the Settings dropdowns hold, <strong>entered the way you actually
+know it</strong>: nobody knows their tab is index 2; everybody knows the tab they are looking at
+is Rama.</p>
+
+<h3>Three things this function does that are worth stealing</h3>
+
+<p><strong>It reads the pixels HERE, at the moment of the press.</strong> It used to go through
+<code>detector_status.ini</code>, which the service refreshes every 500 ms and only while Infloww
+is focused — so "click the tab, press the key" acted on a reading <em>from before the click</em>,
+and both models got taught the same x. There is no reason to route a measurement you can take
+directly through a file.</p>
+
+<p><strong>It shows its working.</strong> The per-tab pixel counts <em>are</em> the diagnosis: all
+zeros means nothing lit (wrong colour or region); two big numbers means one pill straddling two
+slots (wrong <code>TabPitch</code>). Without them, "it did not work" is unactionable.</p>
+
+<p><strong>Every outcome is audible.</strong> 880 Hz short for success, 300 Hz long for failure.
+"A tooltip you have to notice is not feedback when your eyes are on the chat you are about to send
+into."</p>
+
+<p><code>_OrderSummary()</code> prints the whole mapping after every press <em>and flags
+duplicates</em> — two tabs mapped to the same model is a real mistake and one you would otherwise
+only find by sending to the wrong fan.</p>
+
+<h3>The Fansly twin, and the ordering that matters</h3>
+
+<pre><code>if TeachFanslyRow(n)
+    return
+if IsManualPlatform(n) { … }
+if (mode = "position") { TeachPosition(n); return }
+</code></pre>
+
+<p><code>TeachFanslyRow</code> returns <strong>true when it handled the press</strong> — meaning
+Fansly was in front, whatever the outcome. <code>SelectModel</code> uses that to stop, because a
+press aimed at the rail must never fall through to the Infloww teacher underneath it, which
+<em>"would file a Fansly model under whatever Infloww tab happened to be lit behind the window and
+quietly reroute that tab's sends."</em></p>
+
+<p>And it is checked <strong>before</strong> the per-model platform setting, "because which window
+is in front is a fact, and the per-model platform setting is a claim."</p>
+
+<hr>
+
+<h2>The picker window — <code>mass/model_picker.ahk</code></h2>
+
+<p>One window, two questions, both of the form "which model?".</p>
+
+<h3>Question 1 — the shared follow-up keys in "I pick" mode</h3>
+
+<pre><code>PickGroupForSlot(slot) {
+    if RegExMatch(slot, "i)^(?:m|alt)?fu([123])(?:short)?$", &amp;m)
+        return Integer(m[1])
+    if FEAT("ppvPicker") {
+        if RegExMatch(slot, "i)^m?ppv$")     return "ppv"
+        if RegExMatch(slot, "i)^m?ppvFus$")  return "ppvFus"
+    }
+    return 0
+}
+</code></pre>
+
+<p>Derived from the slot <em>name</em> rather than a second list of handlers — because
+<code>fu2</code>, <code>fu2short</code>, <code>mFu2</code> and <code>altFu2</code> are four ids for
+one action, and a hand-kept list of them is the thing that goes stale the next time a slot is
+added.</p>
+
+<p><code>mass</code> and <code>nextFu</code> return 0 deliberately. A window in front of
+<em>every</em> shared key would be a window in front of everything; <code>__mm</code> has its own
+asking route, and <code>nextFu</code> is already looking at the screen you would be answering
+about.</p>
+
+<h3>Question 2 — <code>__mm</code>, in any mode</h3>
+
+<pre><code>MassSendOrPick(*) {
+    count := _PickModelCount()
+    if (count &lt;= 1) {
+        _SetCurModel(1)
+        DoMass()
+        return
+    }
+    _PickOpen("mass")
+}
+</code></pre>
+
+<p>One model and there is nothing to ask. The count comes from the same
+<code>_PickModelCount</code> the button grid is built from, so <em>"the window would have had one
+button" and "no window at all" cannot disagree.</em></p>
+
+<h3>Which buttons preview, and why not all of them</h3>
+
+<pre><code>_PickHasPreview(group) {
+    return (group = "mass") || (group = "ppv") || (group = "ppvFus")
+}
+</code></pre>
+
+<blockquote><p>"The follow-up groups do not preview. Their text depends on alts, branches and the
+editable toggle, so whatever a button showed could differ from what the send actually resolves to
+— <strong>a preview that is usually right is worse than none.</strong> <code>mass</code> and
+<code>ppv</code> both paste one fixed field, so theirs cannot drift."</p></blockquote>
+
+<h3>Two things the window has to get right</h3>
+
+<p><strong>Focus.</strong> The window takes the foreground, and the follow-up is typed into
+whatever holds it — so sending while the picker is up would type into the picker. The window that
+was in front is saved on open and re-activated before a single character is sent.</p>
+
+<p><strong>The hotkey thread.</strong> <code>mass.active.*</code> starts with "mass.", so
+<code>_HK_IsSend</code> counts it as a send and <code>_HK_Fire</code> holds the in-flight flag for
+as long as the handler runs. Waiting for your choice <em>inside</em> that handler would deaden
+every other key until you answered. So <strong>the handler shows the window and returns</strong>;
+the send happens later, from the choice, outside the hotkey thread.</p>
+
+<div class="concept">
+<span class="tag">CONCEPT-ENCOUNTERED</span>
+<h3>Never block inside a hotkey handler</h3>
+<p>Anything that waits for a human — a dialog, a picker, a confirmation — must not do so inside the
+handler, because the handler holds locks (here, the anti-fumble flag) and blocks the whole
+pseudo-thread. The pattern is: <strong>show the UI, return, and continue from the UI's own
+callback.</strong></p>
+<p>The same reasoning appears in <code>AltStageBegin</code>, which registers TAB/Enter hotkeys and
+returns rather than looping.</p>
+</div>
+
+<hr>
+
+<h2>Calibration and debugging</h2>
+
+<p>Everything tunable is in <code>mass_gui.cfg</code> <code>[Detector]</code>:</p>
+
+<div class="tablewrap">
+<table>
+<thead><tr><th>Key</th><th>Default</th><th>Meaning</th></tr></thead>
+<tbody>
+<tr><td><code>RegionX/Y/W/H</code></td><td>0, 0, 330, 50</td><td>The band of screen to scan.</td></tr>
+<tr><td><code>GreyColor</code></td><td><code>0x2B2C30</code></td><td>The <em>active</em> pill colour.</td></tr>
+<tr><td><code>InactiveColor</code></td><td><code>0x0D0D0D</code></td><td>Only used to count tabs.</td></tr>
+<tr><td><code>GreyTol</code></td><td>22</td><td>Per-channel tolerance.</td></tr>
+<tr><td><code>MinGrey</code></td><td>6</td><td>Pixels needed before a slot counts as lit.</td></tr>
+<tr><td><code>TabOrigin</code> / <code>TabPitch</code></td><td>30 / 150</td><td>Where the strip starts and how wide a tab is. <strong>Measured geometry.</strong></td></tr>
+<tr><td><code>ScanStep</code> / <code>GapTol</code></td><td>4 / 12</td><td>Sampling grid; widest gap still inside one pill.</td></tr>
+<tr><td><code>PollMs</code> / <code>OcrScale</code> / <code>MoveTol</code></td><td>500 / 3 / 20</td><td>Service tuning.</td></tr>
+<tr><td><code>WinMatch</code></td><td>"Infloww Messages"</td><td>The foreground gate. <strong>Blank it only if you want no gate at all.</strong></td></tr>
+</tbody>
+</table>
+</div>
+
+<p><code>tools/detector_probe.ahk</code> is the calibrator — a <em>probe</em>, not a test: it binds
+a key, stays resident, and exists so you can look at your own screen through it. It shares
+<code>pill_scan.ahk</code> with the service, so what it shows you is what the service sees.</p>
+
+<div class="tablewrap">
+<table>
+<thead><tr><th>Reading</th><th>Diagnosis</th></tr></thead>
+<tbody>
+<tr><td>All per-tab counts zero</td><td>Wrong <code>GreyColor</code>, or the region misses the strip.</td></tr>
+<tr><td>Two large counts</td><td><code>TabPitch</code> is wrong — one pill straddles two slots.</td></tr>
+<tr><td>OCR reads two names as one</td><td>The scan merged runs. Check <code>GapTol</code> and <code>InactiveColor</code>.</td></tr>
+<tr><td>"tab 1 of 1" forever</td><td>The same. This is the classic symptom.</td></tr>
+<tr><td>Correct in the probe, wrong live</td><td>DPI. Never calibrate off a PowerShell or PrintWindow capture — measure inside AHK.</td></tr>
+</tbody>
+</table>
+</div>
+
+<div class="warn">
+<span class="tag">A live gotcha on this machine</span>
+<p>The geometry above assumes a 1920×1032 Infloww client. If your window is a different size the
+numbers do not transfer — chapter 12 covers the DPI and window-size traps in full.</p>
+</div>
+
+<div class="pager"></div>
+</main>
+</div>
+</body>
+</html>

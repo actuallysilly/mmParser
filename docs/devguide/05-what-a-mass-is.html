@@ -1,0 +1,526 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>5 — What a mass IS</title>
+<link rel="stylesheet" href="guide.css">
+<script src="nav.js"></script>
+</head>
+<body>
+<div class="shell">
+<nav class="side"></nav>
+<main>
+
+<p class="eyebrow">Chapter 5</p>
+<h1>What a mass <em>is</em></h1>
+
+<p class="lede">Before you can follow the send path you need to know what is being sent.
+<code>src/mass/store.ahk</code> — 413 lines — is the only file in MMA that reads or writes the
+mass library, and it owns the record shape that eleven other files depend on.</p>
+
+<h2>The vocabulary</h2>
+
+<p>Four words, and confusing any two of them will make the rest of the codebase unreadable.</p>
+
+<div class="tablewrap">
+<table>
+<thead><tr><th>Word</th><th>Means</th></tr></thead>
+<tbody>
+<tr><td><strong>Model</strong></td><td>One of your accounts. 3 to 12 of them (<code>MASS_MODELS</code>). Each is a tab in the GUI and a section of hotkeys.</td></tr>
+<tr><td><strong>Mass</strong></td><td>One campaign: an opening message plus its follow-ups and PPV. <strong>Each model holds three</strong> (<code>MASS_SLOTS</code>) and one of them is live at a time.</td></tr>
+<tr><td><strong>Slot</strong></td><td>Which of a model's three masses. <code>massNo</code> says which slot is live — that is what every hotkey sends.</td></tr>
+<tr><td><strong>Branch</strong></td><td>A named alternative wording within a mass. Up to six (<code>MASS_BRANCH_MAX</code>). "alt" is just the commonest branch name.</td></tr>
+</tbody>
+</table>
+</div>
+
+<h2>The file</h2>
+
+<pre><code>{
+  "schema": 1,
+  "models": [                      <span class="c">// exactly MASS_MODELS entries, in order</span>
+    { "massNo": 1,                 <span class="c">// which of this model's masses is live</span>
+      "masses": [ {…}, {…}, {…} ]  <span class="c">// exactly MASS_SLOTS entries</span>
+    },
+    …
+  ]
+}
+</code></pre>
+
+<p>One mass is a <strong>flat record of string fields</strong>. Flat is not an accident: every
+field is one editable box in the GUI, and keeping the storage shape equal to the editing shape
+is what stops a mapping layer from existing at all.</p>
+
+<h3>Why JSON, and not AHK source</h3>
+
+<p>Masses used to be <strong>AHK source code</strong>. The GUI generated
+<code>m1 := { mass: "…", fu1: "…" }</code> blocks by string-splicing, and a pair of functions
+called <code>EscQ</code>/<code>UnescQ</code> existed purely to make message text survive a round
+trip through a programming language's grammar.</p>
+
+<div class="warn">
+<span class="tag">The failure mode that killed it</span>
+<p>A save that produces subtly wrong source produces <strong>a file that will not load, exits 0,
+and says nothing</strong>. Your entire message library, gone, with no error — the same silent
+death as the <code>base</code>-is-reserved bug.</p>
+<p><em>Data files do not have syntax errors that kill a process.</em></p>
+</div>
+
+<div class="concept">
+<span class="tag">CONCEPT-ENCOUNTERED</span>
+<h3>Data as data, not as code</h3>
+<p>This is one of the load-bearing design decisions in MMA and it generalises. If you find
+yourself generating source code to hold user data, you have coupled the integrity of your
+program to the shape of your data — and user data contains quotes, semicolons, backticks, emoji
+and newlines.</p>
+<p>The JSON version also has a property the code version could never have: <strong>something
+other than AHK can read it</strong>. That is why <code>MASS_Save</code> writes
+<code>"UTF-8-RAW"</code> and not <code>"UTF-8"</code>:</p>
+<pre><code>f := FileOpen(tmp, "w", "UTF-8-RAW")
+</code></pre>
+<p>"UTF-8" writes a byte-order mark, and <strong>a BOM is illegal at the start of JSON</strong>.
+Python's <code>json.load</code> rejects it outright and so does a browser's
+<code>JSON.parse</code>. AHK never noticed it was writing one, because
+<code>FileRead(…, "UTF-8")</code> strips a BOM on the way back in.</p>
+</div>
+
+<h2>The record shape — <code>MASS_Fields()</code></h2>
+
+<pre><code>MASS_Fields() {
+    out := ["mass", "fu1", "fu1_5", "fu1_7", "fu2", "fu2_5", "fu2_7",
+            "fu3", "fu3_5", "fu3_7", "ppv_base", "ppv_f1", "ppv_f2", "ppv_f3"]
+    Loop MASS_BRANCH_MAX
+        for f in MASS_BranchFields(A_Index)
+            out.Push(f)
+    out.Push("altGui")
+    return out
+}
+
+MASS_BranchFields(n) {
+    return ["br" n "_name", "br" n "_fu1", "br" n "_fu2", "br" n "_fu3",
+            "br" n "_ppv"]
+}
+</code></pre>
+
+<p>14 trunk fields + 6 branches × 5 fields + 1 legacy = <strong>45 fields</strong> per mass.</p>
+
+<div class="tablewrap">
+<table>
+<thead><tr><th>Field</th><th>Meaning</th></tr></thead>
+<tbody>
+<tr><td><code>mass</code></td><td>The opening message. Pasted, never sent — you review it first.</td></tr>
+<tr><td><code>fu1</code> <code>fu1_5</code> <code>fu1_7</code></td><td>Follow-up 1, in up to three parts. Three separate messages by default.</td></tr>
+<tr><td><code>fu2</code> …, <code>fu3</code> …</td><td>The same for follow-ups 2 and 3.</td></tr>
+<tr><td><code>ppv_base</code></td><td>The PPV caption. <strong>May span lines.</strong></td></tr>
+<tr><td><code>ppv_f1..3</code></td><td>Follow-ups sent after the PPV.</td></tr>
+<tr><td><code>br&lt;n&gt;_name</code></td><td>What this branch is called. Displayed in the picker.</td></tr>
+<tr><td><code>br&lt;n&gt;_fu1..3</code></td><td>This branch's answer for each follow-up group. <strong>Multiline</strong> — newline-joined parts.</td></tr>
+<tr><td><code>br&lt;n&gt;_ppv</code></td><td>This branch's PPV. Multiline.</td></tr>
+<tr><td><code>altGui</code></td><td>Dead. Kept because dropping a field rewrites every mass on next save.</td></tr>
+</tbody>
+</table>
+</div>
+
+<div class="note">
+<p><b>The decimals are <code>.5</code> and <code>.7</code>. Nothing else.</b> <code>f1.1</code>,
+<code>f1.2</code>, <code>f1.9</code> match no field and are silently dropped by the parser. They
+are only labels for "second part" and "third part"; the odd numbers are historical.</p>
+</div>
+
+<h3>Why the field list lives here</h3>
+
+<p>It used to be <code>MassBlockProps()</code> inside the GUI, with <code>ALT_MAX_RT</code> and
+<code>BRANCH_MAX_RT</code> copied into <code>utils.ahk</code> under a comment reading <em>"must
+match ALT_MAX in main_window.ahk"</em>.</p>
+
+<p><strong>Two files agreeing by hand about a record shape is a bug waiting for someone to add a
+field.</strong> The GUI edits the record and the engine sends it; neither owns it, so it is
+defined once, here.</p>
+
+<p>The payoff: <strong>adding a field to a mass is one line in <code>MASS_Fields()</code>.</strong>
+The loader, the writer, the blank-record builder, the migration, the GUI's save loop and the
+GUI's load loop all read that one list.</p>
+
+<h2>The four constants</h2>
+
+<pre><code>global MASS_SCHEMA     := 1
+global MASS_MODELS_MAX := 12
+global MASS_MODELS     := _MASS_SlotCount()   <span class="c">; from [Settings] ModelCount</span>
+global MASS_SLOTS      := 3
+global MASS_BRANCH_MAX := 6
+global MASS_FU_PARTS   := 3
+</code></pre>
+
+<h3><code>MASS_MODELS</code> — the number that used to be <code>3</code></h3>
+
+<pre><code>_MASS_SlotCount() {
+    n := 3
+    try n := Integer(Trim(IniRead(MMA_CFG, "Settings", "ModelCount", 3)))
+    catch
+        n := 3
+    if (n &lt; 3)  n := 3
+    if (n &gt; MASS_MODELS_MAX)  n := MASS_MODELS_MAX
+    return n
+}
+</code></pre>
+
+<p>This was literally <code>:= 3</code>, and it was the one number pinning MMA to three models —
+everything downstream already looped over it. Two guards, both meaningful:</p>
+
+<ul>
+<li><strong>Never below 3.</strong> Every existing library on disk has three model entries and
+three sets of numbered hotkeys declared against them. Dropping below would orphan both.</li>
+<li><strong>Never above 12.</strong> Not timidity: each model is a row in Settings, a tab in the
+panel and an entry in every <code>masses.json</code>. A config typo of 400 should not produce a
+400-tab window and a megabyte of blank records. <em>The cap is where the GUI stops being usable,
+not where the data stops working.</em></li>
+</ul>
+
+<div class="warn">
+<span class="tag">Two readers, one setting</span>
+<p><code>MMA_ModelNames()</code> in <code>paths.ahk</code> reads <code>ModelCount</code> with
+<em>the same clamp</em>, written out again — because <code>store.ahk</code> includes
+<code>paths.ahk</code>, so <code>MASS_MODELS</code> does not exist yet when that function is
+defined, and <code>paths.ahk</code> must stand alone.</p>
+<p>The duplication is deliberate and flagged in a comment: <em>two readers of one setting must
+agree, and the failure if they drift is a model whose load/save button has no slot behind
+it.</em> If you change the clamp, change both.</p>
+</div>
+
+<h2>Alts and branches were never two things</h2>
+
+<p>This is the most important piece of history in the file, because half the comments in
+<code>utils.ahk</code> and <code>parser.ahk</code> refer to it.</p>
+
+<p>A mass used to carry <em>both</em>:</p>
+<ul>
+<li><code>fu1_alt0..2</code> — three other wordings of <em>this</em> follow-up.</li>
+<li><code>br1..3</code> — a whole named alternate <em>sequence</em>.</li>
+</ul>
+
+<p>Two syntaxes to write, two shapes to store, two halves of one window to edit — for one
+question: <strong>"which wording goes out for f&lt;N&gt;?"</strong></p>
+
+<p>The send path had <em>already</em> merged them: <code>AltVariants()</code> staged the trunk,
+then the alts, then the branches, as one list that TAB walked. What was left was storage and
+syntax, and both are gone now:</p>
+
+<div class="note">
+<p><b>EVERYTHING IS A BRANCH, and "alt" is simply the default branch name.</b></p>
+<p><code>::alt some wording</code> is a branch called "alt". <code>::mexican mehico</code> is a
+branch called "mexican". A branch that only answers f1 is the ordinary case, not a special
+one.</p>
+</div>
+
+<p>What a branch carries that a loose wording did not is the <strong>implication</strong>: pick a
+branch variant at f1 and f2/f3/ppv start on that same branch. An "alt" that answered f1 and then
+left you back on the trunk at f2 was never a different thing — only a branch nobody had named.</p>
+
+<p>The <code>fu&lt;grp&gt;_alt&lt;n&gt;</code> fields are simply no longer in
+<code>MASS_Fields()</code>. They are <strong>left on disk</strong> in any existing
+<code>masses.json</code> rather than deleted — nothing reads them, and nothing destroys them, so
+a downgrade finds its data intact.</p>
+
+<h2>Multiline fields</h2>
+
+<pre><code>MASS_FieldIsMultiline(field) {
+    if (field = "ppv_base")
+        return true
+    return RegExMatch(field, "^br\d+_(fu\d|ppv)$") &gt; 0
+}
+
+MASS_SplitParts(stored) {
+    parts := []
+    for _, p in StrSplit(StrReplace(StrReplace(stored, "`r`n", "`n"), "``n", "`n"), "`n")
+        if Trim(p) != ""
+            parts.Push(Trim(p))
+    return parts
+}
+</code></pre>
+
+<p>A branch's <code>_fu2</code> field holds all of that branch's parts for follow-up 2, joined by
+newlines. <code>MASS_SplitParts</code> reads them back.</p>
+
+<p>Note it handles <strong>three</strong> line separators: <code>`r`n</code> (Windows CRLF from a
+GUI edit box), <code>`n</code> (a real newline), and the literal two-character sequence
+<code>``n</code> — a backtick followed by "n". That last one is the escape an <strong>ini
+file</strong> needs, because an ini has no other way to hold a line break. The
+<code>DefaultFu3</code> setting uses it, which is why <code>DefaultFu3Parts()</code> can call
+<code>MASS_SplitParts</code> on an ini value directly.</p>
+
+<div class="warn">
+<span class="tag">De-duplication worth noticing</span>
+<p>This function existed <strong>twice</strong> — <code>AltParts()</code> in
+<code>main_window.ahk</code> and <code>AltPartsRT()</code> in <code>utils.ahk</code>, identical
+character for character — because the GUI deliberately does not include <code>utils.ahk</code>
+and so had no way to reach it. The "RT" suffix existed only to stop the two names colliding.</p>
+<p>Both files already reach <code>store.ahk</code>, so one copy is enough. If you ever find
+yourself adding a suffix to a function name to avoid a collision with an identical function,
+that is the signal to move it somewhere both callers can see.</p>
+</div>
+
+<h2><code>MASS_Blank()</code> — guaranteeing shape</h2>
+
+<pre><code>MASS_Blank() {
+    m := Map()
+    for f in MASS_Fields()
+        m[f] := ""
+    return m
+}
+</code></pre>
+
+<p>Four lines, and they remove <code>.Has()</code> guards from the entire rest of the codebase.
+A Map <strong>throws</strong> on a missing key (chapter 1), so without this every reader would
+need a guard at every use. Guarantee the shape at the boundary; assume it everywhere else.</p>
+
+<h2>Loading</h2>
+
+<pre><code>MASS_Load() {
+    if !FileExist(MMA_MASSES) {
+        LOGW("mass.load", "masses.json does not exist — starting with an EMPTY"
+                        . " library. Normal on a first run; on an existing install"
+                        . " it means every mass is missing. Looked for " MMA_MASSES)
+        return MASS_Default()
+    }
+    try {
+        raw := FileRead(MMA_MASSES, "UTF-8")
+        if (SubStr(raw, 1, 1) = Chr(0xFEFF))     <span class="c">; a stray mid-stream BOM</span>
+            raw := SubStr(raw, 2)
+        doc := JSON.Parse(raw)
+    } catch as e {
+        bak := MMA_MASSES ".broken-" FormatTime(, "yyyyMMdd-HHmmss")
+        try FileCopy(MMA_MASSES, bak, true)
+        LOGE("mass.load", "masses.json is not valid JSON — started with an EMPTY"
+                        . " library and kept a copy of the broken file", ...)
+        MsgBox "…A copy was kept at:`n" bak
+             . "`n`nMMA has started with an empty library. Fix that file and "
+             . "restart rather than saving over it.", "MMA", 0x10
+        return MASS_Default()
+    }
+    doc := MASS_Normalise(doc)
+    ...
+}
+</code></pre>
+
+<p><strong>It never throws.</strong> A missing file is a first run; a corrupt one must not take
+the GUI down with it. But note what it does <em>not</em> do: it does not silently start empty.
+It <strong>backs up the broken file with a timestamp</strong> and tells you, in a modal, not to
+save over it — because silently replacing a damaged message library with an empty one would
+destroy work a text editor could still have recovered.</p>
+
+<h3>The summary line</h3>
+
+<pre><code>if LOG_On() {
+    summary := ""
+    Loop MASS_MODELS {
+        mi := A_Index
+        filled := ""
+        Loop MASS_SLOTS
+            if (Trim(MASS_Get(doc, mi, A_Index)["mass"]) != "")
+                filled .= A_Index
+        summary .= "m" mi ": live=" MASS_MassNo(doc, mi)
+                 . " withText=" (filled = "" ? "none" : filled)
+    }
+    LOGI("mass.load", "loaded " MMA_MASSES " — " summary)
+}
+</code></pre>
+
+<p>Producing a line like:</p>
+<pre><code>mass.load  loaded …\masses.json — m1: live=1 withText=1   m2: live=3 withText=12   m3: live=1 withText=none
+</code></pre>
+
+<p><strong>This one line settles "the hotkeys do nothing" more often than anything else in the
+codebase.</strong> Read m2 above: its live slot is 3, and slots 1 and 2 have text. Every key for
+model 2 will correctly send slot 3, which is empty, and do nothing. That state is completely
+invisible from the keyboard.</p>
+
+<p>Note the <code>if LOG_On()</code> wrapper — the summary costs a loop over every model and
+slot, and AHK evaluates arguments before the call, so without the guard you would pay for it
+even with logging off.</p>
+
+<h2>Saving</h2>
+
+<pre><code>MASS_Save(doc) {
+    doc := MASS_Normalise(doc)
+    tmp := MMA_MASSES ".tmp"
+    try {
+        f := FileOpen(tmp, "w", "UTF-8-RAW")
+        if !f
+            throw Error("could not open " tmp " for writing")
+        body := JSON.Stringify(doc, "  ")
+        f.Write(body)
+        f.Close()
+        FileMove(tmp, MMA_MASSES, true)
+        LOGI("mass.save", "wrote " MMA_MASSES " (" StrLen(body) " chars) via "
+                        . "temp file + move")
+    } catch as e {
+        try FileDelete(tmp)
+        LOGE("mass.save", "could not save masses.json — YOUR EDITS ARE NOT ON DISK."
+                        . " The previous library is intact.", LOG_Err(e))
+        MsgBox "Could not save masses.json:`n`n" e.Message, "MMA", 0x10
+        return false
+    }
+    return true
+}
+</code></pre>
+
+<div class="concept">
+<span class="tag">CONCEPT-ENCOUNTERED</span>
+<h3>Atomic write — temp file plus move</h3>
+<p>Writing directly to <code>masses.json</code> means a crash, a full disk, or antivirus
+interference mid-write leaves you with a <em>half-written file</em> — which is worse than no
+file, because it looks like a file. And this single file is every mass the user has.</p>
+<p>Writing to <code>masses.json.tmp</code> and then <code>FileMove</code>-ing it into place makes
+the swap atomic at the filesystem level. Either the new file is there complete, or the old one
+is still there untouched.</p>
+<p>Note the failure path: <code>FileDelete(tmp)</code> to clean up, a <code>LOGE</code> at FAIL
+level (so it can raise a dialog), and a <code>MsgBox</code> — plus the crucial reassurance
+<em>"The previous library is intact."</em> Losing a save is the worst outcome in the app, and
+the user needs to know which of "your edits are gone" and "everything is gone" just happened.</p>
+</div>
+
+<h2><code>MASS_Normalise</code> — the shape guarantee</h2>
+
+<pre><code>MASS_Normalise(doc) {
+    if !(doc is Map)
+        doc := Map()
+    out := Map("schema", MASS_SCHEMA, "models", [])
+    src := (doc.Has("models") &amp;&amp; doc["models"] is Array) ? doc["models"] : []
+    keep := Max(MASS_MODELS, src.Length)
+    Loop keep {
+        ...
+        Loop MASS_SLOTS {
+            rec := MASS_Blank()
+            if (A_Index &lt;= sMs.Length &amp;&amp; sMs[A_Index] is Map) {
+                for f, v in sMs[A_Index]
+                    if rec.Has(f)                  <span class="c">; drop keys we no longer know</span>
+                        rec[f] := String(v)
+            }
+            masses.Push(rec)
+        }
+        no := sm.Has("massNo") ? Integer(sm["massNo"]) : 1
+        if (no &lt; 1 || no &gt; MASS_SLOTS)
+            no := 1
+        ...
+    }
+    return out
+}
+</code></pre>
+
+<p>Run on the way <strong>in</strong> and on the way <strong>out</strong>. A hand-edited file
+that omits a field, a release that adds one, a truncated array — all become "present and empty"
+rather than a crash somewhere far away in the send path, <em>where the first sign of trouble
+would be a fan receiving nothing</em>.</p>
+
+<div class="warn">
+<span class="tag"><code>Max</code>, not <code>MASS_MODELS</code></span>
+<pre><code>keep := Max(MASS_MODELS, src.Length)</code></pre>
+<p>Now that the slot count follows a setting, a plain <code>Loop MASS_MODELS</code> would make
+"set Active models back to 3" a <strong>data-destroying action</strong>: models 4–8 would be
+dropped on the next normalise and written out on the next save, with no warning and no undo,
+taking every mass in them.</p>
+<p>Keeping whatever the file already holds means lowering the count <em>hides</em> models rather
+than deleting them, and raising it again brings the text back.</p>
+<p><strong>Generalise this.</strong> Any normaliser that rebuilds a structure is a potential
+data shredder. Ask: what does this do to data outside the shape I am enforcing?</p>
+</div>
+
+<p>Note also <code>String(v)</code> on the way in. JSON has numbers and booleans; the record is
+all strings. Coercing at the boundary means no reader downstream has to think about it.</p>
+
+<h2>The accessors</h2>
+
+<pre><code>MASS_Get(doc, modelNo, slot)      <span class="c">; one mass record</span>
+MASS_Set(doc, modelNo, slot, rec)
+MASS_MassNo(doc, modelNo)         <span class="c">; which slot is live</span>
+MASS_SetMassNo(doc, modelNo, slot)
+MASS_Active(doc, modelNo)         <span class="c">; = MASS_Get(doc, n, MASS_MassNo(doc, n))</span>
+</code></pre>
+
+<p><code>MASS_MassNo</code> deserves a note. This was <code>massNo := 1</code> written into the
+model's <em>source file</em> and rewritten by the GUI on every change — <strong>state stored as
+code</strong>. It is now a field in a data file, which is what it always was.</p>
+
+<h2>The Map/object boundary</h2>
+
+<pre><code>MASS_AsObject(rec) {
+    o := {}
+    for k, v in rec
+        o.%k% := v
+    return o
+}
+</code></pre>
+
+<div class="concept">
+<span class="tag">CONCEPT-ENCOUNTERED</span>
+<h3>Converting at the boundary instead of compromising on both sides</h3>
+<p><strong>Storage wants a Map.</strong> That is what a JSON object <em>is</em>, and it is what
+lets <code>MASS_Normalise</code> iterate keys generically (<code>for f, v in sMs[i]</code>).</p>
+<p><strong>The send path wants properties.</strong> Every follow-up, alt and branch helper in
+<code>utils.ahk</code> and <code>runtime.ahk</code> was written against <code>m.fu1</code>,
+<code>m.%key%</code> and <code>m.HasOwnProp(key)</code> — and that code is correct and
+working.</p>
+<p>Rather than force one shape on both, there is a five-line converter at the seam. One shape for
+storage, one for sending, without either side compromising — <em>and without touching a single
+line of the send logic, which is the part it would hurt most to get wrong.</em></p>
+<p>Every call in the runtime goes through it:</p>
+<pre><code>CurMass() {
+    return MASS_AsObject(MASS_Active(MASS_DOC, MASS_CUR_MODEL))
+}</code></pre>
+</div>
+
+<h2>The "last sent" note</h2>
+
+<pre><code>MASS_RememberSent(modelNo, slot, group) {
+    try {
+        IniWrite(modelNo, MMA_CFG, "LastSent", "Model")
+        IniWrite(slot,    MMA_CFG, "LastSent", "Slot")
+        IniWrite(group,   MMA_CFG, "LastSent", "Group")
+        IniWrite(A_Now,   MMA_CFG, "LastSent", "When")
+    } catch as e {
+        LOGV("mass.sent", "could not note the last send in the cfg — the capture"
+                        . " window will open on its own defaults. " LOG_Err(e))
+    }
+}
+</code></pre>
+
+<p>Three design points in nine lines, all worth copying:</p>
+
+<ol>
+<li><strong>It lives in the cfg, not in <code>masses.json</code>.</strong> That file is your
+messages; this is a note about which one you last aimed at. It sits beside
+<code>CurrentModel</code> and <code>LockedModel</code>, which are the same kind of state.</li>
+<li><strong><code>group</code> is a field prefix, not a number</strong> — "fu1", "fu2", "fu3",
+"ppv". The same string <code>MASS_Fields()</code> uses, so nothing between the engine and the
+capture window has to map one vocabulary onto another.</li>
+<li><strong>The whole thing is inside a <code>try</code> that logs at VERB.</strong> This runs on
+the send path, so it must never be the reason a message does not go out. A cfg that cannot be
+written costs a default in one dropdown, and nothing else.</li>
+</ol>
+
+<p><code>MASS_LastSent()</code> reads it back and <strong>validates every field against the
+shape the library actually has</strong> — a hand-edited cfg, or a model count that has come back
+down since, must not hand a window an index that throws when it goes to read the mass behind
+it.</p>
+
+<h2>What you now know how to do</h2>
+
+<div class="tablewrap">
+<table>
+<thead><tr><th>Task</th><th>Change</th></tr></thead>
+<tbody>
+<tr><td>Add a field to a mass</td><td>One entry in <code>MASS_Fields()</code>. Then add the box in the GUI (chapter 9) and, if it is sendable, wire it in <code>runtime.ahk</code> (chapter 7).</td></tr>
+<tr><td>Add a 7th branch</td><td><code>MASS_BRANCH_MAX := 7</code>. The field list, the parser's registry, the picker and the GUI all loop over it.</td></tr>
+<tr><td>Allow 4 masses per model</td><td><code>MASS_SLOTS := 4</code> — but check the GUI's radio group and <code>[mass.select]</code> first; three is baked into some labels.</td></tr>
+<tr><td>Raise the model ceiling</td><td><code>MASS_MODELS_MAX</code>, and remember the clamp is duplicated in <code>MMA_ModelNames()</code>.</td></tr>
+<tr><td>Debug "my masses are gone"</td><td>Grep <code>mass.load</code> in <code>mma.log</code>. The summary line names the live slot and which slots have text, per model.</td></tr>
+</tbody>
+</table>
+</div>
+
+<div class="pager"></div>
+</main>
+</div>
+</body>
+</html>

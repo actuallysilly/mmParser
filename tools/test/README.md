@@ -1,4 +1,4 @@
-# tools\test — the self-tests
+﻿# tools\test — the self-tests
 
 Every file in here **asserts and exits**: it prints `N passed, M failed` to stdout and
 returns 0 or 1. No hotkeys, no resident window, nothing to close. That is the whole
@@ -33,15 +33,63 @@ $p.StandardOutput.ReadToEnd(); $p.WaitForExit(); $p.ExitCode
 lands on the parent console and the log file comes back empty, which reads as every test
 passing. Use a real pipe, as above.
 
+## `settings_parity_test.ahk` — the one that is a lint
+
+Most files here exercise code. This one reads two files as **text** and compares them,
+because the question it asks cannot be answered any other way.
+
+MMA has two Settings front ends. Since the field table moved into
+`src/ui/settings_core.ahk` they share one description of what a setting *is* — cfg
+home, type, default, wording — but they do not share the **drawing**. The WebView page
+renders `SETTINGS_Fields()` directly, so a new row appears there for free; the Win32
+window hand-builds a control per setting, so a new row appears there only if somebody
+remembers. A built Gui is a bag of controls with no way to ask *which setting is this
+one for* — that link exists only in the source, in the `IniRead`/`IniWrite` that names
+the key. So the source is what gets checked.
+
+It is honest about being a lint: it proves the key is **named** in the file, not that a
+control is drawn. That still catches the failure that actually happens — a row added to
+the table and nowhere else — and it costs no GUI, so it runs in **Settings ▸ Debug ▸
+Run all** with everything else.
+
+Two families of exemption live at the top of the file, each named individually rather
+than skipped by a pattern:
+
+- `VIRTUAL` — rows with no cfg key of their own: `modelStrategy` and `inflowwMatch`
+  are two halves of `[Settings] ModelMatch`. `waitTime` used to be here too — it was
+  a literal inside `core/utils.ahk` that saving rewrote — and is an ordinary
+  `[Settings] WaitTime` key now, so it is checked like every other row.
+- `RECOMBINED` — the key those halves recombine into, which the Win32 window may name
+  without a row of its own.
+
+Generated names (`Model1`, `Platform2`, `Pos3`) are built by interpolation in both
+windows, so the full literal appears in neither source and never can. Those are proven
+by their stem.
+
 ## Some of them are not safe to run blind
 
 | file | what it does to you |
 |---|---|
 | `hotstring_key_test.ahk` | **writes `hotkeys.ini`** — the `[hotstring]` section only, snapshotted and restored, including restoring "there was no such section at all". |
+| `hotstring_edit_test.ahk` | **writes a file into `content\`** — one sandbox `.ahk` under a name nothing else uses, created and deleted by the test. Your `general.ahk` and account files are never opened for writing. It also writes and removes three test triggers in `hotstring_usage.ini`. |
 | `mass_bind_test.ahk` / `position_test.ahk` / `active_model_test.ahk` | **write real settings** — `ModelMatch`, `CurrentModel`, the taught tab order. Each snapshots and restores what it touched, but a crash mid-run leaves your detector configured however the test left it. |
 | `settings_build_test.ahk` | builds a real Settings window, so a window flashes. `hold [tab] [theme]` leaves it up to look at. |
+| `settings_parity_test.ahk` | safe — reads two source files and exits. Builds no window, writes nothing. |
 | `altfu_build_test.ahk` | builds the Add alt-FU window. Writes nothing outside its own stub controls. |
 | `altgui_test.ahk` | `show` mode puts a real follow-up picker on screen. |
+
+## The `#Warn` trap, which looks exactly like a slow pass
+
+`#Warn VarUnset` is **on by default in v2** and fires at LOAD, and a warning is a modal
+dialog *even under* `/ErrorStdOut`. So a test that includes a library expecting globals
+from its includer — `core/processes.ahk` reads `SCRIPT_DIR` and `startupScripts`, which
+only the main window assigns — hangs forever with no output, which reads as the test
+passing slowly rather than as a failure.
+
+`services_test.ahk` sets `#Warn VarUnset, StdOut` and then assigns both globals itself, so
+the contract is stated rather than muted. `settings_build_test.ahk` uses `#Warn All,
+StdOut` for the same reason. Prefer `VarUnset`: `All` also prints the tree's ~80
+"local has the same name as a global" lines and buries the real output.
 
 ## Writing another one
 

@@ -1,5 +1,6 @@
-#Requires AutoHotkey v2.0
+﻿#Requires AutoHotkey v2.0
 #Include "../core/paths.ahk"
+#Include "../core/processes.ahk"
 ; ═══════════════════════════════════════════════════════════════════════════════
 ;  features_panel.ahk — the Easy/Advanced switch and every feature's on/off box.
 ; ───────────────────────────────────────────────────────────────────────────────
@@ -9,9 +10,20 @@
 ;  Pinger, AutoDetectModel, StatsOverlay. Whichever you saved last won, so turning
 ;  the pinger on in one window and pressing Save in the other turned it back off.
 ;
-;  Now it is the Features tab, and it is the SINGLE owner of every key in the
-;  registry. The other tabs hold the detail settings for those features and show
-;  their state read-only — no key is written from two places.
+;  Now it is the Features tab, and it is the only place a registry key is offered
+;  AS A SETTING. The other tabs hold the detail settings for those features and
+;  show their state read-only — no key has a checkbox in two windows, which is the
+;  failure above and the thing this rule exists to prevent.
+;
+;  It is NOT the only code that writes one, and the difference matters when you go
+;  looking. Three others do, all deliberately, and all through FEAT_SetRaw so that
+;  modes.ahk logs the change whoever made it:
+;    • ui/settings_webview.ahk — the same tab in the WebView shell;
+;    • ui/tools_window.ahk — starting or stopping a tool persists its switch,
+;      because a tool you switched off should stay off after a restart;
+;    • screen/stats_overlay.ahk — quitting from the overlay's own right-click menu
+;      switches its feature off, so the watchdog does not put it straight back.
+;  None of those is a rival checkbox; each is an action whose meaning IS the switch.
 ;
 ;  Everything shown is generated from the registry in modes.ahk, so a new FEAT_Def
 ;  line appears here with no edit to this file.
@@ -148,47 +160,22 @@ ApplyModeToRunning() {
     ; leaves them stopped and Advanced brings them back.
     LaunchStartupScripts()
 
-    if FEAT("automation")
-        LaunchAutomationListener()
-    else
-        StopAutomationListener()
-
-    if FEAT("pinger")
-        LaunchPinger()
-    else
-        StopPinger()
-
-    if FEAT("modelDetector")
-        LaunchDetector()
-    else
-        StopDetector()
-
-    if FEAT("fanslyDetector")
-        LaunchFanslyDetector()
-    else
-        StopFanslyDetector()
-
-    if FEAT("statsOverlay")
-        LaunchStatsOverlay()
-    else
-        StopStatsOverlay()
-
-    if FEAT("typelog")
-        LaunchTypelog()
-    else
-        StopTypelog()
-
-    if FEAT("replyBox")
-        LaunchReplyBox()
-    else
-        StopReplyBox()
-
-    ; The detector writes the active model name; with it stopped that file goes
-    ; stale and ModelIsActive() would keep gating every model's keys off against a
-    ; name nobody is updating. Clearing it disables gating, which is the correct
-    ; "no detector" behaviour.
-    if !FEAT("modelDetector")
-        try IniWrite("", MMA_DETECTOR, "detector", "active_model")
+    ; Every declared service, started or stopped to match its checkbox.
+    ;
+    ; This was a hand-written if/else chain, one pair per service — and it had
+    ; SEVEN of the nine. activity and autoword were missing, so unticking either
+    ; wrote the cfg key and left the process running: "Activity tracker" could read
+    ; off in Settings while it went on counting your keystrokes until MMA was
+    ; restarted. For two features whose entire defence is that you switched them on
+    ; deliberately, that was the wrong bug to have. There is no chain now, so there
+    ; is nothing to leave a service out of.
+    ;
+    ; SVC_Stop runs each service's own teardown, which is where clearing
+    ; detector_status.ini went: with the detector stopped that file goes stale, and
+    ; ActiveModelNo() would keep gating every model's keys against a name nobody is
+    ; updating. It used to be repeated here as a loose IniWrite that only covered
+    ; the Infloww detector and not the Fansly one.
+    SVC_SyncAll()
 
     try RefreshToolsLabel()
 }

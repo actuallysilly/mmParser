@@ -3,6 +3,12 @@
 #SingleInstance Force
 #Include "../vendor/OCR.ahk"
 #Include "fansly_scan.ahk"
+#Include "../core/dpi.ahk"
+
+; This script only reads pixels and draws -DPIScale overlays, so it holds
+; per-monitor awareness for its whole life rather than scoping each call. One
+; top-level statement, and no code path can miss it. See core/dpi.ahk.
+DPI_ScriptWide()
 
 ; ============================================================================
 ;  fansly_detector.ahk — active-model detector for the FANSLY rail.
@@ -60,12 +66,30 @@ _wIndex   := -1         ; last active_index written
 _wY       := -99999     ; last active_y written
 
 _cfg := FanslyCfg()
-LOG_Kv("fansly.boot", Map("rail",   _cfg.x "," _cfg.y " w" _cfg.w
-                                  . " × " _cfg.rows " rows",
-                          "pitch",  _cfg.pitch,
-                          "rowH",   _cfg.rowH,
-                          "sample", "x+" _cfg.sx ".." (_cfg.sx + _cfg.sw)
-                                  . "  (avatar deliberately excluded)",
+; Report the mode that is actually in force. Printing RegionX/RegionY while
+; Anchor=window is worse than printing nothing: those numbers are still in the
+; ini, they are no longer read, and the first thing anyone does when detection
+; goes quiet is check that this line matches the rail — against coordinates that
+; stopped meaning anything.
+LOG_Kv("fansly.boot", Map("mode",   _cfg.anchor
+                                    ? "ANCHORED — rail is x+" _cfg.ox
+                                    . " into the active window, cards found by"
+                                    . " sweeping y+" _cfg.swTop ".."
+                                    . (_cfg.swTop + _cfg.swH)
+                                    . " (RegionX/RegionY are NOT read)"
+                                    : "fixed screen coords",
+                          "rail",   _cfg.anchor
+                                    ? "w" _cfg.w " × up to " _cfg.rows " rows"
+                                    : _cfg.x "," _cfg.y " w" _cfg.w
+                                    . " × " _cfg.rows " rows",
+                          "pitch",  _cfg.anchor ? "(unused — swept)" : _cfg.pitch,
+                          "rowH",   _cfg.rowH " (card runs kept at "
+                                  . _cfg.swMin "-" _cfg.swMax "% of it)",
+                          "sample", _cfg.anchor
+                                    ? "the whole rail width — the card is a disc,"
+                                    . " and the avatar inside it is near-black"
+                                    : "x+" _cfg.sx ".." (_cfg.sx + _cfg.sw)
+                                    . "  (avatar deliberately excluded)",
                           "card",   Format("0x{:06X}", _cfg.rgb),
                           "cardTol", _cfg.tol,
                           "minCard", _cfg.min,
@@ -118,6 +142,11 @@ Poll() {
                                    . " selected. Per-row counts: "
                                    . _Counts(lit.counts)
                                    . "  (MinCard=" cfg.min ", CardTol=" cfg.tol ")."
+                                   . (lit.why != "" ? "  " lit.why : "")
+                                   . (cfg.anchor
+                                      ? "  Anchored to the active window, so"
+                                      . " this is no longer the window having"
+                                      . " moved." : "")
                                    . " Run tools\fansly_probe.ahk.")
         Clear()
         return
@@ -127,7 +156,7 @@ Poll() {
     ; part, and on this platform it is not even the primary answer — positional
     ; mode below is written every poll and does not depend on any of it.
     if (lit.index != _lastRow || _lastName = "") {
-        r    := FanslyLabelRect(lit.index, cfg)
+        r    := FanslyLabelRect(lit.index, cfg, lit.card)
         name := OcrLabel(r.x, r.y, r.w, r.h, cfg.scale)
         _lastRow := lit.index
         if (name != "") {
@@ -152,7 +181,9 @@ Poll() {
         WriteName(_lastName)
 
     WriteIndex(lit.index)
-    WriteY(cfg.y + (lit.index - 1) * cfg.pitch)
+    ; Under Anchor=window the card was FOUND, so report where it actually
+    ; is rather than recomputing it from an origin nothing uses now.
+    WriteY(lit.card ? lit.card.y : cfg.y + (lit.index - 1) * cfg.pitch)
 }
 
 ; Everything to "no answer". Clearing rather than leaving the last reading is the

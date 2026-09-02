@@ -35,8 +35,8 @@ tools/ui-research/
 # The code recreates the folder on demand.
 src/services/automation/debug/
 
-# The packaged installer — a build output, rebuilt by tools/installer/build.bat.
-tools/installer/dist/
+# MMA-Setup.exe — a build output, rebuilt by tools/packaging/build.bat.
+tools/packaging/dist/
 
 # ─── debuglogs\ — diagnostics ─────────────────────────────────────────────────
 # Crash traces and probe dumps. Throwaway by nature, and they contain live UI

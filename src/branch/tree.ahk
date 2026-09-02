@@ -39,7 +39,7 @@
 ;  A path may hold at most MASS_FU_DEPTH `say` nodes, because there are exactly
 ;  three follow-up groups to put them in, and at most MASS_BRANCH_MAX branches
 ;  beside the trunk. Both are REPORTED, never silently truncated — a builder that
-;  quietly drops the fourth message is a builder that loses work, and ARCHITECTURE
+;  quietly drops the fourth message is a builder that loses work, and docs/decisions.md
 ;  §4.8's rule applies just as much here as it does to a detector: the cost of
 ;  "no answer" is a message you have to move yourself, and the cost of a
 ;  confident wrong answer is a chain that sends three of its four steps.

@@ -1,6 +1,7 @@
 #Requires AutoHotkey v2.0
 #Include "../core/paths.ahk"
 #Include "rail_scan.ahk"
+#Include "../core/dpi.ahk"
 ; ═══════════════════════════════════════════════════════════════════════════════
 ;  fansly_scan.ahk — the Fansly rail, as geometry. Reads config, reads pixels,
 ;                    writes nothing.
@@ -89,6 +90,52 @@ FanslyCfg() {
         x:      _FAN_Int("RegionX",   0),     ; rail left edge, screen px
         y:      _FAN_Int("RegionY",   0),     ; TOP OF ROW 1, not top of the rail
         w:      _FAN_Int("RegionW",  87),
+        ; ── anchored mode ────────────────────────────────────────────────────
+        ;  RegionX/RegionY above are ABSOLUTE SCREEN COORDINATES, and that is a
+        ;  bug waiting on a mouse drag: the Fansly window floats, so the day it
+        ;  is moved or resized every number above points at bare rail and
+        ;  detection goes silent with r1=0 r2=0 r3=0. Measured 2026-08-27 — the
+        ;  window was nudged from 1802x2577 to 1800x3140 and that is exactly
+        ;  what happened.
+        ;
+        ;  Anchor=window replaces both of them:
+        ;
+        ;    x  comes from the WINDOW, not the screen — the rail sits at
+        ;       RailOffsetX into the Fansly window and stays there, which is the
+        ;       one offset that did hold across the move.
+        ;    y  is not stored AT ALL. The card is FOUND by sweeping the rail
+        ;       column (FanslyLocateCards), because the vertical offset does NOT
+        ;       hold: the same rail sat at window-relative y313 floating and
+        ;       y200 snapped. Anything stored is a number that is right until the
+        ;       window changes shape.
+        ;
+        ;  Sweeping also gets rail scrolling for free, which the fixed-slot path
+        ;  never could.
+        anchor: (StrLower(Trim(IniRead(MMA_CFG, "Fansly", "Anchor",
+                                       "screen"))) = "window"),
+        ox:     _FAN_Int("RailOffsetX",     1),   ; rail's x offset INTO the window
+        swTop:  _FAN_Int("SweepTop",        0),   ; where to start looking, y
+        swH:    _FAN_Int("SweepHeight",  1400),   ; and how far down
+        ; Coarser than ScanStep on purpose. This walks the whole rail column on
+        ; the keystroke path, and a disc is ~86px across — at step 4 it still
+        ; lands ~21x21 hits on a card, which is a hundred times more evidence
+        ; than the decision needs.
+        swStep: _FAN_Int("SweepStep",       4),
+        ; How close the runner-up card may score before this refuses to answer.
+        ; Percent of the winner. See FanslyLocateCards for why refusing is the
+        ; only honest option when two cards score alike.
+        swAmb:  _FAN_Int("SweepAmbiguity", 75),
+        ; How tall a run must be, as a percentage of RowHeight, to be a card.
+        ;
+        ; This is the filter that keeps the CONVERSATION TAB STRIP out of the
+        ; answer. It runs along the top of the window in the same grey as the
+        ; card, it is wide enough to clear MinCard, and measured it forms a 48px
+        ; run against the disc's 84 — so with a loose bound it becomes a second
+        ; "card", scores 242 against the real card's 258, and the ambiguity guard
+        ; below correctly refuses to choose. The disc has a known diameter; a
+        ; strip does not. Bounding on it is what separates them.
+        swMin:  _FAN_Int("SweepMinPct",  75),
+        swMax:  _FAN_Int("SweepMaxPct", 140),
         rows:   rows,
         pitch:  _FAN_Int("RowPitch", 97),
         rowH:   _FAN_Int("RowHeight", 88),
@@ -166,7 +213,12 @@ FanslySeedCfg() {
                     "CardTol",c.tol, "MinCard",c.min, "ScanStep",c.step,
                     "GapTol",c.gap, "LabelX",c.lx, "LabelW",c.lw,
                     "LabelY",c.ly, "LabelH",c.lh, "OcrScale",c.scale,
-                    "PollMs",c.pollMs, "WinMatch",c.win)
+                    "PollMs",c.pollMs, "WinMatch",c.win,
+                    "Anchor",(c.anchor ? "window" : "screen"),
+                    "RailOffsetX",c.ox, "SweepTop",c.swTop,
+                    "SweepHeight",c.swH, "SweepStep",c.swStep,
+                    "SweepAmbiguity",c.swAmb,
+                    "SweepMinPct",c.swMin, "SweepMaxPct",c.swMax)
         try IniWrite(v, MMA_CFG, "Fansly", k)
 }
 
@@ -208,6 +260,11 @@ global _FAN_CUE_H := 0        ; the window it belongs to
 global _FAN_CUE_TXT := ""     ; what OCR read, for the overlay to show
 
 FanslyCueSays(cfg := 0) {
+    ; Per-monitor DPI for the length of this call — see core/dpi.ahk. Without
+    ; it every coordinate below is virtualised on any monitor whose scaling
+    ; differs from the primary's, and the wrong numbers stay self-consistent
+    ; while disagreeing with the screen.
+    _dpi := DpiScope()
     global _FAN_CUE_T, _FAN_CUE_R, _FAN_CUE_H, _FAN_CUE_TXT
     if !cfg
         cfg := FanslyCfg()
@@ -266,6 +323,14 @@ FanslyWindowUp(cfg := 0) {
         return cue = "fansly"
     if (cfg.win = "" || !WinActive(cfg.win))
         return false
+    ; PILL_ActiveHolds asks "is the window in front actually covering the rail we
+    ; are about to scan". Under Anchor=window that question answers itself — the
+    ; rail is DEFINED as an offset into the active window, so the test is vacuous
+    ; and the title is all that is left. Which is why the cue is not optional
+    ; here: see FanslyCueSays for what a title is worth when both sites are one
+    ; executable with one title.
+    if cfg.anchor
+        return true
     return PILL_ActiveHolds(cfg.x, cfg.y, cfg.w, cfg.pitch * cfg.rows)
 }
 
@@ -275,9 +340,17 @@ FanslyWindowUp(cfg := 0) {
 ; that forced this. The height is derived (pitch × rows) rather than configured,
 ; per the note at the top.
 FanslyGrabRail(cfg := 0) {
+    ; Per-monitor DPI for the length of this call — see core/dpi.ahk. Without
+    ; it every coordinate below is virtualised on any monitor whose scaling
+    ; differs from the primary's, and the wrong numbers stay self-consistent
+    ; while disagreeing with the screen.
+    _dpi := DpiScope()
     if !cfg
         cfg := FanslyCfg()
-    return PILL_Grab(cfg.x, cfg.y, cfg.w + 1, cfg.pitch * cfg.rows + 1)
+    rect := FanslyRailRect(cfg)
+    if !rect
+        return 0
+    return PILL_Grab(rect.x, rect.y, rect.w + 1, rect.h + 1)
 }
 
 ; The y range row `i` occupies, inset at both ends so a neighbour's edge or this
@@ -293,8 +366,144 @@ FanslySampleBand(cfg) {
     return {x1: cfg.x + cfg.sx, x2: cfg.x + cfg.sx + cfg.sw}
 }
 
+; ── anchored mode ────────────────────────────────────────────────────────────
+
+; Where the rail is RIGHT NOW, derived from the window rather than remembered.
+;
+; Anchored to the ACTIVE window, and that is exact rather than convenient:
+; nothing below is ever reached unless FanslyWindowUp said the Fansly window is
+; in front, and "in front" means active. The cue already works this way and for
+; the same reason (see FanslyCueSays) — an offset into the window is the only
+; thing that survives the window being somewhere else.
+;
+; Returns 0 when there is no active window to anchor to, which callers must treat
+; as "no answer" rather than falling back to the stored coordinates: a stale
+; absolute rect is how the wrong monitor gets scanned.
+FanslyRailRect(cfg := 0) {
+    if !cfg
+        cfg := FanslyCfg()
+    if !cfg.anchor
+        return {x: cfg.x, y: cfg.y, w: cfg.w, h: cfg.pitch * cfg.rows}
+    hwnd := WinExist("A")
+    if !hwnd
+        return 0
+    wx := 0, wy := 0, ww := 0, wh := 0
+    try WinGetPos(&wx, &wy, &ww, &wh, "ahk_id " hwnd)
+    catch
+        return 0
+    if (ww < 1 || wh < 1)
+        return 0
+    ; Clamp the sweep to the window. A band that runs off the bottom is not an
+    ; error worth refusing over — the window simply is not as tall as
+    ; SweepHeight assumed — but reading past it would be reading the desktop.
+    h := Min(cfg.swH, wh - cfg.swTop)
+    if (h < cfg.rowH)
+        return 0
+    return {x: wx + cfg.ox, y: wy + cfg.swTop, w: cfg.w, h: h}
+}
+
+; Every card-shaped run of card-coloured pixels down the rail, top to bottom.
+;
+; This replaces "look at where row N is and ask whether it is lit" with "find the
+; cards". It costs more — it walks the column instead of sampling fixed slots —
+; and it buys the three things the fixed slots cannot survive: the window moving,
+; the window changing shape (the rail sat at window y313 floating and y200
+; snapped, measured), and the rail scrolling.
+;
+; ─── THE REFUSAL, WHICH IS THE POINT ─────────────────────────────────────────
+; It is STILL not established whether the grey disc is the SELECTED state or is
+; drawn behind every avatar on the rail — there has only ever been one Fansly
+; account on this rail to look at. If it turns out to be decoration, this finds
+; every card and the strongest run is a coin flip. So: when the runner-up scores
+; within SweepAmbiguity percent of the winner, this answers 0 and says why.
+; Detection going quiet with a line in the log is recoverable; one model's mass
+; in another model's chat is not.
+FanslyLocateCards(cfg := 0, img := 0) {
+    ; Per-monitor DPI for the length of this call — see core/dpi.ahk. Without
+    ; it every coordinate below is virtualised on any monitor whose scaling
+    ; differs from the primary's, and the wrong numbers stay self-consistent
+    ; while disagreeing with the screen.
+    _dpi := DpiScope()
+    if !cfg
+        cfg := FanslyCfg()
+    rect := FanslyRailRect(cfg)
+    if !rect
+        return {found: [], best: 0, why: "no window to anchor to"}
+    if !img
+        img := PILL_Grab(rect.x, rect.y, rect.w + 1, rect.h + 1)
+    if !img
+        return {found: [], best: 0, why: "capture failed"}
+
+    step := Max(1, cfg.swStep)
+    rows := []
+    y := rect.y
+    while (y <= rect.y + rect.h) {
+        act := 0
+        x := rect.x + 2
+        while (x <= rect.x + rect.w - 2) {
+            c := PILL_Px(img, x, y)
+            if (c >= 0 && PILL_ColorDist(c, cfg.rgb) <= cfg.tol)
+                act++
+            x += step
+        }
+        if act
+            rows.Push({y: y, act: act})
+        y += step
+    }
+    if !rows.Length
+        return {found: [], best: 0, why: "no card-coloured pixels on the rail"}
+
+    ; Keep only runs that are actually card-SHAPED. The rail also carries
+    ; dividers and the odd icon in the same grey, and a 1px rule is not a model.
+    keep := []
+    for r in RAIL_GroupRuns(rows, Max(cfg.gap, step * 2)) {
+        tall := r.maxY - r.minY
+        if (r.act < cfg.min
+            || tall < cfg.rowH * cfg.swMin / 100
+            || tall > cfg.rowH * cfg.swMax / 100)
+            continue
+        keep.Push({minY: r.minY, maxY: r.maxY, act: r.act,
+                   avgY: Round(r.sumY / r.act)})
+    }
+    if !keep.Length
+        return {found: [], best: 0, why: "nothing card-shaped found"}
+
+    ; Top to bottom, so the index IS the rail position.
+    Loop keep.Length {
+        i := A_Index
+        Loop keep.Length - i {
+            j := A_Index
+            if (keep[j].minY > keep[j + 1].minY) {
+                t := keep[j], keep[j] := keep[j + 1], keep[j + 1] := t
+            }
+        }
+    }
+    best := 1, bestN := 0, secondN := 0
+    for i, r in keep {
+        if (r.act > bestN)
+            secondN := bestN, best := i, bestN := r.act
+        else if (r.act > secondN)
+            secondN := r.act
+    }
+    if (keep.Length > 1 && secondN * 100 >= bestN * cfg.swAmb) {
+        return {found: keep, best: 0,
+                why: "two cards score alike (" bestN " vs " secondN ") — the grey"
+                   . " disc is not telling selected from unselected on this"
+                   . " theme, so positional mode has no signal. Set [Fansly]"
+                   . " Match=name, or find the colour that does differ."}
+    }
+    return {found: keep, best: best, why: ""}
+}
+
 ; The rectangle to OCR for row `i`'s name, in screen px.
-FanslyLabelRect(i, cfg) {
+;
+; `cardAt` is {x, y} of the located card in anchored mode. Pass it and the label
+; follows the card wherever the sweep found it; leave it 0 and the old fixed-slot
+; arithmetic applies. The label sits UNDER the avatar on Fansly, so it is
+; measured from the card's top either way.
+FanslyLabelRect(i, cfg, cardAt := 0) {
+    if cardAt
+        return {x: cardAt.x + cfg.lx, y: cardAt.y + cfg.ly, w: cfg.lw, h: cfg.lh}
     top := cfg.y + (i - 1) * cfg.pitch
     return {x: cfg.x + cfg.lx, y: top + cfg.ly, w: cfg.lw, h: cfg.lh}
 }
@@ -315,13 +524,67 @@ FanslyLabelRect(i, cfg) {
 FanslyLitRow(cfg := 0, img := 0) {
     if !cfg
         cfg := FanslyCfg()
+
+    ; ── anchored: find the cards, do not assume where they are ───────────────
+    ;  The stored slots are only meaningful while the window has not moved and
+    ;  has not changed shape, and neither of those holds on a floating window.
+    ;  `card` is the located card's rect, which the caller passes on to
+    ;  FanslyLabelRect so the OCR follows it too.
+    if cfg.anchor {
+        loc    := FanslyLocateCards(cfg, img)
+        counts := []
+        for r in loc.found
+            counts.Push(r.act)
+        if !loc.best
+            return {index: 0, counts: counts, card: 0, why: loc.why,
+                    cards: loc.found.Length}
+
+        ; ── the ordinal is not the row unless the whole rail was seen ────────
+        ;  loc.best is the winner's place in the list of cards the sweep FOUND,
+        ;  top to bottom. That equals the rail row only if the sweep found every
+        ;  card. If the grey disc is drawn behind the SELECTED avatar and not the
+        ;  others, the sweep finds exactly ONE card whichever model is up, best
+        ;  is 1, and this reports "row 1" forever.
+        ;
+        ;  That is not a hypothetical. Measured in debuglogs\mma.log over two
+        ;  sessions: 541 resolutions, every one of them "rail row 1", zero
+        ;  ambiguity refusals — because the ambiguity guard in FanslyLocateCards
+        ;  only fires with more than one card and there was never more than one.
+        ;  [FanslyPos] Pos1 was then rewritten by every teach press, so each
+        ;  model in turn became "row 1" and every Fansly card sent whichever
+        ;  model was taught last.
+        ;
+        ;  So: require the sweep to have seen at least as many cards as the rail
+        ;  has rows before believing the ordinal. Fewer means the unselected
+        ;  cards are invisible to it, and the honest answer is no answer — the
+        ;  same refusal the ambiguity guard makes, for the same reason. Fansly's
+        ;  own Manual mode is the working setup while this is true; see the mode
+        ;  header in core\fansly_model.ahk.
+        if (loc.found.Length < cfg.rows)
+            return {index: 0, counts: counts, card: 0, cards: loc.found.Length,
+                    why: "the sweep found " loc.found.Length " card"
+                       . (loc.found.Length = 1 ? "" : "s") " on a rail with "
+                       . cfg.rows " rows, so its position in that list is NOT the"
+                       . " row number — with only the selected card visible this"
+                       . " would answer 'row 1' whichever model is up. MMA will"
+                       . " not guess. Either CardColor/CardTol must find every"
+                       . " card (run tools\fansly_probe.ahk), or set Fansly to"
+                       . " Manual in Settings ▸ Models."}
+
+        c := loc.found[loc.best]
+        return {index: loc.best, counts: counts, why: "", cards: loc.found.Length,
+                card: {x: FanslyRailRect(cfg).x, y: c.minY,
+                       w: cfg.w, h: c.maxY - c.minY}}
+    }
+
     if !img
         img := FanslyGrabRail(cfg)
     counts := []
     if !img {
         Loop cfg.rows
             counts.Push(-1)
-        return {index: 0, counts: counts}
+        return {index: 0, counts: counts, card: 0, why: "capture failed",
+                cards: -1}
     }
     band  := FanslySampleBand(cfg)
     xstep := Max(1, cfg.step)
@@ -330,7 +593,14 @@ FanslyLitRow(cfg := 0, img := 0) {
         counts.Push(PILL_CountIn(img, band.x1, band.x2, r.y1, r.y2,
                                  cfg.rgb, cfg.tol, xstep, cfg.step))
     }
-    return {index: PILL_PickLit(counts, cfg.min), counts: counts}
+    ; cards is -1, not counts.Length. In the ANCHORED branch above, counts has one
+    ; entry per card the sweep found, so its length IS the card count; here it has
+    ; one entry per configured ROW whether or not anything is there, so the same
+    ; expression would report "3 cards found" on a rail showing nothing. A number
+    ; that means two different things in two branches is worse than no number, and
+    ; the badge that displays it has to be able to say "not applicable".
+    return {index: PILL_PickLit(counts, cfg.min), counts: counts,
+            card: 0, why: "", cards: -1}
 }
 
 ; Find the lit card by SWEEPING, without trusting RowPitch or RowHeight.
