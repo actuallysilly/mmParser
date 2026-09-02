@@ -1,4 +1,4 @@
-#Requires AutoHotkey v2.0
+﻿#Requires AutoHotkey v2.0
 ; ═══════════════════════════════════════════════════════════════════════════════
 ;  paths.ahk — every path in MMA, resolved from ONE anchor.
 ; ───────────────────────────────────────────────────────────────────────────────
@@ -93,6 +93,10 @@ try DirCreate(MMA_DEBUGLOGS)
 ; broke" and the question "what was happening when it broke" want different files.
 global MMA_ERRLOG       := MMA_DEBUGLOGS "\error_log.txt"
 global MMA_LOGFILE      := MMA_DEBUGLOGS "\mma.log"
+; AHK_engine.log — the ENGINE layer, not MMA's own. Uncaught errors land here
+; alongside mma.log, and tools/test writes its /validate output here too, so the
+; #Warn warnings that only ever appeared as a modal dialog have a written record.
+global MMA_AHKLOG       := MMA_DEBUGLOGS "\AHK_engine.log"
 global MMA_PROBE_DETECT := MMA_DEBUGLOGS "\detector_probe.txt"
 global MMA_PROBE_FANSLY := MMA_DEBUGLOGS "\fansly_probe.txt"
 global MMA_PROBE_NEXTFU := MMA_DEBUGLOGS "\nextfu_probe.txt"

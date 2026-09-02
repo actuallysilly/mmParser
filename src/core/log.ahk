@@ -613,6 +613,11 @@ _LOG_OnError(err, mode) {
         _LOG_Write("CRSH", "uncaught", LOG_Err(err) "   mode=" mode)
         try FileAppend(_LOG_Stamp() "  [" A_ScriptName "]  UNCAUGHT: "
                      . _LOG_Flat(LOG_Err(err)) "`n", MMA_ERRLOG, "UTF-8")
+        ; And again to AHK_engine.log. This one is the ENGINE's file: everything
+        ; AHK itself raises, in one place, so a load-time #Warn dialog and a
+        ; runtime throw can be read in the order they actually happened.
+        try FileAppend(_LOG_Stamp() "  [" A_ScriptName "]  UNCAUGHT: "
+                     . _LOG_Flat(LOG_Err(err)) "`n", MMA_AHKLOG, "UTF-8")
         ; `frame`, not `ln` — some script in the tree has a global by that name,
         ; and a local shadowing a global is a #Warn warning in every file that
         ; includes both. A logger that adds warnings to the build is not a good
