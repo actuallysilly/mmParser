@@ -1,6 +1,27 @@
 ﻿# Changelog
 
-## Unreleased
+## 2.0.5 — 2026-10-05
+
+### Hotstring keys expire
+
+A key bound to a hotstring is for the week that message is current. After that it is a
+chord that sends a stale message when you hit it by accident, and a chord nothing else
+can have. The Add Hotkey dialog now has an **Expires: N days** box next to Record,
+prefilled from **Settings ▸ General ▸ Hotstring keys expire after** (default 10, 0 =
+never). When the date passes the KEY is released and the hotstring is kept — typing the
+trigger still works.
+
+- A press after the date sends nothing and says so, even before anything has swept.
+- Message scripts sweep expired keys before binding; the main window sweeps hourly.
+- Dates live in `userdata\hotstring_key_expiry.ini`; renaming a trigger carries its date.
+
+### New masses import into the next slot, not over the current one
+
+Three masses a day used to land in the same slot, each overwriting the last. An import
+now goes into the slot after the model's live one — 1 → 2 → 3 → 1 — and that slot
+becomes live. The Parse + Save prompt pre-selects the same slot; the radios still
+override it. Manual Save is unchanged.
+
 
 ### A chat simulator: write a mass as the conversation it becomes
 

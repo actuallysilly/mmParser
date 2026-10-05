@@ -767,6 +767,16 @@ OpenSettings(*) {
         ddlDef.Value := 1
     y += 34
 
+    ; [Settings] HotkeyExpiryDays — what the Add-hotstring dialog's Expires box
+    ; starts at. See HKX_Sweep in core\hotkeys.ahk.
+    sg.Add("Text", "x" CX " y" (y + 3) " w150", "Hotstring keys expire after:")
+    edExpDays := sg.Add("Edit", "x" (CX + 156) " y" y " w52 Number", HKX_DefaultDays())
+    sg.SetFont("s8")
+    sg.Add("Text", "x" (CX + 214) " y" (y + 5) " w" (CW - 214) " cGray",
+           "days (0 = never). The key is released; the hotstring is kept.")
+    sg.SetFont("s9")
+    y += 34
+
     ; ── "Visible scripts" used to be here ─────────────────────────────────────
     ;  One checkbox per acc script, deciding which of them got a "◻ NAME" toggle
     ;  button on the main window's bottom strip. Both halves are gone: the strip
@@ -1878,6 +1888,8 @@ OpenSettings(*) {
         ; ── Scripts ───────────────────────────────────────────────────────────
         defaultHotkeyFile := ddlDef.Text
         IniWrite(defaultHotkeyFile, CFG_FILE, "Settings", "DefaultHotkeyFile")
+        IniWrite(SW_Num(edExpDays, HKX_DefaultDays(), 0),
+                 CFG_FILE, "Settings", "HotkeyExpiryDays")
 
         _startupCsv := ""
         for _efn, _chk in startChks

@@ -1178,6 +1178,9 @@ Overload_Register()
 ;  worth stating: `!9` bound to a message will send that message in whatever
 ;  window has focus. Pick chords you would not otherwise press.
 HotstringKeys_Register() {
+    ; Expired keys are dropped from the ini BEFORE reading it, so a script that
+    ; starts after the date never binds them. See HKX_Sweep in hotkeys.ahk.
+    HKX_Sweep()
     binds := HK_HotstringTriggers()
     if !binds.Length
         return
@@ -1264,7 +1267,20 @@ Hotstring_Fire(trigger, rec, how) {
 
 ; What the key sends. One line, because the key is not special: it is one of the
 ; two doors into Hotstring_Fire above.
+;
+; Except past its expiry date: then the press sends NOTHING, the binding is
+; swept, and every script is told to let go of the key. This is the check that
+; matters most — the stale message you hit by accident is the reason expiry exists.
 HotstringKey_Handler(trigger, rec, *) {
+    if HKX_IsExpired(trigger) {
+        LOG_Bail("hotstring.expiry", "key for " trigger " pressed after it expired"
+                                   . " — nothing sent, the key is being released")
+        ToolTip("Key for " trigger " has expired — nothing sent")
+        SetTimer(() => ToolTip(), -2000)
+        if HKX_Sweep()
+            HK_Broadcast(HK_MSG_RELOAD, 0)
+        return
+    }
     Hotstring_Fire(trigger, rec, "its key")
 }
 

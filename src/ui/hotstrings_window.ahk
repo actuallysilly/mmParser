@@ -1456,6 +1456,7 @@ HSE_Migrate(r, newTrig, newOpts, newRel) {
         if (k != "") {
             try IniDelete(HK_INI, "hotstring", r.trigger)
             try IniWrite(k, HK_INI, "hotstring", newTrig)
+            try HKX_Rename(r.trigger, newTrig)   ; its expiry date goes with it
             LOGI("hs.edit", "moved the key " HKP_KeyLabel(k) " from " r.trigger
                           . " to " newTrig)
         }

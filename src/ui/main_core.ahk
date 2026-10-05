@@ -53,18 +53,37 @@ AutoParseFromClipboard(wParam, lParam, msg, hwnd) {
     ; tabs.Value first, every time. ParseCurrent fills the tab that is IN FRONT and
     ; ApplyFile saves the model it is given — the same number, or the import lands
     ; in one model's boxes and is written to another's file.
+    ; An import goes into the slot AFTER the live one, and ApplyFile makes that the
+    ; live slot — three masses a day rotate 1→2→3→1 instead of each one overwriting
+    ; the last. Set the radio BEFORE parsing: ApplyFile saves into whatever it reads.
     if (fastParseAutosave && slot) {
         tabs.Value := slot
+        SetMassNoRadio(slot, NextImportSlot(slot))
         ParseCurrent()
         ApplyFile(_mFiles[slot], true)
         _lastImportModel := slot
     } else if (fastParseAutosave && detected = "" && _lastImportModel) {
         tabs.Value := _lastImportModel
+        SetMassNoRadio(_lastImportModel, NextImportSlot(_lastImportModel))
         ParseCurrent()
         ApplyFile(_mFiles[_lastImportModel], true)
     } else {
         PromptSaveTarget(detected)
     }
+}
+
+; The slot a new import for this model goes into: the one after its live slot,
+; wrapping 3 → 1. Read from the library, not the radio — the live slot is what
+; the keys are sending, and the radio can be showing a slot you only opened to edit.
+NextImportSlot(modelNo) {
+    global MASS_SLOTS
+    cur := MASS_MassNo(MASS_Load(), modelNo)
+    if (cur < 1 || cur > MASS_SLOTS)
+        cur := MASS_SLOTS                 ; unknown → wrap to 1
+    nxt := Mod(cur, MASS_SLOTS) + 1
+    LOGD("gui.import", "model " modelNo " is live on mass " cur
+                     . " — the import rotates into mass " nxt)
+    return nxt
 }
 ; Paste the clipboard into edPaste and parse it. Posted by copyDiscordMessageSeq
 ; in sequences.ahk, and by WebImportFromClipboard below.
@@ -338,13 +357,13 @@ PromptSaveTarget(detectedName := "") {
     rd1 := pg.Add("Radio", "x60 y128 Group", "1")
     rd2 := pg.Add("Radio", "x105 y128", "2")
     rd3 := pg.Add("Radio", "x150 y128", "3")
-    rd1.Value := true
+    SyncSlot()
 
     pg.Add("Button", "x10  y160 w110 h26 Default", "Parse + Save").OnEvent("Click", DoSave)
     pg.Add("Button", "x130 y160 w80 h26", "Cancel").OnEvent("Click", (*) => pg.Destroy())
 
     cbName.OnEvent("Change", NameChanged)   ; auto-pick the model when the name is known
-    ddlModel.OnEvent("Change", (*) => SyncPlatform())
+    ddlModel.OnEvent("Change", ModelChanged)
     ; w230 clipped the "Remember this name for the model" checkbox mid-word — the one
     ; control that tells you the prompt will not ask again. The widths above are fixed
     ; rather than AutoSize on purpose (see the GUI geometry notes: AutoSize and
@@ -364,7 +383,21 @@ PromptSaveTarget(detectedName := "") {
         if s {
             ddlModel.Value := SafeSlot(s, modelItems.Length, "import prompt (name typed)")
             SyncPlatform()
+            SyncSlot()
         }
+    }
+
+    ModelChanged(*) {
+        SyncPlatform()
+        SyncSlot()
+    }
+
+    ; Offer the rotated slot (the one after the model's live slot) — still yours
+    ; to override with the radios before Parse + Save.
+    SyncSlot(*) {
+        s := ddlModel.Value
+        n := s ? NextImportSlot(s) : 1
+        rd1.Value := (n = 1), rd2.Value := (n = 2), rd3.Value := (n = 3)
     }
 
     DoSave(*) {
@@ -504,6 +537,10 @@ CheckUpdate(silent := false, *) {
 
 OpenAddHotkey(prefill := "", *) {
     global ACC_DIR, SCRIPT_DIR, g
+    ; Free any expired keys first, so Record does not refuse a chord whose
+    ; previous owner is past its date and just has not been swept yet.
+    if HKX_Sweep()
+        HK_Broadcast(HK_MSG_RELOAD, 0)
     fileList  := []
     filePaths := []
     _genPath := MMA_CONTENT "\general.ahk"
@@ -581,6 +618,11 @@ OpenAddHotkey(prefill := "", *) {
     btnRec.OnEvent("Click", RecordKey)
     btnRecClear := ah.Add("Button", "x706 y202 w60 h28", "Clear")
     btnRecClear.OnEvent("Click", ClearKey)
+    ; How long the recorded key lives. Prefilled from Settings ▸ General; 0 keeps
+    ; it until you remove it. Only the KEY expires — see HKX_Sweep in hotkeys.ahk.
+    ah.Add("Text", "x776 y207 w55 Right", "Expires:")
+    edExpDays := ah.Add("Edit", "x835 y204 w40 h22 Number", HKX_DefaultDays())
+    ah.Add("Text", "x880 y207 w110", "days (0 = never)")
 
     ; ── the other thing this text can BE ──────────────────────────────────────
     ;  Everything else in this window writes a HOTSTRING: a trigger you type, and
@@ -772,8 +814,13 @@ OpenAddHotkey(prefill := "", *) {
         ; keys is part of loading.
         if (bindKey != "") {
             try IniWrite(bindKey, HK_INI, "hotstring", hk)
+            _days := RegExMatch(Trim(edExpDays.Value), "^\d+$")
+                   ? Integer(Trim(edExpDays.Value)) : HKX_DefaultDays()
+            _exp := HKX_Set(hk, _days)
             LOG_Ok("gui.addhotkey", hk " is bound to " HKP_KeyLabel(bindKey)
-                                 . " ([hotstring] in hotkeys.ini)")
+                                 . " ([hotstring] in hotkeys.ini)"
+                                 . (_exp = "" ? ", no expiry"
+                                              : ", expires " FormatTime(_exp, "yyyy-MM-dd HH:mm")))
         }
 
         CheckCollisions()
@@ -1473,6 +1520,16 @@ CORE_BootWindowTasks() {
     _unmapGui   := 0          ; the prompt window, while it is open
     if FEAT("modelDetector")
         SetTimer(CheckUnmappedModel, 4000)
+
+    ; Expired hotstring keys: once now, then hourly. An expiry is in days, so an
+    ; hour late is nothing — and a press in between is refused by the handler.
+    SweepExpiredKeys()
+    SetTimer(SweepExpiredKeys, 3600000)
+}
+
+SweepExpiredKeys() {
+    if HKX_Sweep()
+        HK_Broadcast(HK_MSG_RELOAD, 0)
 }
 
 ; ═══════════════════════════════════════════════════════════════════════════════

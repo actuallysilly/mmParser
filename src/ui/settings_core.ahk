@@ -129,6 +129,11 @@ SETTINGS_Fields(cur := "") {
          "Default file for new hotstrings",
          "Which account file the Add-hotstring dialog writes to unless you pick"
        . " another.")
+    _add("HotkeyExpiryDays", "General", "Settings", "HotkeyExpiryDays", "int", "10",
+         "Hotstring keys expire after (days)",
+         "What the Add-hotstring dialog's Expires box starts at. When a key's"
+       . " date passes, the key is released and the hotstring is kept. 0 ="
+       . " never.")
     _add("AutoRestart", "General", "Settings", "AutoRestart", "bool", "0",
          "Restart scripts that die",
          "A watchdog checks every 5 seconds and relaunches anything on the"

@@ -66,6 +66,10 @@ global MMA_USAGE       := MMA_USERDATA "\hotstring_usage.ini"
 ; UTF-16 whose key order IniWrite reshuffles, which is no place for a list you
 ; keep in an order that means something to you.
 global MMA_SHORTCUTS   := MMA_USERDATA "\shortcuts.ini"
+; When each hotstring KEY stops working — [expires] trigger = yyyyMMddHHmmss.
+; Its own file rather than a second section of hotkeys.ini: that file is the key
+; registry and HK_Init reports any section it does not declare as drift.
+global MMA_HK_EXPIRY   := MMA_USERDATA "\hotstring_key_expiry.ini"
 global MMA_MASSES      := MMA_USERDATA "\masses.json"
 global MMA_ARCHIVE     := MMA_USERDATA "\mass_archive.txt"
 global MMA_DETECTOR    := MMA_USERDATA "\detector_status.ini"

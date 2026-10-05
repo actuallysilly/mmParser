@@ -965,6 +965,90 @@ HK_HotstringId(trigger) {
     return "hotstring." Trim(trigger)
 }
 
+; ── hotstring keys that expire ────────────────────────────────────────────────
+;  A key bound to a hotstring is for the week that message is current. After that
+;  it is a chord that sends a stale message when you hit it by accident, and a
+;  chord nothing else can have. So a key can carry an expiry date, and once it
+;  passes the BINDING is removed — the hotstring itself stays, typed as before.
+;
+;  Enforced in three places, so no single one has to be running:
+;    • HotstringKey_Handler refuses to send past the date (utils.ahk) — the
+;      accidental press is stopped even if nothing has swept yet;
+;    • every message script sweeps before it binds (HotstringKeys_Register);
+;    • the main window sweeps hourly and broadcasts a reload.
+;
+;  Default period: [Settings] HotkeyExpiryDays in mass_gui.cfg, 10. 0 = never.
+
+HKX_DefaultDays() {
+    v := Trim(IniRead(MMA_CFG, "Settings", "HotkeyExpiryDays", "10"))
+    return RegExMatch(v, "^\d+$") ? Integer(v) : 10
+}
+
+; days <= 0 clears the expiry: the key is kept until you remove it.
+HKX_Set(trigger, days) {
+    trigger := Trim(trigger)
+    if (days <= 0) {
+        try IniDelete(MMA_HK_EXPIRY, "expires", trigger)
+        return ""
+    }
+    exp := DateAdd(A_Now, days, "Days")
+    IniWrite(exp, MMA_HK_EXPIRY, "expires", trigger)
+    return exp
+}
+
+HKX_Get(trigger) {
+    return Trim(IniRead(MMA_HK_EXPIRY, "expires", Trim(trigger), ""))
+}
+
+; Moves an expiry with its key when the trigger is renamed.
+HKX_Rename(oldTrg, newTrg) {
+    exp := HKX_Get(oldTrg)
+    if (exp = "")
+        return
+    try IniDelete(MMA_HK_EXPIRY, "expires", Trim(oldTrg))
+    IniWrite(exp, MMA_HK_EXPIRY, "expires", Trim(newTrg))
+}
+
+HKX_IsExpired(trigger) {
+    exp := HKX_Get(trigger)
+    if (exp = "")
+        return false
+    try
+        return DateDiff(A_Now, exp, "Seconds") >= 0
+    catch
+        return false                       ; a hand-mangled date never kills a key
+}
+
+; Remove every binding whose date has passed, and every expiry whose key is
+; already gone (cleared by hand, or in the Hotstrings window). Returns how many
+; KEYS it removed — the caller broadcasts a reload when that is non-zero.
+HKX_Sweep() {
+    removed := 0
+    for line in StrSplit(IniRead(MMA_HK_EXPIRY, "expires", , ""), "`n", "`r") {
+        eq := InStr(line, "=")
+        if !eq
+            continue
+        trg := Trim(SubStr(line, 1, eq - 1))
+        if (trg = "")
+            continue
+        key := Trim(IniRead(HK_INI, "hotstring", trg, ""))
+        if (key = "") {
+            try IniDelete(MMA_HK_EXPIRY, "expires", trg)
+            continue
+        }
+        if !HKX_IsExpired(trg)
+            continue
+        exp := HKX_Get(trg)
+        try IniDelete(HK_INI, "hotstring", trg)
+        try IniDelete(MMA_HK_EXPIRY, "expires", trg)
+        removed++
+        LOGI("hotstring.expiry", trg " lost its key " key " — it expired "
+                               . FormatTime(exp, "yyyy-MM-dd HH:mm")
+                               . ". The hotstring itself is untouched.")
+    }
+    return removed
+}
+
 ; ── who already owns this key? ────────────────────────────────────────────────
 ;  Returns the id, or several separated by ", ", or "" when the key is free.
 ;  `exceptId` is the binding being edited, which must not report itself.
