@@ -507,6 +507,36 @@ Expect("mass", FieldOf(19, "mass"), "one line mass")
 ; `f1 line` is prefix mode, so the label is stripped off the message text.
 Expect("f1",   FieldOf(19, "fu1"),  "line")
 
+; ═══ a FENCED ppv still has follow-ups ═════════════════════════════════════════
+; The fence keeps the caption's own paragraphs out of ppvfu — the group AFTER it
+; is still the ppv follow-ups. It used to be read as a fourth follow-up and dropped.
+Parse(20, "
+(
+!mm the opener
+
+one a
+one b
+
+two a
+
+three a
+
+ppv:
+caption one
+caption two
+
+caption three
+--------
+
+ppvfu one
+ppvfu two
+)")
+Out("-- a fenced ppv keeps its follow-ups --")
+Expect("f3",       FieldOf(20, "fu3"),      "three a")
+Expect("ppv",      FieldOf(20, "ppv_base"), "caption one`r`ncaption two`r`n`r`ncaption three")
+Expect("ppvfu1",   FieldOf(20, "ppv_f1"),   "ppvfu one")
+Expect("ppvfu2",   FieldOf(20, "ppv_f2"),   "ppvfu two")
+
 Out("")
 Out(pass " passed, " fail " failed")
 ExitApp(fail ? 1 : 0)

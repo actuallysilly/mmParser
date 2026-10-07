@@ -430,6 +430,24 @@ FencedPpvText(grp) {
     return out
 }
 
+; The group after the ppv group (gi) → ppv_f1..f3, one line each. Shared by the
+; plain and the fenced ppv, which differ only in how the caption was gathered.
+; Returns the index the caller must skip, or 0 when there is no next group.
+FillPpvFollowUps(groups, gi, mNo) {
+    global edCtrls
+    if (gi + 1 > groups.Length)
+        return 0
+    fuGrp := groups[gi + 1]
+    for si, slot in ["ppv_f1", "ppv_f2", "ppv_f3"] {
+        if si > fuGrp.Length
+            break
+        ck := "m" mNo "_" slot
+        if edCtrls.Has(ck)
+            edCtrls[ck].Value := StripPrefix(Trim(fuGrp[si]))
+    }
+    return gi + 1
+}
+
 FillTab(lines, mNo) {
     global
     ; ── strip -- comments ─────────────────────────────────────────────────────
@@ -649,6 +667,11 @@ FillTab(lines, mNo) {
             ck := "m" mNo "_ppv_base"
             if edCtrls.Has(ck)
                 edCtrls[ck].Value := ppvBase
+            ; The fence keeps the caption's own lines out of the ppv follow-ups — it
+            ; does not mean there are none. The group after it is theirs, exactly as
+            ; after an unfenced ppv; without this it was read as a fourth follow-up
+            ; and dropped.
+            skipIdx := FillPpvFollowUps(groups, gi, mNo)
             continue
         }
 
@@ -680,18 +703,7 @@ FillTab(lines, mNo) {
             ck := "m" mNo "_ppv_base"
             if edCtrls.Has(ck)
                 edCtrls[ck].Value := ppvBase
-            fuSlots := ["ppv_f1", "ppv_f2", "ppv_f3"]
-            if gi + 1 <= groups.Length {
-                skipIdx := gi + 1
-                fuGrp   := groups[gi + 1]
-                for si, slot in fuSlots {
-                    if si > fuGrp.Length
-                        break
-                    ck := "m" mNo "_" slot
-                    if edCtrls.Has(ck)
-                        edCtrls[ck].Value := StripPrefix(Trim(fuGrp[si]))
-                }
-            }
+            skipIdx := FillPpvFollowUps(groups, gi, mNo)
             continue
         }
 

@@ -171,6 +171,19 @@ unlock it and tell me what you think
 
 All of that becomes the single `ppv` field. Nothing spills into `ppvfu1`.
 
+The group **after** the fence is the PPV follow-ups, the same as after an unfenced PPV:
+
+```
+ppv:
+I can see you're curious
+
+I'll start by getting these clothes off
+---
+
+hope you last more than 30 seconds    <- ppvfu1
+should I expect that or give up?      <- ppvfu2
+```
+
 ---
 
 ## Alternatives and branches — `::name`
