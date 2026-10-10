@@ -1,9 +1,7 @@
 # typelog
 
-A passive keystroke-to-text recorder, **scoped to Infloww**. It reconstructs the
-text you type in Infloww Messages into readable lines and appends it to a daily
-log, so you can later mine your own repetitive phrases and turn them into
-hotstrings — the same job the Hotstrings manager does from the other end.
+Records the messages you **send** in Infloww Messages, one per line, scoped to
+Infloww. Mined for hotstrings, and the training data for autoword.
 
 Was its own project (`Chatting/typelog`); moved in here as an MMA background
 service, driven the same way as the pinger and the automation listener.
@@ -13,10 +11,55 @@ service, driven the same way as the pinger and the automation listener.
 - **Only while Infloww is the foreground window** — matched by process name
   (`infloww.exe`), with the window title (`infloww`) as a fallback. It records
   nothing while you are in your bank, a password manager, DMs, or anywhere else.
-- Text lands in **`userdata\typelog\YYYY-MM-DD.log`** — one file per day, rolled
-  over at midnight. `userdata\` is gitignored, so the logs never leave the machine.
-- Backspace deletes the last character in the buffer, Enter/Tab/Space are kept,
-  and control chars from shortcuts (Ctrl+C, etc.) are dropped.
+- Messages land in **`userdata\typelog\messages\`**, one file per day.
+  `userdata\` is gitignored, so the logs never leave the machine.
+
+| file | holds |
+|---|---|
+| `YYYY-MM-DD.log` | messages whose text is exact: `time <tab> kind <tab> text` |
+| `YYYY-MM-DD.uncertain.log` | messages it cannot vouch for: `time <tab> kind <tab> reasons <tab> text` |
+
+`kind` is `typed`, `pasted` or `mixed`. Hotstrings and masses send by pasting
+(`Snd()` is Ctrl+V then Enter), so they show up as `pasted`. A line break inside
+a message (Shift+Enter) is written as `\n`, a tab as `\t`, a backslash as `\\`.
+
+## Only what was sent
+
+Keystrokes edit a model of the message box (`message.py`), held in memory.
+**Nothing is written until a plain Enter sends it**, so a draft you delete, a
+half-word you retype, or a message you abandon never reaches the log.
+
+| key | effect |
+|---|---|
+| Enter | sends: the message is written, the box starts over |
+| Shift+Enter | a line break inside the message, never a send |
+| Backspace / Ctrl+Backspace | deletes a character / the last word |
+| Ctrl+A, then Backspace, Delete, Ctrl+X, typing or a paste | replaces everything, which also makes an uncertain box exact again |
+| Ctrl+V, Shift+Insert | the clipboard's text is read and added |
+| Tab, Esc, Ctrl+C, F-keys, Alt+letter | nothing |
+
+The model only holds while the caret stays at the end of the text, where it is
+when you just type. These make a message **uncertain** (the reason is written
+with it): an arrow/Home/PageUp or a mouse click with text in the box (`caret`), a
+Shift+arrow selection (`select`), Ctrl+Z/Y (`undo`), Win+V (`win+v`), the Win+.
+emoji panel (`emoji`), Ctrl+Backspace across punctuation (`ctrl+bs`), Ctrl/Alt+Enter
+(`mod+enter`), a clipboard with no text (`paste?`), and the first message after
+starting or resuming (`start`), because the box may already have held a draft.
+
+Leaving Infloww does not end a message: the draft stays in Infloww's box, so
+typing on after Alt+Tab continues it.
+
+**Known limits.** An Enter that Infloww does not act on, for example while a popup
+is open, still counts as a send. Text typed into other Infloww fields (search, a
+PPV price box) and sent with Enter looks like a message. Only reading the box
+itself (UI Automation) would fix both.
+
+## The old logs
+
+`userdata\typelog\*.log` and `D:\Software\Dev\Chatting\typelog\logs\` hold the
+previous format: a raw keystroke dump written every five seconds, with
+abandoned drafts run into the sent text. They are left where they are, as raw
+data, and the new recorder never writes there.
 
 ## Why it is OFF by default
 
@@ -40,7 +83,7 @@ process holds so they stay honest if it dies.
 By hand:
 
     typelog_start.vbs          start silently (pythonw, no console)
-    python typelog.pyw --stop     ask it to exit (flushes first)
+    python typelog.pyw --stop     ask it to exit (an unsent draft is dropped)
     python typelog.pyw --status   is one running?
     python scope_debug.py         print what the scope check sees (records nothing)
 

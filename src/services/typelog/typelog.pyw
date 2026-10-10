@@ -2,10 +2,26 @@
 """
 MMA typelog — a passive keystroke-to-text recorder, scoped to Infloww.
 
-It reconstructs the text YOU type in Infloww Messages into readable lines and
-appends it to a daily log (userdata\\typelog\\YYYY-MM-DD.log). The point is to
-mine your own repetitive phrases and turn them into hotstrings — the same job the
-Hotstrings manager does from the other end.
+It records the messages YOU send in Infloww Messages, one per line, into a daily
+log (userdata\\typelog\\messages\\YYYY-MM-DD.log). The point is to mine your own
+writing — for hotstrings, and as the training data for autoword.
+
+ONLY SENT MESSAGES, AND ONLY WHEN THEY ARE SENT
+Keystrokes go into a model of the message box (message.py), held in memory, and
+nothing is written until a plain Enter sends it. Shift+Enter is a line break
+inside the message. Backspace, Ctrl+Backspace and Ctrl+A-then-retype edit the
+model, so a draft you delete never reaches the log. Pastes are read from the
+clipboard, which is how hotstring and mass sends (Snd() = Ctrl+V, Enter) are
+recorded at all.
+
+When the keystrokes stop describing the box — the caret moved, part of it was
+selected, Ctrl+Z, Win+V — the message is written to YYYY-MM-DD.uncertain.log
+instead, with the reason, so the main log only ever holds text we can vouch for.
+
+This replaces a recorder that wrote its keystroke buffer to disk every five
+seconds. Backspace could not reach anything already written, so every pause
+committed the draft on screen, and the old logs (userdata\\typelog\\*.log, left
+where they are) are full of abandoned drafts run into the sent text.
 
 Same shape as the pinger and the automation listener (see core/processes.ahk):
 a headless background process with no console and no AHK window, so MMA drives it
@@ -13,7 +29,7 @@ through a NAMED EVENT — its existence answers "is it up?", setting it means
 "please exit" — and it is launched via a .vbs so nothing flashes on screen.
 
   typelog_start.vbs        start it silently (pythonw, no console)
-  typelog.pyw --stop       ask a background recorder to exit (flushes first)
+  typelog.pyw --stop       ask a background recorder to exit
   typelog.pyw --status     is one running?
   typelog.pyw --listen     headless: log operational lines to MMA's error_log.txt
 
@@ -49,6 +65,7 @@ Needs one package: pynput  (pip install pynput, or run install.bat WithPython).
 
 import argparse
 import configparser
+import queue
 import ctypes
 import datetime
 import os
@@ -60,9 +77,11 @@ from ctypes import wintypes
 from pathlib import Path
 
 try:
-    from pynput import keyboard
+    from pynput import keyboard, mouse
 except ImportError:                     # headless: say so in MMA's log, then give up
-    keyboard = None
+    keyboard = mouse = None
+
+from message import START, MessageBox, apply_key, escape
 
 # ── MMA paths ────────────────────────────────────────────────────────────────
 # MMA_ROOT from THIS file's location, never the working directory — the same rule
@@ -78,7 +97,9 @@ MMA_DEBUGLOGS.mkdir(exist_ok=True)
 # The recorded text — the product — lands in userdata\ beside the activity CSVs,
 # gitignored like the rest of userdata\. NOT in debuglogs\: this is not a
 # diagnostic you throw away, it is what the feature exists to produce.
-LOG_DIR        = MMA_USERDATA / "typelog"
+# messages\ and not the folder itself: the old keystroke-dump logs live there and
+# are a different format, so the two are never mixed in one file or one glob.
+LOG_DIR        = MMA_USERDATA / "typelog" / "messages"
 
 # Operational lines (started, scope changes, errors) go to MMA's shared log when
 # headless, tagged [typelog] — the same file the pinger writes to.
@@ -93,7 +114,6 @@ HOTKEY_SECTION = "typelog"
 PAUSE_FALLBACK = "^!F9"                 # used only if the ini has no [typelog] pause
 
 # ── config ───────────────────────────────────────────────────────────────────
-FLUSH_INTERVAL       = 5.0              # seconds between automatic disk writes
 SCOPE_ENABLED        = True
 SCOPE_PROCESS_NAMES  = ["infloww.exe"]  # foreground exe (Task Manager ▸ Details)
 SCOPE_TITLE_PATTERNS = ["infloww"]      # fallback: substring in the window title
@@ -105,8 +125,10 @@ STOP_EVENT_NAME = "Global\\MMA.typelog.stop"
 ERROR_ALREADY_EXISTS = 183
 
 # ── state ────────────────────────────────────────────────────────────────────
-_buf      = []
+_box      = MessageBox()
+_held: set[str] = set()                 # modifier keys down, by pynput name
 _lock     = threading.Lock()
+_sent: queue.Queue = queue.Queue()      # (when, Message), or None to stop the writer
 _paused   = False
 _in_scope = not SCOPE_ENABLED
 _stop     = threading.Event()
@@ -141,6 +163,16 @@ if sys.platform == "win32":
     _kernel32.QueryFullProcessImageNameW.restype  = wintypes.BOOL
     _kernel32.CloseHandle.argtypes             = [wintypes.HANDLE]
     _kernel32.CloseHandle.restype              = wintypes.BOOL
+    _user32.OpenClipboard.argtypes             = [wintypes.HWND]
+    _user32.OpenClipboard.restype              = wintypes.BOOL
+    _user32.GetClipboardData.argtypes          = [wintypes.UINT]
+    _user32.GetClipboardData.restype           = wintypes.HANDLE
+    _user32.CloseClipboard.restype             = wintypes.BOOL
+    _user32.GetAsyncKeyState.argtypes          = [ctypes.c_int]
+    _user32.GetAsyncKeyState.restype           = ctypes.c_short
+    _kernel32.GlobalLock.argtypes              = [wintypes.HGLOBAL]
+    _kernel32.GlobalLock.restype               = ctypes.c_void_p
+    _kernel32.GlobalUnlock.argtypes            = [wintypes.HGLOBAL]
     _kernel32.CreateMutexW.restype             = ctypes.c_void_p
     _kernel32.CreateEventW.restype             = ctypes.c_void_p
     _kernel32.OpenEventW.restype               = ctypes.c_void_p
@@ -335,83 +367,144 @@ def ahk_to_pynput(spec: str) -> str:
 
 
 # ── the recorder ─────────────────────────────────────────────────────────────
-def _logfile() -> Path:
-    """Today's log (rolls over at midnight)."""
+def _logfile(day: datetime.date, uncertain: bool) -> Path:
     LOG_DIR.mkdir(parents=True, exist_ok=True)
-    return LOG_DIR / f"{datetime.date.today():%Y-%m-%d}.log"
+    return LOG_DIR / f"{day:%Y-%m-%d}{'.uncertain' if uncertain else ''}.log"
 
 
-def _flush() -> None:
-    """Append the buffered text to today's log and clear the buffer."""
-    global _buf
-    with _lock:
-        if not _buf:
+def _writer() -> None:
+    """Writes each sent message as one line. Its own thread, so a slow disk never
+    delays a keystroke. A None in the queue means drain and exit.
+
+        main log        HH:MM:SS <tab> typed|pasted|mixed <tab> text
+        uncertain log   HH:MM:SS <tab> typed|pasted|mixed <tab> reasons <tab> text
+
+    Line breaks and tabs inside a message are escaped (message.escape)."""
+    while True:
+        item = _sent.get()
+        if item is None:
             return
-        text = "".join(_buf)
-        _buf = []
+        when, msg = item
+        cols = [f"{when:%H:%M:%S}", msg.kind]
+        if not msg.exact:
+            cols.append(",".join(msg.reasons))
+        cols.append(escape(msg.text))
+        try:
+            with open(_logfile(when.date(), not msg.exact), "a", encoding="utf-8") as fh:
+                fh.write("\t".join(cols) + "\n")
+        except OSError as exc:
+            print(f"write failed: {exc}")
+
+
+CF_UNICODETEXT = 13
+
+
+def _read_clipboard() -> str | None:
+    """The clipboard's text at the moment of a paste, or None if it cannot be read.
+
+    Runs on pynput's listener thread, after the hook has already passed the key on,
+    so a short retry here delays our bookkeeping, never your typing. Snd() fills
+    the clipboard and waits for it before pressing Ctrl+V, and does not touch it
+    again until after its Enter, so what is read here is what was pasted."""
+    for _ in range(5):
+        if _user32.OpenClipboard(None):
+            break
+        time.sleep(0.01)                 # someone else has it open; brief, then retry
+    else:
+        return None
     try:
-        with open(_logfile(), "a", encoding="utf-8") as fh:
-            fh.write(text)
-    except OSError as exc:
-        print(f"write failed: {exc}")
+        handle = _user32.GetClipboardData(CF_UNICODETEXT)
+        if not handle:
+            return None                  # an image, a file list — no text
+        ptr = _kernel32.GlobalLock(handle)
+        if not ptr:
+            return None
+        try:
+            return ctypes.wstring_at(ptr)
+        finally:
+            _kernel32.GlobalUnlock(handle)
+    finally:
+        _user32.CloseClipboard()
+
+
+# pynput's names for the modifier keys, by what they mean. Left and right are
+# tracked separately in _held, so releasing one Ctrl while holding the other does
+# not drop Ctrl. AltGr arrives as alt_gr plus a ctrl_l Windows synthesises.
+_MODIFIERS = {
+    "ctrl": "ctrl", "ctrl_l": "ctrl", "ctrl_r": "ctrl",
+    "shift": "shift", "shift_l": "shift", "shift_r": "shift",
+    "alt": "alt", "alt_l": "alt", "alt_r": "alt", "alt_gr": "alt",
+    "cmd": "win", "cmd_l": "win", "cmd_r": "win",
+}
+# For resyncing _held from Windows when focus changes (see _resync_modifiers).
+_MODIFIER_VKS = {"ctrl_l": 0xA2, "ctrl_r": 0xA3, "shift_l": 0xA0, "shift_r": 0xA1,
+                 "alt_l": 0xA4, "alt_r": 0xA5, "cmd_l": 0x5B, "cmd_r": 0x5C}
+
+
+def _key_name(key) -> str | None:
+    return key.name if isinstance(key, keyboard.Key) else None
 
 
 def on_press(key) -> None:
+    # Modifiers are tracked from the event stream itself, in or out of scope.
+    # pynput calls this AFTER the hook has let the key through, so asking Windows
+    # "is Ctrl down?" here would describe some later moment — Snd()'s Ctrl is
+    # released long before its V is handled here.
+    name = _key_name(key)
+    if name in _MODIFIERS:
+        _held.add(name)
+        return
     if _paused or not _in_scope:
         return
-    try:
-        ch = key.char                    # printable keys expose .char
-    except AttributeError:
-        ch = None
-
+    mods = {_MODIFIERS[n] for n in _held}
     with _lock:
-        if ch is not None:
-            # ch.isprintable() keeps normal text + AltGr chars (@, {, [, č, ć...)
-            # while silently dropping control chars from shortcuts (Ctrl+C -> '\x03').
-            if ch.isprintable():
-                _buf.append(ch)
-        elif key == keyboard.Key.space:
-            _buf.append(" ")
-        elif key == keyboard.Key.enter:
-            _buf.append("\n")
-        elif key == keyboard.Key.tab:
-            _buf.append("\t")
-        elif key == keyboard.Key.backspace:
-            if _buf:
-                _buf.pop()
-        # all other special keys (shift, arrows, F-keys, ...) are ignored
+        msg = apply_key(_box, name, getattr(key, "vk", None),
+                        getattr(key, "char", None), mods, _read_clipboard)
+    if msg is not None:
+        _sent.put((datetime.datetime.now(), msg))
 
-    # This runs on the low-level keyboard hook, i.e. on the input path, so it does
-    # NOTHING slow — just lock + append. Disk I/O is on the flush thread and the
-    # foreground window is inspected on the scope thread, never here.
+
+def on_release(key) -> None:
+    _held.discard(_key_name(key))
+
+
+def on_click(x, y, button, pressed, *_injected) -> None:
+    """Any click may have put the caret somewhere else in the box — including the
+    click that brings Infloww back to the front, which lands while another window
+    is still foreground. So clicks count whatever is in front."""
+    if pressed and not _paused:
+        with _lock:
+            _box.caret_away()
+
+
+def _resync_modifiers() -> None:
+    """A release that happened while we were not looking (Win+L, a UAC prompt)
+    would leave a modifier stuck down forever. Rebuild from Windows' own state
+    whenever focus changes."""
+    held = {n for n, vk in _MODIFIER_VKS.items() if _user32.GetAsyncKeyState(vk) & 0x8000}
+    _held.clear()
+    _held.update(held)
 
 
 def _toggle_pause() -> None:
     global _paused
     _paused = not _paused
-    _flush()
+    with _lock:
+        # Whatever is typed while paused is unseen: resume as if just started.
+        _box.unseen(START)
     print("PAUSED  — logging is OFF" if _paused else "RESUMED — logging is ON")
 
 
-def _periodic_flush() -> None:
-    while not _stop.wait(FLUSH_INTERVAL):
-        _flush()
-
-
 def _scope_poll() -> None:
-    """Watch the foreground window and flip _in_scope. On leaving Infloww we close
-    the current segment with a newline and flush, so phrases from different focus
-    sessions never run together."""
+    """Watch the foreground window and flip _in_scope. Leaving Infloww does NOT
+    end the message: the draft stays in Infloww's box, and the caret with it, so
+    typing on after an Alt+Tab back continues the same message."""
     global _in_scope
     while not _stop.wait(SCOPE_POLL_INTERVAL):
         now = _window_in_scope()
         if now == _in_scope:
             continue
-        if not now:                      # just left the scoped app
-            with _lock:
-                if _buf and _buf[-1] != "\n":
-                    _buf.append("\n")
-            _flush()
+        _resync_modifiers()
         _in_scope = now
 
 
@@ -433,8 +526,10 @@ def run_recorder(interval: float = 0.5) -> int:
             print(f"scope requested ({scope}) but this platform can't inspect"
                   " windows — logging EVERYTHING instead.")
 
-    flusher = threading.Thread(target=_periodic_flush, daemon=True)
-    flusher.start()
+    with _lock:
+        _box.unseen(START)               # the box may already hold a draft
+    writer = threading.Thread(target=_writer, daemon=True)
+    writer.start()
     if _SCOPE_SUPPORTED:
         threading.Thread(target=_scope_poll, daemon=True).start()
 
@@ -453,8 +548,10 @@ def run_recorder(interval: float = 0.5) -> int:
     else:
         print(f"no usable [typelog] pause hotkey ({raw!r}) — recording without one")
 
-    listener = keyboard.Listener(on_press=on_press)
+    listener = keyboard.Listener(on_press=on_press, on_release=on_release)
     listener.start()
+    clicks = mouse.Listener(on_click=on_click)
+    clicks.start()
 
     print("recording. Stop with: typelog.pyw --stop   (or Ctrl+C)")
     try:
@@ -466,10 +563,12 @@ def run_recorder(interval: float = 0.5) -> int:
     finally:
         _stop.set()
         listener.stop()
+        clicks.stop()
         if hotkeys:
             hotkeys.stop()
-        _flush()
-        print("stopped, buffer flushed.")
+        _sent.put(None)                  # drain what was sent; an unsent draft is not a message
+        writer.join(timeout=5)
+        print("stopped.")
     return 0
 
 
