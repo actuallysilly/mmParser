@@ -1,0 +1,23 @@
+# MMA autoword — optional language-model reranker. NOT installed by install.bat.
+#
+# Goes into autoword's own venv, never the global Python: the CUDA build of
+# torch is ~3 GB, needs an NVIDIA card, and would replace whatever torch (and
+# torchvision) the global install already has. Without the venv autoword runs on
+# the n-gram model exactly as before.
+#
+#   python -m venv .venv
+#   .venv\Scripts\python.exe -m pip install -r requirements-lm.txt
+#   .venv\Scripts\python.exe lm_check.py          # expect "available True"
+#
+# cu128 is CUDA 12.8 — the oldest build with kernels for RTX 50-series
+# (Blackwell, compute 12.0), and the newest the 576.x driver supports. A cu130
+# build needs driver 580 or newer; update the driver before moving to it.
+--extra-index-url https://download.pytorch.org/whl/cu128
+torch==2.11.0+cu128
+transformers==5.19.0
+peft==0.21.2
+accelerate==1.15.0
+numpy==2.5.3
+
+# The service itself, so autoword.pyw can run under the venv's pythonw too.
+-r requirements.txt

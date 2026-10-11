@@ -54,3 +54,7 @@ debuglogs/
 # error_log.txt". Both now write to debuglogs\. This entry stays in case an old
 # copy of either script is still running somewhere.
 src/services/error_log.txt
+
+# autoword's own Python, for the optional language model — ~3 GB of CUDA torch.
+# Rebuilt from src/services/autoword/requirements-lm.txt.
+src/services/autoword/.venv/
