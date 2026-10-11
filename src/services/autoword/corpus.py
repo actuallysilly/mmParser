@@ -271,6 +271,72 @@ def read_raw(dirs=None) -> list[tuple[str, list[str]]]:
     return days
 
 
+# ── the repaired corpus (Corpus = repaired, the default) ─────────────────────
+# load_clean below repairs the OLD keystroke dumps on the fly, and they are worse
+# than its repair can see: the recorder wrote its buffer every five seconds, so
+# deleted drafts were committed into the text, and two recorders logged the same
+# days twice. tools/corpus/merge_raw.py and tools/corpus/analysis/ merge and
+# repair those once, offline, into userdata/corpus/repaired/. The rewritten
+# typelog records only sent messages, so its logs need no repair at all.
+REPAIRED_DIR = MMA_USERDATA / "corpus" / "repaired"
+# Newest first: an LLM-repaired file supersedes the rule-repaired one.
+REPAIRED_FILES = ("llm_v1.tsv", "rules_v1.tsv")
+MESSAGES_DIR = MMA_USERDATA / "typelog" / "messages"
+
+
+def _unescape(text: str) -> str:
+    return re.sub(r"\\(.)", lambda m: {"n": "\n", "t": "\t"}.get(m[1], m[1]), text)
+
+
+def load_repaired(extra: list[str] | None = None):
+    """(lines, stats) from the repaired corpus plus the new typelog's messages.
+
+    Repaired file rows are `day, idx, source, dirty, text`; rows still flagged
+    dirty are left out. Typelog rows are `time, kind, account, conv, text`;
+    only `typed` and `mixed` are used, because a `pasted` message is a hotstring
+    or a mass that you did not type. Lines come back as lowercase words, the
+    shape load_clean returns. ([], {}) when there is no repaired file yet."""
+    src = next((REPAIRED_DIR / f for f in REPAIRED_FILES if (REPAIRED_DIR / f).exists()), None)
+    if src is None:
+        return [], {}
+    lines: list[str] = []
+    days: set[str] = set()
+    dirty = 0
+    for row in src.read_text(encoding="utf-8").splitlines():
+        cols = row.split("\t", 4)
+        if len(cols) < 5:
+            continue
+        if cols[3] == "1":
+            dirty += 1
+            continue
+        days.add(cols[0])
+        words = " ".join(WORD.findall(_unescape(cols[4]).lower()))
+        if words:
+            lines.append(words)
+    typed = 0
+    for path in sorted(MESSAGES_DIR.glob("*.log")):
+        if path.name.endswith(".uncertain.log"):
+            continue
+        for row in path.read_text(encoding="utf-8", errors="replace").splitlines():
+            cols = row.split("\t")
+            if len(cols) < 5 or cols[1] == "pasted":
+                continue
+            words = " ".join(WORD.findall(_unescape(cols[-1]).lower()))
+            if words:
+                lines.append(words)
+                typed += 1
+        days.add(path.stem)
+    for path in extra or []:
+        p = Path(path)
+        if p.exists():
+            for ln in p.read_text(encoding="utf-8-sig", errors="replace").splitlines():
+                ln = " ".join(WORD.findall(ln.lower()))
+                if ln:
+                    lines.append(ln)
+    return lines, {"source": src.name, "days": len(days), "lines": len(lines),
+                   "skipped_dirty": dirty, "typelog_messages": typed}
+
+
 def load_clean(dirs=None, extra: list[str] | None = None):
     """(cleaned lines, stats). Two passes: evidence, then repair."""
     days = read_raw(dirs)

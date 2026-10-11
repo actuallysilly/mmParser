@@ -19,6 +19,7 @@ from a group file you own.
 | `engine.py` | the segment buffer and the suggest/accept/cycle/reword state machine |
 | `reword.py` | the Ctrl+Tab groups, and the spelling rules that inflect them |
 | `renderers.py` | `Renderer` protocol + `off` / `strip` / `ghost` |
+| `lm.py` | `LmPredictor` / `ShadowPredictor`: a fine-tuned language model re-ranks the n-gram's candidates |
 | `autoword.pyw` | service shell, key hook, and the only place concrete classes are named |
 
 The two protocols are the point. Swapping the model or the presentation is one
@@ -213,7 +214,7 @@ on doing whatever it normally does in the app.
 
 ### The groups are a file you own
 
-`userdatautowordeword.txt`, one group per line, comma separated, written
+`userdata\autoword\reword.txt`, one group per line, comma separated, written
 with a starter set on first run:
 
 ```
@@ -265,7 +266,56 @@ The tail comes off and goes back on with the word, so `touched, ` rewords to
 `caressed, ` and the caret lands where it started. Capitalisation is yours:
 `Touched` comes back `Caressed`.
 
+## The language model (`Predictor = lm` / `shadow`)
+
+The n-gram only ever looks at the last two words. `lm.py` puts a small language
+model, fine-tuned on your own messages, in front of it: the n-gram (plus your
+most frequent words with the typed prefix) proposes, the LM ranks, using the
+whole sentence and the message you sent before it.
+
+Measured on 9 held-out days with the clean corpus (`tools/corpus/analysis/`,
+full write-up in `userdata/corpus/Claude_Analysis.md`), one letter typed:
+
+| | in the top 3 | in the top 5 | keystrokes saved, 3-item list |
+|---|---:|---:|---:|
+| n-gram | 65% | 72% | 41% |
+| n-gram + fine-tuned Qwen2.5-0.5B, previous message as context | **74%** | **80%** | **47%** |
+
+A stock model, not fine-tuned on your text, adds nothing; fine-tuning is the
+whole gain, and it takes about 80 seconds
+(`tools/corpus/analysis/p6_ft.py`). The gain is content words; the n-gram
+already gets function words.
+
+**Cost.** One forward pass per word, not per keystroke: the letters of a word
+do not change its context, so the pass is cached and each letter only filters
+it. ~20 ms per word on an RTX 5070 Ti, ~1 GB of VRAM. Candidates are scored by
+their first token (88–91% of your words are one token), which is what makes a
+single pass enough.
+
+**Auto-completion is untouched.** When the n-gram has seen exactly one word
+follow this context with this prefix, its answer passes straight through. That
+uniqueness is what auto-completion gates on.
+
+**Setup.** It needs autoword's own venv, which `autoword_start.vbs` prefers
+whenever it exists:
+
+```
+python -m venv .venv
+.venv\Scripts\python.exe -m pip install -r requirements-lm.txt
+.venv\Scripts\python.exe lm_check.py
+```
+
+and a model folder at `LmPath`. Anything missing falls back to the n-gram with
+one log line. `shadow` keeps showing the n-gram's list while scoring the LM
+against what you actually type; the running hit rates go to
+`debuglogs\autoword_lm_shadow.log` every 25 words. Switch to `lm` once those
+numbers say so.
+
 ## What the numbers say
+
+**These tables were measured on the OLD corpus**, the keystroke dumps full of
+deleted drafts, and are kept for the record only. Current numbers are in the
+section above and in `userdata/corpus/Claude_Analysis.md`.
 
 Held-out: trained on 18 days, scored on the 4 unseen days after them.
 
@@ -310,7 +360,12 @@ swallowed only while something is on screen.
 
 ## Why the corpus is the right training set
 
-`snd()` output never reaches the typelog — the expansion does not pass through
+`[Model] Corpus = repaired` (the default) trains on `userdata\corpus\repaired`
+(the two old recorders' logs merged and repaired once, offline, by
+`tools/corpus/`) plus the rewritten typelog's sent messages, `typed` and
+`mixed` only. `legacy` repairs the old dumps on the fly, as before.
+
+In the OLD logs, `snd()` output never reached the typelog — the expansion does not pass through
 the keyboard hook. Checked: zero of the 190 hotstring strings in `content\*.ahk`
 appear anywhere in 22 days of logs. So the corpus is already the *complement* of
 the hotstring library: a million characters of everything your expansions do not

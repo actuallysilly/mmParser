@@ -47,8 +47,20 @@ End If
 pyw = ""
 On Error Resume Next
 
-Set exec = shell.Exec("cmd /c where pythonw.exe")
-If Err.Number = 0 Then pyw = FirstRealExe(exec.StdOut.ReadAll)
+' autoword's own venv wins when it exists (requirements-lm.txt). It holds the CUDA
+' build of torch that Predictor = lm / shadow needs, plus everything the plain
+' service needs, so it is the right interpreter in every mode. No venv = the
+' system Python below, and the n-gram, exactly as before.
+cand = fso.BuildPath(here, ".venv\Scripts\pythonw.exe")
+If fso.FileExists(cand) Then
+    Set f = fso.GetFile(cand)
+    If f.Size > 0 Then pyw = cand
+End If
+
+If pyw = "" Then
+    Set exec = shell.Exec("cmd /c where pythonw.exe")
+    If Err.Number = 0 Then pyw = FirstRealExe(exec.StdOut.ReadAll)
+End If
 Err.Clear
 
 ' Nothing usable named pythonw - try python, and take the pythonw beside it.

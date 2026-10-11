@@ -185,6 +185,11 @@ class Engine:
 
     def on_boundary(self) -> None:
         """Enter / Send — the segment is finished."""
+        # A predictor that reads more than the current sentence (lm.LmPredictor)
+        # keeps the message just sent as context for the next one.
+        done = getattr(self.predictor, "segment_done", None)
+        if done and self.valid and self.anchored:
+            done(self.text)
         self.reset()
 
     # ── suggestion lifecycle ─────────────────────────────────────────────────

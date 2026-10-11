@@ -294,10 +294,20 @@ def build_predictor(cfg: cfgmod.Config, force_train: bool = False) -> NgramPredi
         log(f"model loaded from {MODEL_PATH.name} ({pred.trained_on:,} tokens)")
         return pred
 
-    lines, stats = corpus.load_clean(extra=cfg.extra_corpora)
-    if not stats.get("spellcheck"):
-        log("! Windows spell checker unreachable — repair is running on corpus "
-            "statistics alone, which keeps noticeably more junk")
+    lines, stats = [], {}
+    if cfg.corpus != "legacy":
+        lines, stats = corpus.load_repaired(extra=cfg.extra_corpora)
+        if not lines:
+            log("! Corpus = repaired, but userdata\\corpus\\repaired has no file yet "
+                "(tools\\corpus\\analysis\\p2_build_repaired.py) — using the old logs")
+    if lines:
+        repaired = True
+    else:
+        repaired = False
+        lines, stats = corpus.load_clean(extra=cfg.extra_corpora)
+        if not stats.get("spellcheck"):
+            log("! Windows spell checker unreachable — repair is running on corpus "
+                "statistics alone, which keeps noticeably more junk")
     pred.train(lines)
 
     # Which of your words are words in their own right, decided once, here.
@@ -317,12 +327,47 @@ def build_predictor(cfg: cfgmod.Config, force_train: bool = False) -> NgramPredi
             "fragment, so auto-completion will extend words like `do` -> `does`")
 
     pred.save(MODEL_PATH)
-    log(f"trained on {stats['days']} days / {len(lines):,} lines / "
-        f"{pred.trained_on:,} tokens  "
-        f"(repaired: fusion {stats.get('fusion', 0):,}, "
-        f"retype {stats.get('retype', 0):,}, double {stats.get('double', 0):,}, "
-        f"dropped {stats.get('junk', 0):,})")
+    if repaired:
+        log(f"trained on {stats['source']} + {stats['typelog_messages']:,} typelog "
+            f"messages: {stats['days']} days / {len(lines):,} lines / "
+            f"{pred.trained_on:,} tokens  ({stats['skipped_dirty']:,} lines still "
+            f"dirty, left out)")
+    else:
+        log(f"trained on {stats['days']} days / {len(lines):,} lines / "
+            f"{pred.trained_on:,} tokens  "
+            f"(repaired: fusion {stats.get('fusion', 0):,}, "
+            f"retype {stats.get('retype', 0):,}, double {stats.get('double', 0):,}, "
+            f"dropped {stats.get('junk', 0):,})")
     return pred
+
+
+SHADOW_LM_LOG = cfgmod.MMA_ROOT / "debuglogs" / "autoword_lm_shadow.log"
+
+
+def wrap_predictor(cfg: cfgmod.Config, pred: NgramPredictor):
+    """Predictor = lm or shadow: put the language model in front of the n-gram.
+    Anything missing (the .venv's torch, a GPU, the model folder) falls back to
+    the n-gram with one log line, never a dead service."""
+    if cfg.predictor not in ("lm", "shadow"):
+        return pred
+    path = Path(cfg.lm_path)
+    if not path.is_absolute():
+        path = cfgmod.MMA_ROOT / path
+    try:
+        import lm
+        t = time.time()
+        scorer = lm.LmScorer(path)
+    except Exception as exc:
+        log(f"! Predictor = {cfg.predictor}, but the language model did not load "
+            f"({type(exc).__name__}: {exc}) — using the n-gram. It needs "
+            f"autoword's .venv (requirements-lm.txt) and {path}")
+        return pred
+    log(f"language model {path.name} loaded in {time.time() - t:.1f}s "
+        f"(weight {cfg.lm_weight}, mode {cfg.predictor})")
+    if cfg.predictor == "lm":
+        return lm.LmPredictor(pred, scorer, cfg.lm_weight)
+    SHADOW_LM_LOG.parent.mkdir(exist_ok=True)
+    return lm.ShadowPredictor(pred, scorer, cfg.lm_weight, SHADOW_LM_LOG, cfg.list_size)
 
 
 def build_thesaurus(cfg: cfgmod.Config) -> Thesaurus:
@@ -428,7 +473,7 @@ class Service:
         self.scope = Scope(cfg.processes)
         thesaurus = build_thesaurus(cfg)
         self.engine = Engine(
-            predictor=build_predictor(cfg),
+            predictor=wrap_predictor(cfg, build_predictor(cfg)),
             thesaurus=thesaurus if thesaurus else None,
             reword_list_size=cfg.reword_list_size,
             min_chars=cfg.min_chars,

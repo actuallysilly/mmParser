@@ -111,7 +111,7 @@ AutoCompleteOnlyFragments = true
 
 ; and never these, whatever the rules above decide. Comma separated, and it is
 ; the finished word that goes here, not what you typed: `does, your, legs`.
-; userdata\autoword\vocabulary.tsv lists every word you use, commonest first —
+; userdata\\autoword\\vocabulary.tsv lists every word you use, commonest first —
 ; that is the file to skim when this list needs adding to.
 AutoCompleteNever =
 
@@ -142,7 +142,7 @@ Key = ctrl+tab
 ; glance rather than what you can reach.
 ListSize = 5
 
-; the words themselves live in userdatautowordeword.txt — one group per
+; the words themselves live in userdata\\autoword\\reword.txt — one group per
 ; line, comma separated, symmetric, written with a starter set the first time
 ; the service runs. Edit it freely; it is re-read on start.
 
@@ -157,6 +157,24 @@ Processes = infloww.exe
 RetrainOnStart = true
 ; extra corpus files (one sentence per line) to train on, comma separated
 ExtraCorpora =
+; what the n-gram learns from:
+;   repaired  userdata\\corpus\\repaired (the merged, repaired old logs) plus the
+;             new typelog's sent messages - the default
+;   legacy    the old raw keystroke dumps, repaired on the fly. They are full of
+;             deleted drafts; kept only to compare against
+Corpus = repaired
+; which model ranks the suggestions:
+;   ngram   counts of what you typed after the last two words (fast, no extras)
+;   lm      a fine-tuned language model re-ranks the n-gram's candidates using
+;           the whole sentence and your previous message. Needs autoword's .venv
+;           (requirements-lm.txt) and an NVIDIA GPU; falls back to ngram without
+;   shadow  shows the n-gram's suggestions, runs the LM silently beside them and
+;           logs both hit rates to debuglogs\\autoword_lm_shadow.log
+Predictor = ngram
+; the fine-tuned model folder, relative to the MMA folder or absolute
+LmPath = userdata\\corpus\\models\\qwen05-ft
+; how much the n-gram counts in the mix: LM + weight * log(n-gram)
+LmWeight = 0.5
 
 [Strip]
 ; position is relative to the foreground window, in pixels
@@ -194,6 +212,10 @@ class Config:
 
     retrain_on_start: bool = True
     extra_corpora: list[str] = field(default_factory=list)
+    corpus: str = "repaired"
+    predictor: str = "ngram"
+    lm_path: str = r"userdata\corpus\models\qwen05-ft"
+    lm_weight: float = 0.5
 
     strip_offset_x: int = 40
     strip_offset_y: int = -90
@@ -257,6 +279,10 @@ def load(path: Path = INI) -> Config:
         retrain_on_start=get("Model", "RetrainOnStart", "true").strip().lower()
         in ("1", "true", "yes", "on"),
         extra_corpora=_csv(get("Model", "ExtraCorpora", "")),
+        corpus=get("Model", "Corpus", "repaired").strip().lower(),
+        predictor=get("Model", "Predictor", "ngram").strip().lower(),
+        lm_path=get("Model", "LmPath", r"userdata\corpus\models\qwen05-ft").strip(),
+        lm_weight=num("Model", "LmWeight", 0.5, float),
         strip_offset_x=num("Strip", "OffsetX", 40),
         strip_offset_y=num("Strip", "OffsetY", -90),
         strip_font_size=num("Strip", "FontSize", 11),
