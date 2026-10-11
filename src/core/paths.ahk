@@ -79,6 +79,12 @@ global MMA_DETECTOR    := MMA_USERDATA "\detector_status.ini"
 ; means one model's mass sent into another model's chat. Separate files, separate
 ; readers, and whichever platform's window is in front is the only one consulted.
 global MMA_FANSLY      := MMA_USERDATA "\fansly_status.ini"
+; The RESOLVED answer, for readers outside AHK. The two files above are what each
+; detector saw; which model MMA actually settled on also depends on the per-site
+; mode (manual, position, name), and only active_model.ahk knows how to combine
+; them. The mass engine writes the result here (core/active_publish.ahk) so that
+; typelog can tag each message with its account without re-implementing any of it.
+global MMA_ACTIVE_NOW  := MMA_USERDATA "\active_now.ini"
 global MMA_VERSION     := MMA_ROOT "\version.txt"
 
 ; ─── Diagnostics ──────────────────────────────────────────────────────────────

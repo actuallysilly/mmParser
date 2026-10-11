@@ -16,12 +16,31 @@ service, driven the same way as the pinger and the automation listener.
 
 | file | holds |
 |---|---|
-| `YYYY-MM-DD.log` | messages whose text is exact: `time <tab> kind <tab> text` |
-| `YYYY-MM-DD.uncertain.log` | messages it cannot vouch for: `time <tab> kind <tab> reasons <tab> text` |
+| `YYYY-MM-DD.log` | messages whose text is exact: `time <tab> kind <tab> account <tab> conv <tab> text` |
+| `YYYY-MM-DD.uncertain.log` | messages it cannot vouch for: `time <tab> kind <tab> account <tab> conv <tab> reasons <tab> text` |
 
 `kind` is `typed`, `pasted` or `mixed`. Hotstrings and masses send by pasting
 (`Snd()` is Ctrl+V then Enter), so they show up as `pasted`. A line break inside
 a message (Shift+Enter) is written as `\n`, a tab as `\t`, a backslash as `\\`.
+
+## Which account, which conversation
+
+`account` is `site:slot:name` (`infloww:1:ALIW`), or `?` when MMA does not know.
+`conv` is the time its conversation started, so messages with the same `conv`
+went to the same fan.
+
+Neither is visible from the keyboard. The mass engine resolves the active account
+exactly as the shared keys do and writes it, with the conversation list's screen
+rectangle, to `userdata\active_now.ini` every 700 ms (`core/active_publish.ahk`).
+A new conversation starts when you:
+
+- click inside the conversation list (a fan switch: the box is taken to be empty,
+  and a draft left in the other chat is not part of the next message);
+- send from a different account;
+- send after `CONV_IDLE_S` (10 minutes) of not sending anything.
+
+Without MMA running there is no `active_now.ini`: messages are tagged `?` and only
+the idle rule splits conversations. If the click wall has no region, the same.
 
 ## Only what was sent
 

@@ -102,6 +102,12 @@ class MessageBox:
         self.all_selected = False
         self.reasons = []
 
+    def switch_chat(self) -> None:
+        """A click on another fan in the conversation list. Whatever was in the
+        box stays in the chat you left, unsent, so it is not part of the next
+        message; the new chat's box is taken to be empty."""
+        self._clear()
+
     def unseen(self, reason: str = START) -> None:
         """The box may hold text we never saw. Typing on is still recorded, but
         flagged, until the box is cleared or sent."""

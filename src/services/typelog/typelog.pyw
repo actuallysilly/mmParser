@@ -14,6 +14,13 @@ model, so a draft you delete never reaches the log. Pastes are read from the
 clipboard, which is how hotstring and mass sends (Snd() = Ctrl+V, Enter) are
 recorded at all.
 
+Each message is tagged with the ACCOUNT it went out from and a CONVERSATION
+number. Neither can be seen from the keyboard: the mass engine publishes MMA's
+resolved account and the conversation list's screen rectangle to
+userdata\\active_now.ini (core/active_publish.ahk), and a click inside that
+rectangle is a switch to another fan. A conversation also ends when the account
+changes or nothing has been sent for CONV_IDLE_S.
+
 When the keystrokes stop describing the box — the caret moved, part of it was
 selected, Ctrl+Z, Win+V — the message is written to YYYY-MM-DD.uncertain.log
 instead, with the reason, so the main log only ever holds text we can vouch for.
@@ -110,6 +117,12 @@ LOG_TAG        = "typelog"
 # here (config-in-ini). Declared in hotkeys.ahk [typelog] and edited in the
 # Hotkeys GUI, but bound HERE (pynput), not by AHK, exactly like [automation].
 HOTKEYS_INI    = MMA_USERDATA / "hotkeys.ini"
+
+# Written by the mass engine (core/active_publish.ahk): which account MMA resolved,
+# and where the conversation list is on screen. Absent when MMA is not running, in
+# which case messages are tagged "?" and only idle time splits conversations.
+ACTIVE_NOW     = MMA_USERDATA / "active_now.ini"
+CONV_IDLE_S    = 600                   # nothing sent for this long = a new conversation
 HOTKEY_SECTION = "typelog"
 PAUSE_FALLBACK = "^!F9"                 # used only if the ini has no [typelog] pause
 
@@ -128,7 +141,11 @@ ERROR_ALREADY_EXISTS = 183
 _box      = MessageBox()
 _held: set[str] = set()                 # modifier keys down, by pynput name
 _lock     = threading.Lock()
-_sent: queue.Queue = queue.Queue()      # (when, Message), or None to stop the writer
+_sent: queue.Queue = queue.Queue()      # (when, Message, account, conv), or None to stop
+# The conversation being typed in: its id (the time it started, unique within a
+# day and readable), the account it belongs to, and when it last sent anything.
+# id None = the next send starts a new one.
+_conv = {"id": None, "account": None, "last": 0.0}
 _paused   = False
 _in_scope = not SCOPE_ENABLED
 _stop     = threading.Event()
@@ -376,16 +393,18 @@ def _writer() -> None:
     """Writes each sent message as one line. Its own thread, so a slow disk never
     delays a keystroke. A None in the queue means drain and exit.
 
-        main log        HH:MM:SS <tab> typed|pasted|mixed <tab> text
-        uncertain log   HH:MM:SS <tab> typed|pasted|mixed <tab> reasons <tab> text
+        main log        time <tab> kind <tab> account <tab> conv <tab> text
+        uncertain log   time <tab> kind <tab> account <tab> conv <tab> reasons <tab> text
 
-    Line breaks and tabs inside a message are escaped (message.escape)."""
+    kind is typed|pasted|mixed; account is "site:slot:name" or "?"; conv is the
+    time its conversation started. Line breaks and tabs inside text are escaped
+    (message.escape)."""
     while True:
         item = _sent.get()
         if item is None:
             return
-        when, msg = item
-        cols = [f"{when:%H:%M:%S}", msg.kind]
+        when, msg, account, conv = item
+        cols = [f"{when:%H:%M:%S}", msg.kind, escape(account), conv]
         if not msg.exact:
             cols.append(",".join(msg.reasons))
         cols.append(escape(msg.text))
@@ -394,6 +413,58 @@ def _writer() -> None:
                 fh.write("\t".join(cols) + "\n")
         except OSError as exc:
             print(f"write failed: {exc}")
+
+
+_active_cache = {"mtime": None, "data": {}}
+
+
+def _active() -> dict:
+    """active_now.ini as a dict, re-read only when the file changed. {} when MMA is
+    not running or the file is unreadable: tagging must never stop a recording."""
+    try:
+        mt = ACTIVE_NOW.stat().st_mtime_ns
+    except OSError:
+        return {}
+    if mt != _active_cache["mtime"]:
+        data = {}
+        try:
+            for line in ACTIVE_NOW.read_text(encoding="utf-8-sig").splitlines():
+                k, sep, v = line.partition("=")
+                if sep:
+                    data[k.strip()] = v.strip()
+        except OSError:
+            return _active_cache["data"]
+        _active_cache.update(mtime=mt, data=data)
+    return _active_cache["data"]
+
+
+def _account() -> str:
+    """'infloww:1:tab 1', or '?' when MMA does not know which account is in front."""
+    a = _active()
+    if a.get("state") != "ok" or a.get("no", "0") in ("", "0"):
+        return "?"
+    return f"{a.get('site', '')}:{a['no']}:{a.get('name', '')}"
+
+
+def _in_chat_list(x: int, y: int) -> bool:
+    """Is a screen point inside the conversation list MMA published?"""
+    try:
+        lx, ly, lw, lh = (int(v) for v in _active().get("list", "").split(","))
+    except ValueError:
+        return False
+    return lx <= x < lx + lw and ly <= y < ly + lh
+
+
+def _tag(now: float) -> tuple[str, str]:
+    """The account and conversation id for a message sent now, starting a new
+    conversation if the account changed, a fan was clicked, or it went idle."""
+    account = _account()
+    if (_conv["id"] is None or account != _conv["account"]
+            or now - _conv["last"] > CONV_IDLE_S):
+        _conv["id"] = time.strftime("%H:%M:%S", time.localtime(now))
+        _conv["account"] = account
+    _conv["last"] = now
+    return account, _conv["id"]
 
 
 CF_UNICODETEXT = 13
@@ -461,7 +532,9 @@ def on_press(key) -> None:
         msg = apply_key(_box, name, getattr(key, "vk", None),
                         getattr(key, "char", None), mods, _read_clipboard)
     if msg is not None:
-        _sent.put((datetime.datetime.now(), msg))
+        now = time.time()
+        account, conv = _tag(now)
+        _sent.put((datetime.datetime.fromtimestamp(now), msg, account, conv))
 
 
 def on_release(key) -> None:
@@ -473,8 +546,15 @@ def on_click(x, y, button, pressed, *_injected) -> None:
     click that brings Infloww back to the front, which lands while another window
     is still foreground. So clicks count whatever is in front."""
     if pressed and not _paused:
+        switched = _in_chat_list(x, y)
         with _lock:
-            _box.caret_away()
+            if switched:
+                # Another fan: a new conversation, and the box you left keeps its
+                # unsent draft — the next message starts from empty.
+                _box.switch_chat()
+                _conv["id"] = None
+            else:
+                _box.caret_away()
 
 
 def _resync_modifiers() -> None:
@@ -516,7 +596,17 @@ def run_recorder(interval: float = 0.5) -> int:
               " or: pip install pynput")
         return 2
 
+    # Physical pixels, like AHK's: the conversation-list rectangle MMA publishes is
+    # in them, and a DPI-unaware process can be handed scaled coordinates on a
+    # mixed-DPI desk. Before any listener starts.
+    try:
+        ctypes.windll.shcore.SetProcessDpiAwareness(2)      # per-monitor aware
+    except (AttributeError, OSError):
+        pass
     print(f"recording to {LOG_DIR}")
+    a = _active()
+    print(f"account tagging: {_account()}" + ("" if a else
+          "  (no active_now.ini yet: MMA's mass engine writes it)"))
     if SCOPE_ENABLED:
         scope = ", ".join(SCOPE_TITLE_PATTERNS + SCOPE_PROCESS_NAMES) or "(nothing)"
         if _SCOPE_SUPPORTED:

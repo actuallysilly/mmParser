@@ -198,6 +198,15 @@ class Shortcuts(unittest.TestCase):
         self.assertEqual(k.texts, ["X"])
 
 
+class SwitchingChats(unittest.TestCase):
+    def test_a_draft_left_in_another_chat_is_not_sent(self):
+        k = Keys().type("draft for Sam")
+        k.box.switch_chat()
+        k.type("hello").enter()
+        self.assertEqual(k.texts, ["hello"])
+        self.assertTrue(k.sent[0].exact)
+
+
 class LineFormat(unittest.TestCase):
     def test_round_trip(self):
         for s in ["plain", "two\nlines", "tab\there", r"back\slash", "lit\\n", ""]:

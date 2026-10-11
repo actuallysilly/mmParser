@@ -72,6 +72,11 @@ global _LOG_T   := 0                 ; when we last read them (0 = never)
 global _LOG_ON  := true              ; Logging
 global _LOG_POP := false             ; Popups
 global _LOG_MAX := false             ; MaxLogging
+; Raised around a call made on a timer, so a function that explains itself when a
+; person presses a key does not explain itself twice a second to nobody. Routine
+; levels only: LOGE ignores it, because a failure is never noise. A counter, not a
+; flag, so nested hushes cannot un-hush each other. See core/active_publish.ahk.
+global LOG_HUSH := 0
 ; NOT _LOG_FORCED. A variable and a function whose names differ only by case are
 ; the same name to AHK, and the script fails to LOAD — silently, exit code 0. The
 ; reader below is _LOG_Forced(), so the cache it fills cannot be called that.
@@ -161,7 +166,7 @@ _LOG_Settings() {
     }
 }
 
-LOG_On()     => (_LOG_Settings(), _LOG_ON)
+LOG_On()     => (_LOG_Settings(), _LOG_ON && !LOG_HUSH)
 LOG_Popups() => (_LOG_Settings(), _LOG_POP)
 
 ; True when the firehose is on. Call sites use this to skip building a message

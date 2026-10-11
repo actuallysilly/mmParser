@@ -36,6 +36,9 @@
 ; The mouse half of the anti-fumble guards. Same reasoning as tab_marks above: the
 ; mass runtime never calls into it, this process hosts it. See HK_OnSend below.
 #Include "../screen/click_wall.ahk"
+; Publishes the resolved account for typelog. Hosted here for the same reason as the
+; lock badge: this is the process that resolves the model. See ACTIVE_Publish below.
+#Include "../core/active_publish.ahk"
 
 ; ── the library ───────────────────────────────────────────────────────────────
 ; MASS_DOC itself is declared and first loaded in runtime.ahk — the file that
@@ -95,6 +98,14 @@ SetTimer(LOCKBADGE_Sync, 700)
 ;  process would be a second opinion, which is the one thing a readout must not be.
 FANBADGE_Sync()
 SetTimer(FANBADGE_Sync, 700)
+
+; ── the resolved account, for typelog ────────────────────────────────────────
+;  typelog tags each message with the account it went out from and starts a new
+;  conversation on a click in the chat list; both answers live here, not in
+;  Python (core/active_publish.ahk). Same 700ms as the badges: it has to keep up
+;  with a tab switch, and an unchanged answer writes nothing.
+ACTIVE_Publish()
+SetTimer(ACTIVE_Publish, 700)
 HK_Bind("gui.toggleRailBadge", FANBADGE_Toggle)
 
 ; ── the tab bars ──────────────────────────────────────────────────────────────
