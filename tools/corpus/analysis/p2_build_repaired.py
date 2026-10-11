@@ -4,12 +4,12 @@
 
 dirty = 1 when the repaired text still has an unknown, uncommon word or a glued
 capital — the lines worth sending to an LLM in the repair phase. Dropped lines
-(not messages) are omitted.
+(not messages) and scrubbed lines (see common.sensitive) are omitted.
 """
 import collections
 import re
 
-from common import CORPUS, load
+from common import CORPUS, load, scrub_patterns, sensitive
 from repair import counts, known, repair
 
 OUT = CORPUS / "repaired"
@@ -23,10 +23,14 @@ def dirty(t: str) -> bool:
 
 
 stats = collections.Counter()
+patterns = scrub_patterns()
 with open(OUT / "rules_v1.tsv", "w", encoding="utf-8") as fh:
     for ln in load():
-        t = repair(ln.text)
         stats["in"] += 1
+        if sensitive(ln.text, patterns):
+            stats["scrubbed"] += 1
+            continue
+        t = repair(ln.text)
         if not t:
             stats["dropped"] += 1
             continue

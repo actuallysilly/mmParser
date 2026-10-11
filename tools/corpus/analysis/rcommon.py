@@ -1,4 +1,5 @@
-"""Loading the rule-repaired corpus (userdata/corpus/repaired/rules_v1.tsv)."""
+"""Loading the repaired corpus: userdata/corpus/repaired/llm_v1.tsv (rules + LLM
+pass, see p8_llm_merge.py), falling back to rules_v1.tsv when it is absent."""
 from __future__ import annotations
 
 import re
@@ -19,8 +20,11 @@ class Msg:
 
 
 def load_repaired() -> list[Msg]:
+    src = CORPUS / "repaired" / "llm_v1.tsv"
+    if not src.exists():
+        src = CORPUS / "repaired" / "rules_v1.tsv"
     out = []
-    for line in (CORPUS / "repaired" / "rules_v1.tsv").read_text(encoding="utf-8").splitlines():
+    for line in src.read_text(encoding="utf-8").splitlines():
         day, idx, src, d, text = line.split("\t", 4)
         out.append(Msg(day, int(idx), src, d == "1", unescape(text)))
     return out

@@ -38,3 +38,24 @@ def load(folder: Path = MERGED) -> list[Line]:
 
 def words(text: str) -> list[str]:
     return WORD_RE.findall(text)
+
+
+# THE SCRUB. The keystroke logs caught whatever was typed while Infloww was in
+# front, which included a password and an email address. Every builder that
+# writes a training file drops any row containing an email address or a string
+# from the private blocklist (userdata/corpus/scrub.txt, one per line, never
+# committed).
+EMAIL = re.compile(r"[\w.+-]+@[\w-]+\.[\w.-]+")
+SCRUB_FILE = CORPUS / "scrub.txt"
+
+
+def scrub_patterns() -> list[str]:
+    if not SCRUB_FILE.exists():
+        return []
+    return [l.strip().lower() for l in SCRUB_FILE.read_text(encoding="utf-8").splitlines()
+            if l.strip() and not l.startswith("#")]
+
+
+def sensitive(text: str, patterns: list[str]) -> bool:
+    low = text.lower()
+    return bool(EMAIL.search(text)) or any(p in low for p in patterns)
