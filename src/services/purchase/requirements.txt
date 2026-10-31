@@ -1,0 +1,5 @@
+# purchase_sound.pyw: numpy for the pixel test, RapidOCR to read the popup,
+# Pillow for the frame checks in --test.
+numpy>=1.24
+rapidocr_onnxruntime>=1.2
+pillow>=10.0

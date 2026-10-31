@@ -35,6 +35,10 @@ tools/ui-research/
 # The code recreates the folder on demand.
 src/services/automation/debug/
 
+# Frames of the purchase popup for purchase_sound.pyw --test: real fan names and
+# handles. The test skips its frame checks when they are missing.
+src/services/purchase/testdata/
+
 # MMA-Setup.exe — a build output, rebuilt by tools/packaging/build.bat.
 tools/packaging/dist/
 

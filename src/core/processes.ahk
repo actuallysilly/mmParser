@@ -368,6 +368,12 @@ SVC_Def("pinger", "python", MMA_SRC "\services\pinger\pinger_start.vbs",
          needText: "The unread pinger needs Python, which isn't installed.`n`n"
                  . "Run install.bat to set it up."})
 
+SVC_Def("purchaseSound", "python", MMA_SRC "\services\purchase\purchase_sound_start.vbs",
+        "proc.purchase", "the purchase sound",
+        {event: "Global\MMA.purchase.stop",
+         needText: "The purchase sound needs Python, which isn't installed.`n`n"
+                 . "Run install.bat to set it up."})
+
 SVC_Def("typelog", "python", MMA_SRC "\services\typelog\typelog_start.vbs",
         "proc.typelog", "the typelog recorder",
         {event: "Global\MMA.typelog.stop",

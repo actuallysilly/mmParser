@@ -259,6 +259,10 @@ FEAT_Def("statsOverlay",  "StatsOverlay",       "Stats overlay",                
 FEAT_Def("replyBox",      "ReplyBox",           "Reply timers (box rows kept waiting)", "0", "Background")
 FEAT_Def("automation",    "AutomationListener", "Automation hotkeys (needs Python)",   "1", "Background")
 FEAT_Def("pinger",        "Pinger",             "Unread pinger (needs Python)",        "0", "Background")
+; ON by default: it only listens. Rings when Infloww's "has purchased your
+; message" popup appears in the window's top-right corner, whichever chat is
+; open. Without Python it simply does not start. See src/services/purchase/.
+FEAT_Def("purchaseSound", "PurchaseSound",      "Purchase sound (rings when a fan buys a PPV, needs Python)", "1", "Background")
 FEAT_Def("startupScripts","StartupScriptsOn",   "Auto-start scripts + restart watchdog", "1", "Background")
 ; OFF by default, and this one is not a taste call. It installs a keyboard hook
 ; that sees every key you press, in every application, for as long as it runs —

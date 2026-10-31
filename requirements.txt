@@ -31,6 +31,7 @@
 # working directory.
 -r src/services/automation/requirements.txt
 -r src/services/pinger/requirements.txt
+-r src/services/purchase/requirements.txt
 -r src/services/typelog/requirements.txt
 -r src/services/autoword/requirements.txt
 

@@ -1,5 +1,23 @@
 ﻿# Changelog
 
+## 2.0.6 — 2026-10-31
+
+### A sound when a fan buys
+
+When a fan pays for a PPV, Infloww Messages shows a popup in its top-right corner
+for a few seconds: "Sam @u… has purchased your message for $75.00!". MMA now
+plays a sound the moment that popup appears, whichever chat you have open.
+
+- On by default: **Settings ▸ Features ▸ Purchase sound**. Needs Python (run
+  `install.bat`, which now also installs RapidOCR for it).
+- Only sales ring. Tips, new subscribers, "restarted their subscription" and
+  "Message Pro will go idle" show up in the same spot and stay silent.
+- The sound is `userdata\sounds\purchase.wav` if you put one there, otherwise
+  Windows' tada. Every sale it hears is logged as `purchase:` in
+  `debuglogs\error_log.txt`.
+- It reads the window without taking focus, so it works while Infloww is
+  covered, but not while it is minimised.
+
 ## 2.0.5 — 2026-10-05
 
 ### Hotstring keys expire
