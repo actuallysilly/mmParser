@@ -417,14 +417,26 @@ class ToolsWindow {
             : "Sound: Windows' tada"
     }
 
+    ; winmm PlaySound, NOT SoundPlay: SoundPlay goes through MCI, which keeps the
+    ; file OPEN after it finishes, until the next SoundPlay or this window's
+    ; process exits. So after one "Play it" (or the play that follows a choice)
+    ; purchase.wav was locked, and the next "Choose a sound…" failed with "Could
+    ; not copy that sound". PlaySound with SND_ASYNC (what purchase_alert.py's
+    ; winsound uses too) holds no handle once it has loaded the file.
     PlaySound(*) {
-        try SoundPlay(this.SoundPath())
+        DllCall("winmm\PlaySoundW", "Str", this.SoundPath(), "Ptr", 0, "UInt", 0x20001)  ; SND_FILENAME | SND_ASYNC
+    }
+
+    ; Stop anything this window is playing before the file is replaced.
+    StopSound() {
+        DllCall("winmm\PlaySoundW", "Ptr", 0, "Ptr", 0, "UInt", 0)
     }
 
     ChooseSound(*) {
         f := FileSelect(3, A_WinDir "\Media\", "Pick the purchase sound", "Sounds (*.wav)")
         if (f = "")
             return
+        this.StopSound()
         try {
             DirCreate(MMA_USERDATA "\sounds")
             FileCopy(f, MMA_USERDATA "\sounds\purchase.wav", true)
@@ -438,6 +450,7 @@ class ToolsWindow {
     }
 
     DefaultSound(*) {
+        this.StopSound()
         try FileDelete(MMA_USERDATA "\sounds\purchase.wav")
         this.PaintSound()
     }
