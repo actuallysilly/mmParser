@@ -162,7 +162,7 @@ btnStartup.OnEvent("Click", (*) => OpenStartupScripts(MainGui.Hwnd))
 MainGui.SetFont("s12 c" TXT, "Segoe UI")
 searchEd := MainGui.Add("Edit", "x16 y48 w948 h32 Background" FIELDBG)
 searchEd.OnEvent("Change", OnSearch)
-CueBanner(searchEd, "Search trigger or message text" Chr(0x2026) "   (spaces = all terms must match)")
+CueBanner(searchEd, "Search trigger, message text or hotkey (^!m, ctrl alt m)" Chr(0x2026) "   (spaces = all terms must match)")
 
 ; list (full width; the showcase sits beneath it)
 MainGui.SetFont("s11 c" TXT, "Segoe UI")
@@ -343,12 +343,14 @@ PopulateList(query) {
         if (t != "")
             terms.Push(t)
 
+    kq := HSW_KeyQuery(query)
+
     LV.Opt("-Redraw")
     LV.Delete()
     shown := 0
     for _, i in SortedIndices() {
         r := gRecords[i]
-        if MatchRec(r, terms) {
+        if MatchRec(r, terms) || (kq && MatchKey(r, kq)) {
             LV.Add(, r.trigger, PinCell(r.trigger), FlattenOneLine(r.preview),
                      r.steps.Length, VarCell(r.trigger), KeyCell(r.trigger),
                      HsFileLabel(r.file), AddedCell(r.added), UsedCell(r.trigger), i)
@@ -460,6 +462,69 @@ MatchRec(r, terms) {
         if !InStr(hay, t, false)          ; case-insensitive substring
             return false
     return true
+}
+
+;  Search by HOTKEY. A query that names modifiers — as AHK writes them ("!^",
+;  "^!m") or as words ("ctrl alt m", "ctrl+alt+m") — is also read as a key, and
+;  matches every hotstring bound to a key with AT LEAST those modifiers (in any
+;  order: "!^" and "^!" are one set) and, if a key was named, that key. It is
+;  ORed with the text match rather than replacing it, so a message that really
+;  does contain "alt" is not hidden by this.
+;
+;  Returns {mods, key} or 0 when the query is not shaped like a key: no modifier
+;  at all, or more than one leftover word ("alt text for her" is a sentence).
+HSW_KeyQuery(query) {
+    static MODWORD := Map("ctrl", "^", "control", "^", "ctl", "^", "alt", "!",
+                        "shift", "+", "win", "#", "windows", "#")
+    q := StrLower(Trim(query))
+    mods := "", words := [], pos := 1
+    while (pos <= StrLen(q)) {
+        c := SubStr(q, pos, 1)
+        if (c = " " || c = "-") {
+            pos++
+        } else if RegExMatch(q, "\G(ctrl|control|ctl|alt|shift|windows|win)(?![a-z0-9])", &m, pos) {
+            mods .= MODWORD[m[0]]
+            pos += m.Len
+            if (SubStr(q, pos, 1) = "+")        ; "ctrl+m": this + is a separator, not Shift
+                pos++
+        } else if InStr("^!+#", c) {
+            mods .= c
+            pos++
+        } else {
+            RegExMatch(q, "\G[^ \-^!+#]+", &m, pos)   ; \G: anchor AT pos — ^ would only match at 1
+            words.Push(m[0])
+            pos += m.Len
+        }
+    }
+    if (mods = "" || words.Length > 1)
+        return 0
+    return {mods: HSW_ModSet(mods), key: words.Length ? words[1] : ""}
+}
+
+; Modifiers as a canonical set, so "!^" and "^!" compare equal.
+HSW_ModSet(mods) {
+    out := ""
+    for c in ["^", "!", "+", "#"]
+        if InStr(mods, c)
+            out .= c
+    return out
+}
+
+MatchKey(r, kq) {
+    k := HK_Key(HK_HotstringId(r.trigger))
+    if (k = "")
+        return false
+    k := LTrim(k, "*~$<>")
+    RegExMatch(k, "^[\^!+#<>]*", &m)
+    for c in StrSplit(kq.mods)
+        if !InStr(m[0], c)
+            return false
+    if (kq.key = "")
+        return true
+    name := SubStr(k, m.Len + 1)
+    ; "m" for "^!m", and the on-screen name too ("mouse4" for XButton1)
+    toks := HKP_KeyTokens(k)
+    return (name = kq.key) || (StrReplace(toks[toks.Length], " ") = kq.key)
 }
 
 OnRowFocus(ctrl, row) {
@@ -762,6 +827,12 @@ SetHotstringKey(*) {
         LOGI("hotstring.key", "removed the key from " trg " (was "
                             . HKP_KeyLabel(was) ") — it is typed only from now on")
         _HsKeyApplied(rec, "'" trg "' no longer has a key.", true)
+        return
+    }
+
+    ; The Windows guard (HKP_SystemOwner): refused, not warned about.
+    if ((why := HKP_SystemOwner(k)) != "") {
+        MsgBox(HKP_RefuseMsg(k, why), "Key taken", 0x30)
         return
     }
 

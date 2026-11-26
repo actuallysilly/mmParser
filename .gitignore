@@ -58,3 +58,14 @@ src/services/error_log.txt
 # autoword's own Python, for the optional language model — ~3 GB of CUDA torch.
 # Rebuilt from src/services/autoword/requirements-lm.txt.
 src/services/autoword/.venv/
+
+# ─── test captures of the live UI ─────────────────────────────────────────────
+# Real fans' names, @handles and purchase amounts, and the staff Discord. They
+# stay on disk so the self-tests run locally; tests that read them check shape,
+# never a real handle.
+src/services/automation/testdata/
+src/services/llm/testdata/
+mm_gatherer_*.png
+
+# Private notes to Claude.
+/# answer to *.md

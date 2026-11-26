@@ -72,6 +72,8 @@
 ; real MMA would open two menus on one press — while running both is exactly how
 ; you compare them. Nothing else here calls into it.
 #Include "tools_window.ahk"
+#Include "tools_settings.ahk"
+#Include "payout_calc.ahk"
 #Include "alt_fu_window.ahk"
 ; Only for CREDIT_On() and CRED_FindFile() — which file the corner picture comes
 ; from, honouring Settings ▸ GUI ▸ Corner picture. None of the GDI+ half of that
@@ -192,7 +194,6 @@ model3Name := modelNames[3]
 
 walletCheckFu3 := LOG_IniInt(CFG_FILE, "Settings", "WalletCheckFu3", 0)
 mouseControl   := LOG_IniInt(CFG_FILE, "Settings", "MouseControl", 1)
-_doubleMM      := false
 
 ; ── what the Settings window reads out of the main window ────────────────────
 ;  Not this window's business, any of it — these are the values Settings shows on
@@ -333,7 +334,7 @@ try {
 
 ; ─── Arm the shared behaviour ─────────────────────────────────────────────────
 ;  The auto-parse and add-hotkey messages, the webgui clipboard watcher, and the
-;  [gui] hotkeys — OCR grab, Add-hotkey grab, the branch builder and double-MM.
+;  [gui] hotkeys — OCR grab, Add-hotkey grab and the branch builder.
 ;
 ;  The prototype bound NONE of this, deliberately: it was built to run beside the
 ;  real MMA, and a second process claiming the same global keys would have taken

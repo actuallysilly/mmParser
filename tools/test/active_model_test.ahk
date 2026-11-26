@@ -84,10 +84,9 @@ Ck("absent -> 1", ManualModelNo(), 1)
 ; a test. It is why mass_bind_test.ahk fires everything through a `noop`.
 
 ; ── the feature gate now sees mass.active.* ──────────────────────────────────
-Ck("feat mass.1.altFu1",      FEAT_ForHotkey("mass.1.altFu1"),      "altFollowups")
-Ck("feat mass.active.altFu1", FEAT_ForHotkey("mass.active.altFu1"), "altFollowups")
-Ck("feat mass.active.mFu1",   FEAT_ForHotkey("mass.active.mFu1"),   "mouseControl")
-Ck("feat mass.active.mPpv",   FEAT_ForHotkey("mass.active.mPpvFus"),"mouseControl")
+; altFu*/mFu*/mPpv* are not ids any more — their keys are overloads of fu1-3 and
+; the PPV pair, and Mouse-button follow-ups gates mouse KEYS in _HK_Apply.
+Ck("feat mass.active.nextFu", FEAT_ForHotkey("mass.active.nextFu"), "nextFu")
 Ck("feat mass.active.brPick", FEAT_ForHotkey("mass.active.brPick"), "altFollowups")
 Ck("feat mass.active.fu1",    FEAT_ForHotkey("mass.active.fu1"),    "")
 Ck("feat mass.active.mass",   FEAT_ForHotkey("mass.active.mass"),   "")

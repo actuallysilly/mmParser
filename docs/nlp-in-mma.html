@@ -1,0 +1,711 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>NLP in MMA</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,500;12..96,700&family=IBM+Plex+Sans:ital,wght@0,400;0,500;0,600;1,400&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<style>
+/* Layout: a long technical reading page — sticky contents rail on wide screens, one 68ch column of prose, wide tables and diagrams allowed to scroll in place. */
+:root {
+  --bg: #f5f6f8;
+  --paper: #ffffff;
+  --ink: #16191f;
+  --muted: #5b6270;
+  --line: #dde1e7;
+  --accent: #b0245c;
+  --accent-soft: #fbe9f0;
+  --fan: #262626;
+  --her: #353535;
+  --keep: #1f7a4d;
+  --keep-soft: #e3f3ea;
+  --look: #9a6400;
+  --look-soft: #fbf1dc;
+  --fix: #b3261e;
+  --fix-soft: #fbe5e3;
+  --code-bg: #eef0f4;
+  --display: "Bricolage Grotesque", "Segoe UI", system-ui, sans-serif;
+  --body: "IBM Plex Sans", "Segoe UI", system-ui, sans-serif;
+  --mono: "IBM Plex Mono", ui-monospace, "Cascadia Mono", Consolas, monospace;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #111318; --paper: #181b21; --ink: #e7e9ee; --muted: #9aa1ae; --line: #2a2f38;
+    --accent: #f06b9e; --accent-soft: #3a1d29;
+    --keep: #5fcf95; --keep-soft: #16301f; --look: #e9b453; --look-soft: #33280f;
+    --fix: #ff8a80; --fix-soft: #3a1a18; --code-bg: #22262e;
+    color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #111318; --paper: #181b21; --ink: #e7e9ee; --muted: #9aa1ae; --line: #2a2f38;
+  --accent: #f06b9e; --accent-soft: #3a1d29;
+  --keep: #5fcf95; --keep-soft: #16301f; --look: #e9b453; --look-soft: #33280f;
+  --fix: #ff8a80; --fix-soft: #3a1a18; --code-bg: #22262e;
+  color-scheme: dark;
+}
+
+* { box-sizing: border-box; }
+body {
+  background: var(--bg); color: var(--ink);
+  font-family: var(--body); font-size: 16px; line-height: 1.62;
+  padding-inline: 16px; padding-block: 0 64px;
+}
+.shell {
+  max-width: 1180px; margin: 0 auto;
+  display: grid; grid-template-columns: 230px minmax(0, 1fr); gap: 48px;
+}
+@media (max-width: 920px) { .shell { grid-template-columns: minmax(0, 1fr); gap: 0; } nav.toc { display: none; } }
+
+nav.toc {
+  position: sticky; top: env(safe-area-inset-top, 0px); align-self: start;
+  padding-block: 40px; font-size: 13.5px; line-height: 1.45;
+  max-height: 100vh; overflow-y: auto;
+}
+nav.toc .label { font-family: var(--mono); font-size: 11px; letter-spacing: .08em; text-transform: uppercase; color: var(--muted); margin-bottom: 10px; }
+nav.toc ol { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; counter-reset: toc; }
+nav.toc li { counter-increment: toc; display: grid; grid-template-columns: 22px 1fr; }
+nav.toc li::before { content: counter(toc); font-family: var(--mono); font-size: 11.5px; color: var(--muted); padding-top: 1px; }
+nav.toc a { color: var(--ink); text-decoration: none; }
+nav.toc a:hover, nav.toc a:focus-visible { color: var(--accent); }
+
+main { min-width: 0; padding-block: 40px; }
+.col { max-width: 72ch; }
+
+header.top { padding-block: 8px 28px; border-bottom: 1px solid var(--line); margin-bottom: 36px; }
+.eyebrow { font-family: var(--mono); font-size: 12px; letter-spacing: .08em; text-transform: uppercase; color: var(--accent); }
+h1 { font-family: var(--display); font-weight: 700; font-size: clamp(2.2rem, 5vw, 3.4rem); line-height: 1.04; margin: 10px 0 14px; text-wrap: balance; letter-spacing: -0.01em; }
+.dek { font-size: 1.12rem; color: var(--muted); max-width: 64ch; margin: 0; }
+.meta { margin-top: 16px; font-family: var(--mono); font-size: 12.5px; color: var(--muted); display: flex; flex-wrap: wrap; gap: 6px 18px; }
+
+section { padding-block: 22px 8px; scroll-margin-top: 16px; }
+h2 { font-family: var(--display); font-weight: 700; font-size: 1.85rem; line-height: 1.15; margin: 28px 0 12px; text-wrap: balance; }
+h2 .n { font-family: var(--mono); font-size: .9rem; font-weight: 500; color: var(--accent); margin-right: 10px; vertical-align: 4px; }
+h3 { font-family: var(--display); font-weight: 600; font-size: 1.25rem; margin: 30px 0 8px; text-wrap: balance; }
+h4 { font-size: .8rem; font-family: var(--mono); letter-spacing: .07em; text-transform: uppercase; color: var(--muted); margin: 22px 0 6px; font-weight: 500; }
+p { margin: 0 0 14px; }
+ul, ol { margin: 0 0 16px; padding-left: 1.3em; }
+li { margin-bottom: 6px; }
+strong { font-weight: 600; }
+a { color: var(--accent); }
+code, .mono { font-family: var(--mono); font-size: .86em; background: var(--code-bg); padding: 1px 5px; border-radius: 4px; overflow-wrap: anywhere; }
+
+.callout { border-left: 3px solid var(--accent); background: var(--accent-soft); padding: 14px 18px; border-radius: 0 8px 8px 0; margin: 18px 0 20px; }
+.callout p:last-child { margin-bottom: 0; }
+.callout .k { font-family: var(--mono); font-size: 11.5px; letter-spacing: .08em; text-transform: uppercase; color: var(--accent); display: block; margin-bottom: 4px; }
+
+.scroll { overflow-x: auto; margin: 14px 0 22px; border: 1px solid var(--line); border-radius: 8px; background: var(--paper); }
+table { border-collapse: collapse; width: 100%; font-size: 14.5px; }
+th, td { text-align: left; padding: 9px 12px; border-bottom: 1px solid var(--line); vertical-align: top; }
+th { font-family: var(--mono); font-size: 11.5px; letter-spacing: .06em; text-transform: uppercase; color: var(--muted); font-weight: 500; background: var(--paper); white-space: nowrap; }
+tr:last-child td { border-bottom: 0; }
+td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
+tr.hl td { background: var(--accent-soft); }
+
+.chip { display: inline-block; font-family: var(--mono); font-size: 11px; letter-spacing: .05em; text-transform: uppercase; padding: 2px 8px; border-radius: 999px; white-space: nowrap; font-weight: 500; }
+.chip.keep { color: var(--keep); background: var(--keep-soft); }
+.chip.look { color: var(--look); background: var(--look-soft); }
+.chip.fix { color: var(--fix); background: var(--fix-soft); }
+.chip.live { color: var(--keep); background: var(--keep-soft); }
+.chip.off { color: var(--muted); background: var(--code-bg); }
+
+.verdicts { display: grid; gap: 14px; margin: 18px 0 24px; }
+.verdict { background: var(--paper); border: 1px solid var(--line); border-radius: 10px; padding: 16px 18px; min-width: 0; }
+.verdict .head { display: flex; flex-wrap: wrap; align-items: baseline; gap: 8px 12px; margin-bottom: 6px; }
+.verdict .head h3 { margin: 0; font-size: 1.08rem; }
+.verdict p { margin-bottom: 8px; }
+.verdict p:last-child { margin-bottom: 0; }
+.verdict .why { color: var(--muted); font-size: 14.5px; }
+
+.stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 12px; margin: 18px 0 22px; }
+.stat { background: var(--paper); border: 1px solid var(--line); border-radius: 10px; padding: 14px 16px; }
+.stat .v { font-family: var(--display); font-size: 2rem; font-weight: 700; line-height: 1; font-variant-numeric: tabular-nums; }
+.stat .v.bad { color: var(--fix); }
+.stat .v.good { color: var(--keep); }
+.stat .l { font-size: 13.5px; color: var(--muted); margin-top: 6px; line-height: 1.4; }
+
+/* the chat-bubble detail: Infloww's own two bubble greys, which the OCR attribution is built on */
+.chat { background: #1b1b1b; border-radius: 10px; padding: 14px; display: grid; gap: 8px; margin: 16px 0 22px; max-width: 560px; }
+.bub { max-width: 82%; padding: 8px 12px; border-radius: 12px; font-size: 14px; line-height: 1.45; color: #ececec; }
+.bub.fan { background: var(--fan); justify-self: start; border-bottom-left-radius: 4px; }
+.bub.her { background: var(--her); justify-self: end; border-bottom-right-radius: 4px; }
+.bub .tag { display: block; font-family: var(--mono); font-size: 10.5px; color: #9b9b9b; margin-bottom: 2px; }
+.chat .cap { font-family: var(--mono); font-size: 11px; color: #9b9b9b; }
+
+.flow { background: var(--paper); border: 1px solid var(--line); border-radius: 10px; padding: 12px; overflow-x: auto; margin: 16px 0 22px; }
+pre.mermaid { margin: 0; background: transparent; }
+
+.roadmap { counter-reset: rm; list-style: none; padding: 0; display: grid; gap: 12px; }
+.roadmap li { counter-increment: rm; display: grid; grid-template-columns: 34px minmax(0, 1fr); gap: 10px; background: var(--paper); border: 1px solid var(--line); border-radius: 10px; padding: 14px 16px; margin: 0; }
+.roadmap li::before { content: counter(rm); font-family: var(--display); font-weight: 700; font-size: 1.3rem; color: var(--accent); line-height: 1.2; }
+.roadmap .t { font-weight: 600; }
+.roadmap .m { font-family: var(--mono); font-size: 12px; color: var(--muted); margin-top: 4px; }
+
+dl.gloss { display: grid; grid-template-columns: minmax(130px, 200px) minmax(0, 1fr); gap: 8px 18px; margin: 12px 0 20px; }
+dl.gloss dt { font-weight: 600; }
+dl.gloss dd { margin: 0; color: var(--ink); }
+@media (max-width: 560px) { dl.gloss { grid-template-columns: minmax(0, 1fr); } dl.gloss dd { margin-bottom: 8px; } }
+
+footer { border-top: 1px solid var(--line); margin-top: 40px; padding-top: 16px; font-size: 13.5px; color: var(--muted); }
+a:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 3px; }
+@media (prefers-reduced-motion: reduce) { * { scroll-behavior: auto !important; } }
+html { scroll-behavior: smooth; }
+</style>
+
+</head>
+<body>
+<div class="shell">
+<nav class="toc" aria-label="Contents">
+  <div class="label">Contents</div>
+  <ol>
+    <li><a href="#short">The short version</a></li>
+    <li><a href="#map">The map</a></li>
+    <li><a href="#data">The data</a></li>
+    <li><a href="#autoword">Autoword</a></li>
+    <li><a href="#screen">Reading the screen</a></li>
+    <li><a href="#llm">The writing models</a></li>
+    <li><a href="#rules">The rules we keep</a></li>
+    <li><a href="#ponder">Are these the right decisions?</a></li>
+    <li><a href="#future">What to do next</a></li>
+    <li><a href="#numbers">All the numbers</a></li>
+    <li><a href="#gloss">Glossary</a></li>
+    <li><a href="#files">Where things live</a></li>
+  </ol>
+</nav>
+
+<main>
+<header class="top">
+  <div class="eyebrow">MMA · language technology review</div>
+  <h1>NLP in MMA</h1>
+  <p class="dek">Every place MMA reads, predicts or writes language: how each piece works, why it was built that way, what the measurements say, and where I think we are wrong.</p>
+  <div class="meta"><span>Written for Silly</span><span>2026-10-15</span><span>State of the repo on main, plus uncommitted work</span></div>
+</header>
+
+<!-- 1 ─────────────────────────────────────────────────────────────── -->
+<section id="short">
+<div class="col">
+<h2><span class="n">01</span>The short version</h2>
+<p>MMA uses language technology in four places. Each is a separate system with its own model, its own data and its own failure modes. Lumping them together as "the AI" hides the fact that they are built on opposite trade-offs.</p>
+</div>
+
+<div class="scroll">
+<table>
+<thead><tr><th>System</th><th>Job</th><th>Technique</th><th>Model</th><th>Speed budget</th><th>Status</th></tr></thead>
+<tbody>
+<tr><td><strong>Typelog + corpus</strong></td><td>Record what you send; turn it into clean training text</td><td>Keystroke model of the message box; rule repair; guarded LLM repair</td><td>Rules + a frontier LLM (offline)</td><td>Offline</td><td><span class="chip live">live</span></td></tr>
+<tr><td><strong>Autoword</strong></td><td>Next word while you type; reword; auto-complete obvious words</td><td>3-gram counts, re-ranked by a small fine-tuned language model</td><td>Qwen2.5-0.5B fine-tuned on your messages</td><td>~20 ms per word</td><td><span class="chip live">live</span></td></tr>
+<tr><td><strong>Chat reader</strong></td><td>Know what is on screen in the open chat</td><td>Screenshot → bubble colours → OCR → transcript</td><td>RapidOCR; Windows OCR for names</td><td>~1.5–2 s, in the background</td><td><span class="chip live">live</span></td></tr>
+<tr><td><strong>Writing models</strong></td><td>Fix grammar; suggest sexting lines; (planned) reword a mass to fit the fan</td><td>Prompted 12B chat model, with rules checked in code</td><td>mistral-nemo 12B in Ollama; Rocinante 12B on trial</td><td>0.4 s (grammar) to a few seconds</td><td><span class="chip live">live</span></td></tr>
+</tbody>
+</table>
+</div>
+
+<div class="col">
+<div class="callout">
+  <span class="k">The one thing to take away</span>
+  <p>Offline, autoword has the right word in its top three about <strong>70%</strong> of the time after one letter. Live, since 13 Oct 14:14 you typed 1,816 words and took <strong>166</strong> from the list: about <strong>9%</strong>. The model is no longer the bottleneck. Whether you look at the list and press Tab is. Every model improvement we have discussed (bigger models, chat context) moves the 70%. None of them moves the 9%. Section 8 is mostly about that gap.</p>
+</div>
+</div>
+</section>
+
+<!-- 2 ─────────────────────────────────────────────────────────────── -->
+<section id="map">
+<div class="col">
+<h2><span class="n">02</span>The map</h2>
+<p>Language comes into MMA from two places, your keyboard and the screen, and flows into the systems that use it. The arrows are files or named events, never shared memory: every service is its own process, so any one of them can be down without taking the others with it.</p>
+</div>
+<div class="flow">
+<pre class="mermaid">
+flowchart LR
+  KB["Your keyboard<br/>(Infloww in front)"] --> TL["typelog<br/>sent messages only"]
+  TL --> MSG["userdata/typelog/messages<br/>typed · pasted · account · conversation"]
+  OLD["old keystroke dumps<br/>(Jul–Oct 10)"] --> MERGE["merge + rule repair"]
+  MERGE --> LLMR["LLM repair<br/>dirty lines only, guarded"]
+  LLMR --> CORPUS["llm_v1.tsv<br/>66,659 messages"]
+  MSG --> NG["3-gram<br/>retrained every start"]
+  CORPUS --> NG
+  CORPUS --> FT["fine-tune<br/>Qwen 0.5B"]
+  FT --> LM["autoword LM<br/>re-ranker"]
+  NG --> AW["autoword<br/>suggestion strip"]
+  LM --> AW
+  SCR["Infloww window<br/>(PrintWindow, no focus)"] --> CR["chat reader<br/>bubble colours + RapidOCR"]
+  CR --> NOW["chat_now.json"]
+  NOW --> SUG["suggestions ^!d<br/>Ollama 12B"]
+  NOW -. "Context = chat" .-> LM
+  SCR --> DET["model detector<br/>Windows OCR"]
+  DET --> ENG["mass engine<br/>active account"]
+  ENG --> TL
+  CUT["your selected text"] --> GR["grammar fix ^!r / ^!e<br/>Ollama 12B"]
+</pre>
+</div>
+<div class="col">
+<p>Two things the map makes visible. First, the corpus feeds everything that predicts, so its quality is upstream of every number in this document. Second, the chat reader is the only window onto the fan's side of the conversation, and nothing stores what it reads: <code>chat_now.json</code> is overwritten every time the chat changes. That single fact limits most of the future work in section 9.</p>
+</div>
+</section>
+
+<!-- 3 ─────────────────────────────────────────────────────────────── -->
+<section id="data">
+<div class="col">
+<h2><span class="n">03</span>The data</h2>
+
+<h3>Where it comes from</h3>
+<p>All training text is your own typing, recorded by <strong>typelog</strong>. There have been two generations of it, and the difference matters.</p>
+<ul>
+<li><strong>The old recorder (July to 10 Oct)</strong> wrote its keystroke buffer to disk every five seconds. A Backspace could not reach text already written, so every pause committed whatever draft was on screen. Two copies ran in parallel. 43% of lines in a hand-checked sample had junk in them: deleted attempts glued to real words (<code>hagwant</code>), overlapping echoes, restarted drafts.</li>
+<li><strong>The new typelog (since 10 Oct)</strong> keeps a model of the message box in memory and writes only when a plain Enter sends it. Backspace, Ctrl+Backspace and select-and-retype edit the model, so deleted drafts never reach the log. Each line is tagged <code>typed</code>, <code>pasted</code> (a hotstring or a mass, read from the clipboard) or <code>mixed</code>, plus the <strong>account</strong> and a <strong>conversation number</strong>. When keystrokes stop describing the box (the caret moved, Ctrl+Z), the message goes to a separate <code>.uncertain.log</code> rather than being guessed. So far: 3,115 typed, 1,095 pasted, 39 mixed.</li>
+</ul>
+
+<h3>How the old logs were cleaned</h3>
+<p>Cleaning was done in two passes, and the order is deliberate.</p>
+<ol>
+<li><strong>Rules first.</strong> Restart detection, echo rebuilding, fusion splitting, and a filter for things that are not messages (prices, vault searches). On a 193-line hand-checked sample, rules alone reached 74% exactly right.</li>
+<li><strong>An LLM only on what the rules could not fix</strong>, about 13,300 lines, exported in batches. Every correction then passes a <strong>traceability guard</strong>: each output word must appear in the raw line or be within a small edit distance of something in it. That allows fixing typos and deleting junk, and forbids inventing or completing words (<code>cheap and slu</code> → <code>slutty</code> is refused). Rejects stay flagged dirty and out of training. A scrub removes emails and a private blocklist.</li>
+</ol>
+<p>Why not just hand everything to an LLM? Because it was measured. A local 12B model on every line scored worse than rules alone (69% vs 74%). It "fixed" 34–39 clean lines by capitalising, completing fragments and dropping lines. Gated to the dirty lines only, it lifted the total to 77%.</p>
+
+<div class="callout">
+<span class="k">A decision worth remembering</span>
+<p>Spell correction weighted by your own word frequencies is dangerous in this domain. It "corrected" <code>corny</code> → <code>horny</code>, <code>implied</code> → <code>applied</code>, <code>VIOLATING</code> → <code>VIBRATING</code>. The rule since then: never correct a word the dictionary knows, however rare.</p>
+</div>
+
+<h3>What the data says about how you write</h3>
+<ul>
+<li>66,659 messages, 390,703 words over 61 days. Median message: 5 words. 17% are one word.</li>
+<li>60 words cover half of everything you type; 4,259 cover 95%.</li>
+<li><strong>The formula is in the glue, not the sentences.</strong> 87% of one-word messages repeat an earlier day's, but at 7+ words it is about 1%. Frames like <em>I want you to…</em>, <em>are you going to…</em>, <em>thank you so much</em> are near-deterministic after three words. What you put inside the frames is mostly new: 79% of each day's 4-word sequences have never been seen before.</li>
+<li>One thought is usually sent as 3–6 short messages; "And…", "But…", "So…" open about 11% of them.</li>
+<li>Greetings carry a name slot: 597 greetings, 345 different fan names.</li>
+</ul>
+
+<h3>What the data does not have</h3>
+<ul>
+<li><strong>The fan's side.</strong> Nothing you train on contains what the fan said. Every model learns to continue <em>your</em> stream, never to <em>answer</em>.</li>
+<li><strong>Persona, before 10 Oct.</strong> Alice/Wonderland, mummy, princess and goddess voices are mixed together in the bulk of the corpus. The new typelog records the account, but nothing trains on it yet.</li>
+<li><strong>Conversation boundaries, before 10 Oct.</strong> The old logs interleave fans, so "the previous message" was often to someone else.</li>
+</ul>
+</div>
+</section>
+
+<!-- 4 ─────────────────────────────────────────────────────────────── -->
+<section id="autoword">
+<div class="col">
+<h2><span class="n">04</span>Autoword</h2>
+<p>Autoword suggests the next word while you type in Infloww and lets you take it with Tab. It is the only NLP system in MMA that runs on every keystroke, so it is built around a hard speed budget and a hard safety rule: it must never type something wrong into a live message.</p>
+
+<h3>How a suggestion is made</h3>
+<ol>
+<li><strong>The engine tracks the box from your keystrokes</strong> (<code>engine.py</code>). It holds the message as one string, so Backspace works across word boundaries. Anything it cannot model (a click, an arrow key, Home/End, Ctrl+Backspace) makes it go quiet rather than guess. Since this week, what you type after a click is kept as context once you type a space, because in Infloww nearly every message starts with a click into the box.</li>
+<li><strong>The 3-gram proposes candidates</strong> (<code>model.py</code>): words that have followed your last two words, filtered by the letters typed so far, plus your most frequent words with that prefix. It is retrained on every start, so today's names and phrases are in it immediately.</li>
+<li><strong>The language model re-ranks them</strong> (<code>lm.py</code>): it reads the whole message so far plus your previous sent message, and scores each candidate by the probability of its first token. Score = LM + 0.5 × log(3-gram).</li>
+<li><strong>The strip shows the top three</strong>; Tab takes the highlighted one, Shift+Tab cycles.</li>
+</ol>
+
+<h3>Why it is built this way</h3>
+<h4>Why a 3-gram at all</h4>
+<p>It is free, instant, and already right on function words (90% of them in its top 5 after one letter). It carries your exact stock frames and learns a new name the moment it is typed. The language model only earns its place on content words, where the 3-gram drops to about 53%.</p>
+
+<h4>Why a 0.5B model, fine-tuned</h4>
+<p>Measured, not assumed. Stock models of any size we tried were within a point or two of the 3-gram, including Rocinante 12B this week. Fine-tuned on your messages, the same 0.5B gained 5–8 points. Size gives little: 0.5B → 1.5B was +1 point, 0.5B → 3B was +0.1 / +1.1 points at 50% more time per word. With 390k words of your writing, a small model already learns most of what there is to learn.</p>
+
+<h4>Why one forward pass per word, scored by first token</h4>
+<p>Typing the letters of a word does not change its context, only which candidates match. So the model runs once when you press space and each letter is a lookup: about 0.26 model passes per keystroke. 88–91% of your words are a single token, so the next-token distribution is nearly the next-word one. Scoring candidates by first token costs ~20 ms instead of ~115 ms for full re-ranking, for about a point of accuracy.</p>
+
+<h4>Why auto-complete is gated on uniqueness, not probability</h4>
+<p>Autoword can type a word for you without a key press, and that is the most dangerous thing in MMA's NLP. A probability gate is a bad one: "90% sure" after one letter was still wrong 37% of the time. The gate is <em>no alternative at all</em>: only one word has ever followed this context with this prefix, it has been seen at least 5 times, and you have typed 3 letters. Measured: 97.2% right. It also waits for a 250 ms pause in your typing (without it, <code>feel</code> → <code>feelinging</code>), never extends a word you had finished (<code>do</code> → <code>does</code>), and one Backspace takes it back. The language model is never allowed to override a unique answer, because adding candidates would silently switch the gate off.</p>
+
+<h4>Why the reword list is a file you own</h4>
+<p>Ctrl+Tab offers other words for the one just typed (<code>touched</code> → <code>caressed</code>, <code>stroked</code>). A general thesaurus answers <code>touched</code> with <code>affected</code> and <code>moved</code>: correct and useless. So the groups live in <code>userdata/autoword/reword.txt</code>, inflected automatically and checked against the Windows dictionary. It has been offered 0 times in every logged session.</p>
+
+<h3>What changed this week</h3>
+<ul>
+<li>Suggestions can appear right after a space, before any letter (<code>MinChars = 0</code>).</li>
+<li>Text typed after a click is kept as context. Before this, a click wiped it, and in real use the language model scored below the plain 3-gram (33.8% vs 37.0% with nothing typed, against 41.5% for the same model with its context intact).</li>
+<li>Tab now shows the next word's list immediately.</li>
+<li>The strip is draggable and does not take focus; it can follow the clicked line (rough, by character count).</li>
+<li><code>Context = chat</code>: the model can read the last six OCR'd bubbles from the chat reader instead of only your last message. Not yet measured; see section 8.</li>
+<li>A dedicated Autoword tab in Settings.</li>
+</ul>
+</div>
+</section>
+
+<!-- 5 ─────────────────────────────────────────────────────────────── -->
+<section id="screen">
+<div class="col">
+<h2><span class="n">05</span>Reading the screen</h2>
+<p>MMA never reads Infloww's internals: no DOM, no devtools, no network, no accessibility hooks. That is your rule and the platform's. Everything it knows about a chat comes from pixels, the way a person looks at it. Two separate OCR systems do this.</p>
+
+<h3>Names: Windows OCR, in AutoHotkey</h3>
+<p>The model detector, the Fansly detector, the stats overlay and Discord routing read short labels (account names, numbers) with Windows' built-in OCR through the <code>OCR.ahk</code> library. The detector is hybrid: a cheap pixel scan finds the active tab every poll, and OCR runs only when that tab moves. The weak spot is known: garbled reads of account names are what still blocks fully automatic model detection.</p>
+
+<h3>Conversations: RapidOCR, in Python</h3>
+<p>The chat reader (<code>chatreader.pyw</code> + <code>transcript.py</code>) produces an attributed transcript of the open chat.</p>
+<div class="chat" role="img" aria-label="Example of how the transcript reader sees Infloww's two bubble colours">
+  <div class="bub fan"><span class="tag">fan · #262626 · left</span>fuckkk that sounds so hot, I would hold your thighs</div>
+  <div class="bub her"><span class="tag">her · #353535 · right</span>just imagine how deep into me you could push your tongue..</div>
+  <div class="cap">Who said what is decided by fill colour, not by the OCR.</div>
+</div>
+<ul>
+<li><strong>Attribution is exact, not guessed.</strong> Fan bubbles are <code>#262626</code> and left-aligned; hers are <code>#353535</code> and right-aligned. The bubble finders locate rectangles by colour (with traps handled: the fan avatar is the same grey).</li>
+<li><strong>One OCR of the whole pane, then assign each text box to the bubble that contains it.</strong> Cropping each bubble reads worse: a text box touching the crop edge makes RapidOCR's detector return nothing at all. The whole-pane read got 4 of 5 bubbles vs 3 of 5, and is about 5× faster.</li>
+<li><strong>A repair pass for long lines.</strong> The recogniser silently truncates very wide lines, exactly the shape of a PPV caption. Over-wide lines are split at a word gap and re-read, with horizontal padding only: vertical padding destroys the spaces.</li>
+<li><strong>It refuses to guess.</strong> A bubble cut off by the scroll edge is marked <code>partial</code>; a bubble with no text is <code>[media]</code>; a screen with no fan bubble is reported, so nothing drafts a reply to nothing.</li>
+<li><strong>It runs only when the chat changes.</strong> Every 0.7 s it compares a small grey thumbnail of the pane; OCR (~1.5–2 s) runs only after a change has settled. Typing in the composer does not trigger it.</li>
+<li><strong>Staleness is checked by the reader of the file.</strong> The suggestion key takes its own 40 ms capture and compares thumbnails; if they differ (you just switched fans), it waits rather than suggest for the previous fan. Autoword's chat mode uses a cheaper check (window title and reader alive) and accepts a second or two of lag, because a stale ranking costs one word, not a wrong message.</li>
+</ul>
+</div>
+</section>
+
+<!-- 6 ─────────────────────────────────────────────────────────────── -->
+<section id="llm">
+<div class="col">
+<h2><span class="n">06</span>The writing models</h2>
+<p>Everything that writes sentences runs on a 12B chat model in <strong>Ollama</strong>, on your GPU, and never reaches the internet. All of it goes through <code>client.py</code>, which never raises at the caller: if Ollama is down, the feature says so and nothing in MMA is blocked.</p>
+
+<h3>Why local, and why 12B</h3>
+<ul>
+<li><strong>Local</strong> because what is being written is explicit, and hosted frontier models generally restrict generating it. Hosted models are fine for offline analysis, never for generation.</li>
+<li><strong>12B</strong> because model size versus your 16 GB of VRAM decides whether this is usable at all. A 23 GB model spilled into shared memory ran at 0.7 tokens/s; mistral-nemo 12B (7.5 GB) runs at 102 tokens/s. 147× apart on the same machine. "Shared GPU memory" in Task Manager is system RAM, and is that slow.</li>
+<li><strong>KeepAlive = 30m</strong> because Ollama otherwise unloads after 5 minutes and the 2 s reload lands on the first message after a break.</li>
+</ul>
+
+<h3>Grammar fix (Ctrl+Alt+R casual, Ctrl+Alt+E Alice)</h3>
+<p>Cut the text → the model corrects it → the result goes to the clipboard (or straight back, in fast mode). Two voices: <em>casual</em> fixes typos only, and lowercase/no-apostrophes is applied in code afterwards, because the model drifts back to proper English; <em>Alice</em> is proper British English. The hard problem is that the text is a flirty message written <em>to someone</em>, and a chat model's reflex is to answer it. So it is fenced in tags, the few-shot examples include a question that gets corrected rather than answered, and a <strong>length guard</strong> rejects any output that drifted too far from the input. A correction changes a few characters; a reply changes the length. About 0.4 s warm.</p>
+
+<h3>Suggestions (Ctrl+Alt+D)</h3>
+<p>Built from your spec in <code>docs/chatting-process.md</code>: the AI does sexting only. Sales decisions, yapping and damage control stay human. You pick the <strong>mode</strong> (filler roleplay, or a PPV caption that ends in one click-baity question), the <strong>tier</strong> the fan has bought (which caps how explicit it may be), the bundle's <strong>content</strong> and an optional <strong>direction</strong>. The tool adds the <strong>chat</strong> from the reader, the <strong>fan's keywords</strong> to mirror, and a few of <strong>your own archived masses</strong> as examples of the voice. The prompt is a plain file (<code>prompts/sexting.md</code>) read on every press.</p>
+<p>Rules whose failure would reach a fan are not trusted to the prompt. <code>problems()</code> checks every draft in code: money words, stock openers, clichés, explicit words at tier 0, missing fan keywords, a PPV caption without its question, length. A failing draft is redrawn; one that still fails is shown last, flagged. You are the final check.</p>
+<p>Status: mistral-nemo writes acceptable filler and mostly fails PPV captions. A blind bake-off against Rocinante was run on 13 Oct (<code>userdata/corpus/bakeoff/blind_2026-10-13_1417.md</code>), but no verdict is recorded and the setting still says mistral-nemo.</p>
+
+<h3>Draft replies (phase 1)</h3>
+<p><code>draft.py</code> was the first slice: read the chat, offer three replies, type nothing. It refuses whenever the read carries a note (no fan bubble, wrong window size), because a plausible-but-wrong transcript produces a plausible-but-wrong reply. The suggestion key has replaced it in practice.</p>
+
+<h3>Debugging what the model sees</h3>
+<p><code>chatview.pyw</code> shows the live capture, the transcript as bubbles, exactly the prompt text the model gets, and the last suggestions with 1–5 grade buttons that append to <code>suggest_ratings.jsonl</code>. That ratings file does not exist yet, which means nothing has been graded.</p>
+</div>
+</section>
+
+<!-- 7 ─────────────────────────────────────────────────────────────── -->
+<section id="rules">
+<div class="col">
+<h2><span class="n">07</span>The rules we keep</h2>
+<p>Across all four systems, the same handful of decisions keeps recurring. They are worth naming, because they are what to check any new feature against.</p>
+<div class="scroll">
+<table>
+<thead><tr><th>Rule</th><th>Where it shows up</th><th>Why</th></tr></thead>
+<tbody>
+<tr><td><strong>Offer, never send</strong></td><td>Suggestions, drafts, grammar (clipboard), reword</td><td>Generative models are fluent and confidently wrong. The only exception, auto-complete, had to measure 97% first.</td></tr>
+<tr><td><strong>Check in code what the prompt can't be trusted with</strong></td><td>Grammar length guard; suggestion <code>problems()</code>; repair traceability guard; casualise</td><td>A 12B model follows a prompt most of the time. "Most" is not good enough for anything a fan sees.</td></tr>
+<tr><td><strong>Go quiet rather than guess</strong></td><td>Autoword after a click; transcript <code>partial</code>/<code>[media]</code>; typelog's uncertain log; draft refuses on a note</td><td>A missing suggestion costs nothing. A wrong one costs a message to a paying customer.</td></tr>
+<tr><td><strong>The AI being down never blocks MMA</strong></td><td><code>client.py</code> returns errors as values; autoword falls back to the 3-gram</td><td>You are live while it runs.</td></tr>
+<tr><td><strong>Pixels only</strong></td><td>Chat reader, detectors</td><td>Your rule and the platform's.</td></tr>
+<tr><td><strong>Local for anything explicit</strong></td><td>All generation</td><td>Hosted policies.</td></tr>
+<tr><td><strong>Measure on held-out days, select by the benchmark</strong></td><td>Every autoword model decision</td><td>360M matched 135M on loss and lost on ranking. This week a test that leaked showed 90%; the real figure was 69%.</td></tr>
+<tr><td><strong>The chatter decides sales</strong></td><td>Suggestion modes and tiers</td><td>The model never moves up the content ladder on its own.</td></tr>
+</tbody>
+</table>
+</div>
+</div>
+</section>
+
+<!-- 8 ─────────────────────────────────────────────────────────────── -->
+<section id="ponder">
+<div class="col">
+<h2><span class="n">08</span>Are these the right decisions?</h2>
+<p>This is the part you asked for. I went through every major decision and asked whether the evidence still supports it. Each gets a verdict: <span class="chip keep">keep</span> the evidence supports it, <span class="chip look">re-examine</span> it was reasonable but something has changed or was never tested, <span class="chip fix">fix now</span> it is costing us today.</p>
+</div>
+
+<div class="stats">
+  <div class="stat"><div class="v good">~70%</div><div class="l">offline: right word in the top 3 after one letter (current model)</div></div>
+  <div class="stat"><div class="v bad">~9%</div><div class="l">live: words you took from the list (166 of 1,816 typed, 13–15 Oct)</div></div>
+  <div class="stat"><div class="v">11,679</div><div class="l">times the strip was shown in the same period</div></div>
+  <div class="stat"><div class="v">0</div><div class="l">rewords offered, across every logged session</div></div>
+</div>
+
+<div class="col">
+<h3>The biggest question: is autoword the right product?</h3>
+<p>Everything in section 4 is about how often the right word is <em>in</em> the list. The live logs say the list is mostly not <em>used</em>. Before 13 Oct 14:14 the numbers are even lower (one session: 726 shown, 9 accepted), though some of that was testing.</p>
+<p>There are three explanations, and they lead to different work:</p>
+<ol>
+<li><strong>You don't look.</strong> The strip sits away from where you are typing and you type faster than you read. Then the fix is placement and presentation (near the caret, fewer changes per second), not the model.</li>
+<li><strong>It is right but not worth it.</strong> Taking a 3-letter word with Tab saves one key press and costs a glance. The keystrokes-saved figure (47%) assumes you always look. Then the fix is to only show suggestions that are worth a glance: long words, whole phrases.</li>
+<li><strong>It is wrong more often live than offline.</strong> Possible (clicks wiped context until this week; live text is not the benchmark's text). Then the fix is the model.</li>
+</ol>
+<p>We do not currently log enough to tell these apart. Autoword records "shown" and "accepted" but not "the word you typed was in the list at rank k and you did not take it". That one log line would settle which of the three it is, and it should be built before any more model work. I would not train another model until it exists.</p>
+</div>
+
+<div class="verdicts">
+
+<div class="verdict">
+  <div class="head"><span class="chip fix">fix now</span><h3>Autoword runs, and auto-types, in every app</h3></div>
+  <p>Your <code>autoword.ini</code> has <code>Processes =</code> empty, which means everywhere, and <code>AutoCompleteChars = 3</code>, which means it types words on its own. So in Discord, a browser or a work document, it can type a word from a sexting vocabulary into whatever you are writing. Typelog is scoped to Infloww for privacy; autoword should be too.</p>
+  <p class="why">Set Settings ▸ Autoword ▸ Only in to <code>infloww.exe</code>, unless you deliberately want it elsewhere, and if so turn auto-typing off there.</p>
+</div>
+
+<div class="verdict">
+  <div class="head"><span class="chip fix">fix now</span><h3>Measure live use, not just offline accuracy</h3></div>
+  <p>As above: log, per word, whether it was in the list, at what rank, and whether you took it. Shadow mode already does half of this for n-gram vs LM.</p>
+  <p class="why">Cheap (an hour) and it decides where the next week of work should go.</p>
+</div>
+
+<div class="verdict">
+  <div class="head"><span class="chip fix">fix now</span><h3>Nothing watches Ollama</h3></div>
+  <p>Ollama quit on 13 Oct and stayed down until you noticed, and its startup entry had been disabled. The grammar keys and suggestions just reported errors. Autoword's LM does not need it, but every writing feature does.</p>
+  <p class="why">Add Ollama to MMA's service registry as a check-only row (is the port answering), shown in Tools like the other services. MMA should not own starting it, but it should say when it is down.</p>
+</div>
+
+<div class="verdict">
+  <div class="head"><span class="chip keep">keep</span><h3>Two model tiers: tiny and trained for typing, big and prompted for writing</h3></div>
+  <p>The measurements back this from both directions. For next-word, a 12B or 3B model buys nothing over a fine-tuned 0.5B and costs latency and VRAM. For writing 2–3 sentences of story, a 0.5B model cannot do it at all. These are different jobs with different budgets, and keeping them as separate systems is right.</p>
+</div>
+
+<div class="verdict">
+  <div class="head"><span class="chip keep">keep</span><h3>3-gram plus language model, not either alone</h3></div>
+  <p>The mix beat the LM alone in every test. The 3-gram also gives the instant learning of new names that a fine-tuned model only gets on retraining, and it is what keeps auto-complete safe.</p>
+</div>
+
+<div class="verdict">
+  <div class="head"><span class="chip keep">keep</span><h3>Uniqueness-gated auto-complete</h3></div>
+  <p>Live so far: 14 auto-completions, 3 taken back (79% kept vs 97% offline). The sample is too small to judge, but it is the number to watch. If it stays near 80%, raise <code>AutoCompleteSeen</code> to 10 (98% offline, a third fewer firings).</p>
+</div>
+
+<div class="verdict">
+  <div class="head"><span class="chip look">re-examine</span><h3>Suggestions appear before any letter (MinChars = 0)</h3></div>
+  <p>With nothing typed, the right word is in the list about 40% of the time; after one letter, 70%. At 0, the strip changes after every word, which is a lot of visual noise for a list that is wrong more often than right, and may be part of why it is ignored. You asked for this, and it is reasonable to try, but it should be judged by the live log once it exists.</p>
+</div>
+
+<div class="verdict">
+  <div class="head"><span class="chip look">re-examine</span><h3>Chat context for autoword (Context = chat)</h3></div>
+  <p>The idea is right: the fan's message is the single most informative thing we do not use. But the model was fine-tuned on "your previous message, then your next one" and has never seen a fan's message. Handing it six mixed bubbles is outside what it learned, and the one test we could run (9 words) tied. It needs either a measurement on real conversations or retraining with conversations in the training format, and both need conversation history we do not keep yet.</p>
+</div>
+
+<div class="verdict">
+  <div class="head"><span class="chip look">re-examine</span><h3>Next word as the unit</h3></div>
+  <p>The analysis said: next word, not whole sentences (completing a message is right only 2–6% of the time). That still holds for sentences. But it also found that the formula lives in 3–8-word frames (<em>open that don't ruin the mood</em>, <em>I have no choice but to</em>), and one Tab that inserts a whole frame is worth far more than one that inserts <code>to</code>. Combined with the live-use problem, phrase suggestions are probably the higher-value unit for what the strip shows.</p>
+</div>
+
+<div class="verdict">
+  <div class="head"><span class="chip look">re-examine</span><h3>The autoword model is never retrained</h3></div>
+  <p>The 3-gram retrains on every start; the language model was last trained on 11 Oct, from data up to 1 Oct. Your corpus grows about 6,000 messages a week, 4-gram novelty is still falling, and the new typelog data (clean, with account and conversation) is exactly what it most lacks. Retraining takes 1–2 minutes.</p>
+</div>
+
+<div class="verdict">
+  <div class="head"><span class="chip look">re-examine</span><h3>Prompting the writing model instead of fine-tuning it</h3></div>
+  <p>Your position is that fine-tuning is not needed, and it was the right place to start: prompts and examples are cheap and reversible. But the evidence so far leans the other way. Mistral-nemo mostly fails PPV captions, and the autoword results show that on your writing, training on it is what makes the difference, not size. Fine-tuning a generator needs two things we do not have: a verdict on Rocinante, and graded examples. The grading buttons exist; the ratings file is empty.</p>
+</div>
+
+<div class="verdict">
+  <div class="head"><span class="chip look">re-examine</span><h3>Personas are mixed</h3></div>
+  <p>Every model learns one blended voice from Alice, mummy, princess and goddess lines. Typelog now records the account, so from 10 Oct on the data can be split. A persona tag at the start of each training message is cheap once there is enough tagged data.</p>
+</div>
+
+<div class="verdict">
+  <div class="head"><span class="chip keep">keep</span><h3>Pixels only, attribution by colour, refusal over guessing</h3></div>
+  <p>This is the most carefully built part of the stack, and the measured traps (edge-touching crops, truncated wide lines, vertical padding) are real. The cost is fragility to layout changes: automation geometry was built for a 1920×1032 window and your live window is 3441×1381. Any Infloww redesign means re-measuring.</p>
+</div>
+
+<div class="verdict">
+  <div class="head"><span class="chip keep">keep</span><h3>Rules first, LLM only on what the rules can't fix, behind a guard</h3></div>
+  <p>Measured better than either alone, and the guard is what makes an LLM safe to run over training data. The same pattern (deterministic first, model on the remainder, mechanical check after) is worth reusing anywhere a model touches data.</p>
+</div>
+
+<div class="verdict">
+  <div class="head"><span class="chip look">re-examine</span><h3>Fan data is not kept, and keeping it is a real decision</h3></div>
+  <p>Most of the future work needs fan messages next to your replies. That means storing OCR'd text of what paying customers wrote, by conversation. It is your data to decide on, but it should be a decision: what is kept, for how long, where, whether names are stripped. The same scrub that runs on the corpus should run on it.</p>
+</div>
+
+</div>
+</section>
+
+<!-- 9 ─────────────────────────────────────────────────────────────── -->
+<section id="future">
+<div class="col">
+<h2><span class="n">09</span>What to do next</h2>
+<p>In the order I would do them. The first three are about knowing what is true; the rest are about getting better.</p>
+</div>
+<ol class="roadmap">
+<li><div><div class="t">Scope autoword to Infloww</div><p>A setting change. Removes the one live risk.</p><div class="m">minutes · Settings ▸ Autoword ▸ Only in</div></div></li>
+<li><div><div class="t">Log what happens to every word</div><p>For each word you finish: was it in the list, at what rank, how many letters were typed, did you take it. Report the three numbers that matter: in-list rate, take rate when in list, and keystrokes actually saved. Then decide whether the next work is the model or the strip.</p><div class="m">about an hour · autoword engine + a summary line on stop</div></div></li>
+<li><div><div class="t">Watch Ollama</div><p>A check-only service row: port answering or not, shown in Tools.</p><div class="m">under an hour · service registry</div></div></li>
+<li><div><div class="t">Phrase suggestions and the name slot</div><p>When the 3-gram is near-certain about the next words (<em>thank you so</em> → <em>much</em>), offer the whole frame as one Tab. After <em>Hey</em>/<em>Hi</em>, offer the fan's name read from the chat header. These are the measured high-value cases, and they speak to the "not worth a glance" explanation.</p><div class="m">a day · engine + chat reader header OCR</div></div></li>
+<li><div><div class="t">Keep conversation history</div><p>Have the chat reader append each settled read to a per-day log, joined with typelog's conversation number, after deciding the retention rules. This produces <em>fan message → your reply</em> pairs, which every later step needs.</p><div class="m">half a day + a privacy decision</div></div></li>
+<li><div><div class="t">Retrain on a schedule, gated by the benchmark</div><p>Weekly: retrain the autoword model on everything up to last week, run the held-out benchmark, and switch only if it wins. Add the persona tag once there is enough tagged data. Once there are pairs, train with the fan's message as context, which is what <code>Context = chat</code> needs to work.</p><div class="m">a day to automate · then 2 minutes a week</div></div></li>
+<li><div><div class="t">Decide Rocinante, start grading</div><p>Read the blind bake-off and pick. Then grade suggestions in chatview as you use them; a few hundred graded drafts is the training set a generator fine-tune would need.</p><div class="m">an hour to decide · grading is ongoing</div></div></li>
+<li><div><div class="t">The rewording tool</div><p>Rewrite a mass follow-up to fit what the fan just said: cut, model, clipboard. Planned in <code>docs/how-to-add-rocinante.md</code>, Part 0, with its open decisions listed. It reuses the grammar flow and the chat reader, and it is the writing feature closest to how you already work.</p><div class="m">a day or two</div></div></li>
+<li><div><div class="t">Fine-tune the writing model</div><p>QLoRA on Rocinante with graded drafts and your masses, served through Ollama. Only once steps 5 and 7 have produced data. The plan is in the same doc, Part 2.</p><div class="m">a few hours, mostly unattended · needs data first</div></div></li>
+</ol>
+
+<div class="col">
+<h3>What not to do</h3>
+<ul>
+<li><strong>A bigger autoword model.</strong> Measured three times now (1.5B, 3B, Rocinante). No.</li>
+<li><strong>Whole-sentence completion as prediction.</strong> 2–6% right.</li>
+<li><strong>Stock models for anything about your voice.</strong> They score like the 3-gram.</li>
+<li><strong>Hosted models for generating messages.</strong> Policy.</li>
+<li><strong>Reading Infloww's internals,</strong> however much easier caret position or chat text would be.</li>
+<li><strong>Anything that sends on its own.</strong> Every system here offers; you choose.</li>
+</ul>
+</div>
+</section>
+
+<!-- 10 ────────────────────────────────────────────────────────────── -->
+<section id="numbers">
+<div class="col">
+<h2><span class="n">10</span>All the numbers</h2>
+<p>Every figure above, in one place. "Top 3" means the right word is among the three shown. Two test sets were used: the original analysis (9 held-out days, 1–10 Oct, 2,000 positions) and this week's (typed messages of 12–13 Oct, 800 positions, with the 3-gram trained without them).</p>
+
+<h4>Next word, original analysis (1–10 Oct)</h4>
+</div>
+<div class="scroll">
+<table>
+<thead><tr><th>Method</th><th class="num">Top 5, nothing typed</th><th class="num">Top 3, 1 letter</th><th class="num">Top 5, 1 letter</th><th class="num">Keystrokes saved</th><th class="num">Time per word</th></tr></thead>
+<tbody>
+<tr><td>3-gram</td><td class="num">39.8%</td><td class="num">65.2%</td><td class="num">72.0%</td><td class="num">41.2%</td><td class="num">&lt;1 ms</td></tr>
+<tr><td>Stock Qwen 0.5B + 3-gram</td><td class="num">40.3%</td><td class="num">66.0%</td><td class="num">73.1%</td><td class="num">41.6%</td><td class="num"></td></tr>
+<tr><td>Fine-tuned Qwen 0.5B + 3-gram</td><td class="num">45.8%</td><td class="num">71.9%</td><td class="num">77.4%</td><td class="num">45.9%</td><td class="num"></td></tr>
+<tr><td>… + previous message (full re-rank)</td><td class="num">47.5%</td><td class="num">73.7%</td><td class="num">79.7%</td><td class="num">47.3%</td><td class="num">115 ms</td></tr>
+<tr class="hl"><td>… + previous message, single pass (shipped)</td><td class="num">47.1%</td><td class="num">72.5%</td><td class="num">78.2%</td><td class="num">46.9%</td><td class="num">20 ms</td></tr>
+<tr><td>Fine-tuned Qwen 1.5B (LoRA), single pass</td><td class="num">47.8%</td><td class="num">73.3%</td><td class="num">79.2%</td><td class="num">47.7%</td><td class="num">24 ms</td></tr>
+</tbody>
+</table>
+</div>
+
+<div class="col"><h4>Next word, this week (12–13 Oct, top 3)</h4></div>
+<div class="scroll">
+<table>
+<thead><tr><th>Method</th><th class="num">Nothing typed</th><th class="num">1 letter</th><th class="num">Time per word</th></tr></thead>
+<tbody>
+<tr><td>3-gram*</td><td class="num">37.0%</td><td class="num">64.1%</td><td class="num">&lt;1 ms</td></tr>
+<tr><td>Rocinante 12B, stock, via Ollama (top-20 tokens only)</td><td class="num">37.5%</td><td class="num">65.3%</td><td class="num">42 ms</td></tr>
+<tr class="hl"><td>Fine-tuned Qwen 0.5B (shipped)</td><td class="num">39.8%</td><td class="num">69.3%</td><td class="num">23 ms</td></tr>
+<tr><td>Fine-tuned Qwen 3B (LoRA r16)</td><td class="num">39.9%</td><td class="num">70.4%</td><td class="num">35 ms</td></tr>
+<tr><td>Fine-tuned 0.5B, first word lost to a click (old engine)*</td><td class="num">33.8%</td><td class="num">62.4%</td><td class="num"></td></tr>
+<tr><td>Fine-tuned 0.5B, also proposing its own words*</td><td class="num">+0.6</td><td class="num">+0.1</td><td class="num"></td></tr>
+</tbody>
+</table>
+</div>
+
+<div class="col"><p>* From the first run on 13 Oct, where the same 0.5B scored 41.5% / 69.9% and the 3-gram 37.0% / 64.1%. The second run (15 Oct) trained the 3-gram on two more days of typelog, which moved the 0.5B to 39.8% / 69.3%. Compare rows within a run, not across.</p><h4>Auto-complete gate (5 unseen days)</h4></div>
+<div class="scroll">
+<table>
+<thead><tr><th>Letters typed</th><th class="num">Seen at least</th><th class="num">Fires per day</th><th class="num">Right</th><th class="num">Wrong per day</th></tr></thead>
+<tbody>
+<tr><td>3</td><td class="num">3</td><td class="num">841</td><td class="num">95.4%</td><td class="num">39</td></tr>
+<tr class="hl"><td>3</td><td class="num">5</td><td class="num">609</td><td class="num">97.2%</td><td class="num">17</td></tr>
+<tr><td>3</td><td class="num">10</td><td class="num">391</td><td class="num">98.1%</td><td class="num">7</td></tr>
+<tr><td>2</td><td class="num">5</td><td class="num">454</td><td class="num">94.0%</td><td class="num">27</td></tr>
+</tbody>
+</table>
+</div>
+
+<div class="col"><h4>Corpus repair (193 hand-checked lines)</h4></div>
+<div class="scroll">
+<table>
+<thead><tr><th>Method</th><th class="num">Exactly right</th></tr></thead>
+<tbody>
+<tr><td>No repair</td><td class="num">53%</td></tr>
+<tr><td>Local mistral-nemo 12B alone</td><td class="num">60%</td></tr>
+<tr><td>Rules, then local 12B on every line</td><td class="num">69%</td></tr>
+<tr><td>Rules alone</td><td class="num">74%</td></tr>
+<tr class="hl"><td>Rules, then local 12B on dirty lines only</td><td class="num">77%</td></tr>
+</tbody>
+</table>
+</div>
+
+<div class="col"><h4>Writing-model sizing (RTX 5070 Ti, 16 GB)</h4></div>
+<div class="scroll">
+<table>
+<thead><tr><th>Model</th><th class="num">Size</th><th>Where it ran</th><th class="num">Speed</th></tr></thead>
+<tbody>
+<tr><td>qwen3.6</td><td class="num">23 GB</td><td>41% CPU / 59% GPU</td><td class="num">0.7 tok/s</td></tr>
+<tr class="hl"><td>mistral-nemo 12B</td><td class="num">7.5 GB</td><td>100% GPU</td><td class="num">102 tok/s</td></tr>
+<tr><td>Rocinante 12B</td><td class="num">10 GB</td><td>fits in VRAM</td><td class="num">not recorded</td></tr>
+</tbody>
+</table>
+</div>
+
+<div class="col"><h4>Live autoword sessions (from autoword's stop lines)</h4></div>
+<div class="scroll">
+<table>
+<thead><tr><th>Session ended</th><th class="num">Shown</th><th class="num">Accepted</th><th class="num">Auto-typed</th><th class="num">Taken back</th></tr></thead>
+<tbody>
+<tr><td>13 Oct 13:52</td><td class="num">726</td><td class="num">9</td><td class="num">1</td><td class="num">0</td></tr>
+<tr><td>13 Oct 14:14</td><td class="num">362</td><td class="num">188</td><td class="num">0</td><td class="num">0</td></tr>
+<tr><td>15 Oct 03:36</td><td class="num">6,696</td><td class="num">100</td><td class="num">8</td><td class="num">2</td></tr>
+<tr><td>15 Oct 04:01</td><td class="num">1,500</td><td class="num">14</td><td class="num">3</td><td class="num">0</td></tr>
+<tr><td>15 Oct 04:32</td><td class="num">1,385</td><td class="num">19</td><td class="num">1</td><td class="num">0</td></tr>
+<tr><td>15 Oct 04:36</td><td class="num">167</td><td class="num">6</td><td class="num">0</td><td class="num">0</td></tr>
+<tr><td>15 Oct 05:46</td><td class="num">1,931</td><td class="num">27</td><td class="num">2</td><td class="num">1</td></tr>
+</tbody>
+</table>
+</div>
+<div class="col">
+<p>"Shown" counts every time the strip was redrawn, which is roughly once per keystroke, not once per word. The 188-of-362 session looks like testing. The 9% figure divides accepted words by typed words in typelog over the same period; if accepted words are recorded differently by typelog, it is approximate.</p>
+</div>
+</section>
+
+<!-- 11 ────────────────────────────────────────────────────────────── -->
+<section id="gloss">
+<div class="col">
+<h2><span class="n">11</span>Glossary</h2>
+<dl class="gloss">
+<dt>NLP</dt><dd>Natural language processing: any software that reads, predicts or writes human language.</dd>
+<dt>n-gram / 3-gram</dt><dd>A model that counts which word followed the previous two words in your text. No understanding; just very good bookkeeping.</dd>
+<dt>Language model (LM)</dt><dd>A neural network trained to predict the next piece of text from everything before it. "0.5B" = half a billion parameters.</dd>
+<dt>Token</dt><dd>The unit a language model reads: a word or a piece of one. Most of your words are one token.</dd>
+<dt>Log-probability</dt><dd>How likely the model thinks something is, on a log scale. Higher (closer to 0) = more likely. Used to rank candidates.</dd>
+<dt>Re-ranking</dt><dd>One model proposes candidates, a better one puts them in order. Autoword: the 3-gram proposes, the LM orders.</dd>
+<dt>Fine-tuning</dt><dd>Continuing to train an existing model on your own text so it learns your patterns.</dd>
+<dt>LoRA / QLoRA</dt><dd>Fine-tuning a small set of extra weights instead of the whole model; cheaper and smaller. QLoRA does it on a compressed model so big ones fit in VRAM.</dd>
+<dt>Stock model</dt><dd>A model as published, without training on your data.</dd>
+<dt>Held-out / leakage</dt><dd>Testing on text the model never trained on. Leakage is when test text sneaks into training and makes the score look better than it is.</dd>
+<dt>Top 3</dt><dd>Whether the right answer is among the first three offered.</dd>
+<dt>Prompt / few-shot</dt><dd>The instructions a chat model gets, and the examples included in them.</dd>
+<dt>OCR</dt><dd>Optical character recognition: reading text from an image.</dd>
+<dt>VRAM / shared GPU memory</dt><dd>The GPU's own fast memory (16 GB) vs system RAM it can borrow (slow).</dd>
+<dt>Ollama</dt><dd>The local program that runs the 12B writing models and serves them on <code>127.0.0.1:11434</code>.</dd>
+</dl>
+</div>
+</section>
+
+<!-- 12 ────────────────────────────────────────────────────────────── -->
+<section id="files">
+<div class="col">
+<h2><span class="n">12</span>Where things live</h2>
+</div>
+<div class="scroll">
+<table>
+<thead><tr><th>What</th><th>Where</th></tr></thead>
+<tbody>
+<tr><td>Typelog</td><td><code>src/services/typelog/</code> → <code>userdata/typelog/messages/</code></td></tr>
+<tr><td>Corpus pipeline and benchmarks</td><td><code>tools/corpus/analysis/</code> → <code>userdata/corpus/</code></td></tr>
+<tr><td>Corpus analysis report</td><td><code>userdata/corpus/Claude_Analysis.md</code> (private)</td></tr>
+<tr><td>Autoword</td><td><code>src/services/autoword/</code> (engine, model, lm, chatctx, reword, renderers)</td></tr>
+<tr><td>Autoword settings</td><td><code>userdata/autoword.ini</code>, Settings ▸ Autoword</td></tr>
+<tr><td>Fine-tuned models</td><td><code>userdata/corpus/models/</code> (live: <code>qwen05-ft-llm</code>; unused: <code>qwen3b-lora</code>, 6 GB)</td></tr>
+<tr><td>Chat reader, transcript, suggestions, grammar, drafts</td><td><code>src/services/llm/</code></td></tr>
+<tr><td>Sexting prompt</td><td><code>src/services/llm/prompts/sexting.md</code></td></tr>
+<tr><td>Chatting spec</td><td><code>docs/chatting-process.md</code></td></tr>
+<tr><td>Rocinante and rewording plan</td><td><code>docs/how-to-add-rocinante.md</code></td></tr>
+<tr><td>Bake-off</td><td><code>userdata/corpus/bakeoff/</code></td></tr>
+<tr><td>Writing-model settings</td><td><code>userdata/llm.ini</code></td></tr>
+<tr><td>Name OCR (AHK)</td><td><code>src/screen/model_detector.ahk</code>, <code>fansly_detector.ahk</code>, <code>ocr_grab.ahk</code></td></tr>
+</tbody>
+</table>
+</div>
+
+<footer>Numbers are from the repo's benchmarks and logs as of 15 Oct 2026. Where a figure rests on a small sample, the text says so.</footer>
+</section>
+</main>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/mermaid@10.9.1/dist/mermaid.min.js"></script>
+<script>
+  try {
+    var dark = window.matchMedia && window.matchMedia("(prefers-color-scheme: dark)").matches;
+    mermaid.initialize({ startOnLoad: true, theme: dark ? "dark" : "default" });
+  } catch (e) {}
+</script>
+</body>
+</html>

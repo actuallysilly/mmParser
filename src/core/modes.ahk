@@ -46,7 +46,11 @@
 global MODE_CFG   := MMA_CFG
 global FEAT_META  := Map()      ; id -> {id, cfgKey, label, default, section}
 global FEAT_ORDER := []         ; declaration order, for the Settings window
-global FEAT_SECTIONS := []      ; section names in first-seen order
+; Section names, in the order the Features tab shows them. Fixed here rather than
+; first-seen, so where a FEAT_Def line sits in this file does not decide the
+; layout. A section not listed is appended when its first FEAT_Def is seen.
+global FEAT_SECTIONS := ["Sending", "Model detection", "Chat reading and AI",
+                         "Screen helpers", "Library", "Tools", "System"]
 
 FEAT_Def(id, cfgKey, label, default, section) {
     FEAT_META[id] := {id: id, cfgKey: cfgKey, label: label, default: default, section: section}
@@ -162,10 +166,8 @@ FEAT_Def("defaultFu3",   "DefaultFu3On",   "Default FU3 when the mass has none",
 ; WHAT to send by looking at the screen, so it is also the one whose failure mode
 ; is "sent the wrong follow-up" rather than "did nothing". Being able to switch it
 ; off without unbinding the key is worth a checkbox of its own.
-FEAT_Def("nextFu",       "NextFu",         "Next follow-up (reads the chat)",          "1", "Sending")
+FEAT_Def("nextFu",       "NextFu",         "Auto detect next follow up (single button mode)", "1", "Sending")
 FEAT_Def("openTab",      "OpenTabAny",     "Open in new tab after a send",             "1", "Sending")
-FEAT_Def("doubleMM",     "DoubleMM",       "Double-MM (send two models at once)",      "1", "Sending")
-FEAT_Def("fuSingle",     "FuSingleAny",    "FuSingle grid (per-model follow-up map)",  "1", "Sending")
 FEAT_Def("mouseControl", "MouseControl",   "Mouse-button follow-ups",                  "1", "Sending")
 
 ; Its own switch rather than riding on the follow-up picker's, because the two ask
@@ -225,6 +227,12 @@ FEAT_Def("chatSim",       "ChatSim",       "Chat simulator (write a mass in cont
 ; swallows a message you type all day, the fix has to be one click and not a file
 ; you have to remember the name of.
 FEAT_Def("shortcuts",     "HotstringShortcuts", "Hotstring shortcuts (type a trigger, run an action)", "1", "Tools")
+; How the fix-grammar keys (chat/grammar.ahk) hand back their result. Off = the
+; fix goes on the clipboard and you paste it. On = FAST: it pastes the fix back
+; into the box itself and leaves your clipboard as it was. Not a hotkey gate —
+; the keys work either way; this only picks the ending. Read on every press, so
+; it applies without a restart.
+FEAT_Def("grammarFast",   "GrammarFast",   "Fix grammar: fast mode (pastes the fix back for you)", "0", "Chat reading and AI")
 
 ; ── sequences: deliberately NOT declared ──────────────────────────────────────
 ;  It had a FEAT_Def here ("Sequences + Discord Ctrl+click import"), and that made
@@ -243,37 +251,40 @@ FEAT_Def("shortcuts",     "HotstringShortcuts", "Hotstring shortcuts (type a tri
 ;  The old [Settings] Sequences key in mass_gui.cfg is simply ignored from here on.
 
 ; ── Background ────────────────────────────────────────────────────────────────
-FEAT_Def("modelDetector", "AutoDetectModel",    "Auto-detect the active model",        "0", "Background")
+FEAT_Def("modelDetector", "AutoDetectModel",    "Auto-detect the active model",        "0", "Model detection")
 ; Its own switch, not a mode of the one above. The two detectors read different
 ; windows, different geometry and different config, and either can be worth
 ; running while the other is not: an Infloww-only setup should not pay for a rail
 ; scan, and a Fansly session should not have the Infloww detector writing stale
 ; names. Both off is also a valid answer — that is what the manual select keys
 ; are for.
-FEAT_Def("fanslyDetector","AutoDetectFansly",   "Auto-detect the active Fansly model", "0", "Background")
-FEAT_Def("statsOverlay",  "StatsOverlay",       "Stats overlay",                       "0", "Background")
+FEAT_Def("fanslyDetector","AutoDetectFansly",   "Auto-detect the active Fansly model", "0", "Model detection")
+FEAT_Def("statsOverlay",  "StatsOverlay",       "Stats overlay",                       "0", "Screen helpers")
 ; OFF by default because it is useless until calibrated: it needs a rectangle
 ; drawn round YOUR conversation list, on your monitor at your window size, and
 ; there is no default for that worth shipping. Settings ▸ General ▸ Reply timers
 ; has the button. See screen/reply_box.ahk.
-FEAT_Def("replyBox",      "ReplyBox",           "Reply timers (box rows kept waiting)", "0", "Background")
-FEAT_Def("automation",    "AutomationListener", "Automation hotkeys (needs Python)",   "1", "Background")
-FEAT_Def("pinger",        "Pinger",             "Unread pinger (needs Python)",        "0", "Background")
-FEAT_Def("startupScripts","StartupScriptsOn",   "Auto-start scripts + restart watchdog", "1", "Background")
+FEAT_Def("replyBox",      "ReplyBox",           "Reply timers (box rows kept waiting)", "0", "Screen helpers")
+; A countdown timer: a window (gui.timer) and a no-window start/stop key
+; (gui.timerToggle). On by default: asked for. See src/timer/timer.ahk.
+FEAT_Def("timer",         "TimerTool",          "Timer (countdown, beep, repeat)",     "1", "Screen helpers")
+FEAT_Def("automation",    "AutomationListener", "Automation hotkeys (needs Python)",   "1", "Screen helpers")
+FEAT_Def("pinger",        "Pinger",             "Unread pinger (needs Python)",        "0", "Screen helpers")
+FEAT_Def("startupScripts","StartupScriptsOn",   "Auto-start scripts + restart watchdog", "1", "System")
 ; OFF by default, and this one is not a taste call. It installs a keyboard hook
 ; that sees every key you press, in every application, for as long as it runs —
 ; it counts and never records what (src/activity/record.ahk is built so it
 ; cannot), but "counts your keystrokes" is still a thing somebody must switch on
 ; deliberately rather than discover running. Its hotkey goes with it: the chart
 ; is only worth a key when there is something behind it.
-FEAT_Def("activity",      "ActivityTracker",    "Activity tracker (typing stats)",     "0", "Background")
+FEAT_Def("activity",      "ActivityTracker",    "Activity tracker (typing stats)",     "0", "System")
 ; OFF by default, and this one is the strongest version of that. The activity
 ; tracker above counts keystrokes and is BUILT so it cannot keep WHAT you typed
 ; (src/activity/record.ahk); typelog is the opposite — it records the text you
 ; type in Infloww into userdata\typelog\, to mine for hotstrings. That is a thing
 ; somebody switches on deliberately, never discovers running. Needs Python
 ; (pynput). See src/services/typelog/.
-FEAT_Def("typelog",       "Typelog",            "Typelog (records what you type in Infloww)", "0", "Background")
+FEAT_Def("typelog",       "Typelog",            "Typelog (records what you type in Infloww)", "0", "Chat reading and AI")
 ; Next-word suggestions while you type, trained on the typelog corpus, plus
 ; Ctrl+Tab to reword the word you just typed (touched -> caressed). OFF by
 ; default for the same reason typelog is, plus one of its own: it can put text
@@ -282,36 +293,74 @@ FEAT_Def("typelog",       "Typelog",            "Typelog (records what you type 
 ; drawing nothing, logging what it WOULD have said — so turning the feature on
 ; still shows no UI until you set Render=strip in userdata\autoword.ini.
 ; Needs Python (pynput). See src/services/autoword/.
-FEAT_Def("autoword",      "Autoword",           "Autoword (next-word suggestions, Ctrl+Tab to reword)", "0", "Background")
+FEAT_Def("autoword",      "Autoword",           "Autoword (next-word suggestions, Ctrl+Tab to reword)", "0", "Chat reading and AI")
+; Keeps the open Infloww chat OCR'd in the background (userdata\chat_now.json),
+; so the suggestion key has it instantly instead of paying ~2-5s of OCR per press.
+; It only reads: PrintWindow, no focus, no clicks. On by default because the user
+; asked for it always-on; it OCRs only when the chat changes. Needs Python.
+; See src/services/llm/chatreader.pyw.
+FEAT_Def("chatReader",    "ChatReader",         "Chat reader (reads the open chat for suggestions, needs Python)", "1", "Chat reading and AI")
+; Shift recorder: the chat reader keeps every chat it reads, per fan, as training
+; data (userdata\shiftlog\). Read by Python (shiftlog.feat), so these three only
+; matter while the Chat reader runs. Times = the line under each message (time,
+; chatter, PPV paid pill, his like); turn it off if those come out wrong. Panel =
+; the fan's spend / subscription / notes on the right (~1.5s OCR when it changes).
+FEAT_Def("shiftLog",      "ShiftLog",           "Shift recorder (saves every chat you work, for AI training)", "1", "Chat reading and AI")
+FEAT_Def("shiftTimes",    "ShiftTimes",         "Shift recorder: message times, chatter, PPV paid, likes", "1", "Chat reading and AI")
+FEAT_Def("shiftPanel",    "ShiftPanel",         "Shift recorder: fan panel (spend, subscription, notes)", "1", "Chat reading and AI")
+FEAT_Def("shiftMedia",    "ShiftMedia",         "Shift recorder: keep a picture of each image/PPV you send", "1", "Chat reading and AI")
+; Fan recorder (lore_gatherer, docs/proposals/lore-gatherer.md): the chat reader
+; files every chat under the fan's @handle in [FanData] Root (D:\FanData), with
+; dates and a crop of every unreadable bubble. Runs BESIDE the shift recorder for
+; one shift (decision 33); shiftLog is switched off once it has been checked.
+; A fan whose handle is cut off is filed provisionally and merged once it is read.
+; Read by Python (mmacfg.feat) inside the Chat reader. See llm/fanrec.py.
+FEAT_Def("fanRecorder",   "FanRecorder",        "Fan recorder (files every chat by the fan's @handle, D:\FanData)", "1", "Chat reading and AI")
+; AutoNote (Silly's name for the fan database): a few minutes after you stop
+; chatting a fan ([AutoNote] AfterMin, default 3), the local LLM writes or
+; refreshes his note from his whole kept chat: who, into, money, recently, right
+; now, avoid, reach-out lines. Shown in Fan Viewer. Uses the GPU, live, by choice
+; (2026-11-26). Needs the Fan recorder. See llm/autonote.py.
+FEAT_Def("autoNote",      "AutoNote",           "AutoNote (writes each fan's note after you chat him, needs Fan recorder)", "1", "Chat reading and AI")
+; Rings when a PPV in the open chat flips from "not paid" to "paid" (what live
+; Infloww shows), or a "has purchased your message" bubble appears.
+; Read by Python (shiftlog.feat) inside the Chat reader, so it needs that on.
+; Sound: userdata\sounds\purchase.wav if present, else Windows' tada.wav.
+; See src/services/llm/purchase_alert.py.
+FEAT_Def("purchaseSound", "PurchaseSound",      "Purchase sound (rings when a fan buys, needs Chat reader)", "1", "Chat reading and AI")
+; Pings when the number on Infloww's Unread pill reaches [UnreadPing] At, then
+; every EveryMin minutes while it stays there. Read by Python inside the Chat
+; reader every 5s (shiftlog.feat), so it needs that on. On by default: asked for.
+; See src/services/llm/unread_ping.py.
+FEAT_Def("unreadPing",    "UnreadPing",         "Unread ping (beeps when X fans are waiting, needs Chat reader)", "1", "Chat reading and AI")
 ; OFF by default, deliberately. The startup check runs three seconds after launch
 ; and its prompt is NOT suppressed by `silent`, so with this on you get an update
 ; dialog in front of whatever you were doing, on someone else's release schedule
 ; — and saying yes overwrites the tree you are working in. Settings ▸ Models
 ; still has a "Check for updates" button that works whatever this is set to, so
 ; off costs you nothing except being asked.
-FEAT_Def("autoUpdate",    "AutoUpdate",         "Check for updates at startup",        "0", "Background")
+FEAT_Def("autoUpdate",    "AutoUpdate",         "Check for updates at startup",        "0", "System")
 
 ; ═══════════════════════════════════════════════════════════════════════════════
 ;  Hotkey ownership. HK_Bind consults this, so a feature being off means its keys
 ;  are never registered — one central gate instead of a guard in every script.
 ;
-;  Matched as a PREFIX against the hotkey id, longest first, so "mass.1.altFu1"
-;  finds "altFu" while plain "mass.1.fu1" matches nothing and stays unguarded.
+;  Matched as a PREFIX against the hotkey id, longest first. Mass keys are matched
+;  on their slot ("nextFu"); plain "mass.1.fu1" matches nothing and stays
+;  unguarded. Mouse-button follow-ups is not in here: it gates individual MOUSE
+;  keys of an overload, which a per-id map cannot say — see _HK_Apply.
 ; ═══════════════════════════════════════════════════════════════════════════════
 global FEAT_HOTKEY_MAP := Map(
-    "altFu",              "altFollowups",
     "br",                 "altFollowups",   ; branches ride the same toggle
     "nextFu",             "nextFu",
-    "mFu",                "mouseControl",
-    "mPpv",               "mouseControl",   ; mPpv and mPpvFus, same thumb
     "gui.actions",        "actionsMenu",
     "gui.hotstringMenu",  "hotstrings",     ; the quick menu IS the manager
     "gui.quickActions",   "quickActions",
     "gui.toggleStats",    "statsOverlay",
+    "gui.timer",          "timer",          ; gui.timer and gui.timerToggle
     "gui.activity",       "activity",
     "gui.branchBuilder",  "branchBuilder",
     "gui.chatSim",        "chatSim",
-    "gui.toggleDoubleMM", "doubleMM",
     "gui.ocrGrab",        "ocrGrab",
     "gui.addHotkeyGrab",  "ocrGrab",
     "marks.",             "tabMarks",

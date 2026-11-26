@@ -1,0 +1,560 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Shift Capture Guide</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,500;12..96,700&family=IBM+Plex+Sans:ital,wght@0,400;0,500;0,600;1,400&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<style>
+/* Layout: a long technical reading page — sticky contents rail on wide screens,
+   one ~72ch column of prose; tables, code and diagrams scroll in place. */
+:root {
+  --bg: #f5f6f8; --paper: #ffffff; --ink: #16191f; --muted: #5b6270; --line: #dde1e7;
+  --accent: #b0245c; --accent-soft: #fbe9f0;
+  --keep: #1f7a4d; --keep-soft: #e3f3ea; --look: #9a6400; --look-soft: #fbf1dc;
+  --fix: #b3261e; --fix-soft: #fbe5e3; --info: #2457b3; --info-soft: #e5edfb;
+  --code-bg: #eef0f4;
+  --display: "Bricolage Grotesque", "Segoe UI", system-ui, sans-serif;
+  --body: "IBM Plex Sans", "Segoe UI", system-ui, sans-serif;
+  --mono: "IBM Plex Mono", ui-monospace, "Cascadia Mono", Consolas, monospace;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #111318; --paper: #181b21; --ink: #e7e9ee; --muted: #9aa1ae; --line: #2a2f38;
+    --accent: #f06b9e; --accent-soft: #3a1d29;
+    --keep: #5fcf95; --keep-soft: #16301f; --look: #e9b453; --look-soft: #33280f;
+    --fix: #ff8a80; --fix-soft: #3a1a18; --info: #8fb4ff; --info-soft: #161c28; --code-bg: #22262e;
+    color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #111318; --paper: #181b21; --ink: #e7e9ee; --muted: #9aa1ae; --line: #2a2f38;
+  --accent: #f06b9e; --accent-soft: #3a1d29;
+  --keep: #5fcf95; --keep-soft: #16301f; --look: #e9b453; --look-soft: #33280f;
+  --fix: #ff8a80; --fix-soft: #3a1a18; --info: #8fb4ff; --info-soft: #161c28; --code-bg: #22262e;
+  color-scheme: dark;
+}
+* { box-sizing: border-box; }
+body { background: var(--bg); color: var(--ink); font-family: var(--body); font-size: 16px;
+  line-height: 1.62; margin: 0; padding-inline: 16px; padding-block: 0 64px; }
+.shell { max-width: 1180px; margin: 0 auto; display: grid; grid-template-columns: 230px minmax(0, 1fr); gap: 48px; }
+@media (max-width: 920px) { .shell { grid-template-columns: minmax(0, 1fr); gap: 0; } nav.toc { display: none; } }
+nav.toc { position: sticky; top: 0; align-self: start; padding-block: 40px; font-size: 13.5px;
+  line-height: 1.45; max-height: 100vh; overflow-y: auto; }
+nav.toc .label { font-family: var(--mono); font-size: 11px; letter-spacing: .08em; text-transform: uppercase; color: var(--muted); margin-bottom: 10px; }
+nav.toc ol { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; counter-reset: toc; }
+nav.toc li { counter-increment: toc; display: grid; grid-template-columns: 24px 1fr; }
+nav.toc li::before { content: counter(toc); font-family: var(--mono); font-size: 11.5px; color: var(--muted); padding-top: 1px; }
+nav.toc a { color: var(--ink); text-decoration: none; }
+nav.toc a:hover, nav.toc a:focus-visible { color: var(--accent); }
+main { min-width: 0; padding-block: 40px; }
+.col { max-width: 74ch; }
+header.top { padding-block: 8px 28px; border-bottom: 1px solid var(--line); margin-bottom: 36px; }
+.eyebrow { font-family: var(--mono); font-size: 12px; letter-spacing: .08em; text-transform: uppercase; color: var(--accent); }
+h1 { font-family: var(--display); font-weight: 700; font-size: clamp(2.1rem, 5vw, 3.3rem); line-height: 1.04; margin: 10px 0 14px; letter-spacing: -0.01em; text-wrap: balance; }
+.dek { font-size: 1.1rem; color: var(--muted); margin: 0; }
+section { padding-top: 26px; margin-top: 26px; border-top: 1px solid var(--line); }
+h2 { font-family: var(--display); font-weight: 700; font-size: 1.75rem; line-height: 1.15; margin: 0 0 12px; scroll-margin-top: 20px; }
+h2 .n { font-family: var(--mono); font-size: .9rem; color: var(--accent); margin-right: 10px; vertical-align: middle; }
+h3 { font-family: var(--display); font-weight: 500; font-size: 1.22rem; margin: 26px 0 8px; }
+h4 { font-size: 1rem; margin: 20px 0 6px; }
+p, li { max-width: 74ch; }
+code { font-family: var(--mono); font-size: .88em; background: var(--code-bg); padding: 1px 5px; border-radius: 4px; overflow-wrap: anywhere; }
+pre { font-family: var(--mono); font-size: 13px; line-height: 1.5; background: var(--code-bg); padding: 14px 16px;
+  border-radius: 8px; overflow-x: auto; max-width: 100%; }
+pre code { background: none; padding: 0; font-size: inherit; overflow-wrap: normal; }
+.scroll { overflow-x: auto; max-width: 100%; margin: 14px 0; }
+table { border-collapse: collapse; font-size: 14px; min-width: 520px; width: 100%; }
+th, td { text-align: left; vertical-align: top; padding: 7px 10px; border-bottom: 1px solid var(--line); }
+th { font-weight: 600; background: var(--paper); }
+td code { white-space: nowrap; }
+.note { border-left: 3px solid var(--info); background: var(--info-soft); padding: 10px 14px; border-radius: 0 8px 8px 0; margin: 16px 0; }
+.warn { border-left: 3px solid var(--look); background: var(--look-soft); padding: 10px 14px; border-radius: 0 8px 8px 0; margin: 16px 0; }
+.bad { border-left: 3px solid var(--fix); background: var(--fix-soft); padding: 10px 14px; border-radius: 0 8px 8px 0; margin: 16px 0; }
+.good { border-left: 3px solid var(--keep); background: var(--keep-soft); padding: 10px 14px; border-radius: 0 8px 8px 0; margin: 16px 0; }
+.note p, .warn p, .bad p, .good p { margin: 4px 0; }
+.flow { display: grid; gap: 8px; margin: 18px 0; }
+.flow .step { background: var(--paper); border: 1px solid var(--line); border-radius: 10px; padding: 10px 14px; }
+.flow .step b { font-family: var(--mono); font-size: 12px; color: var(--accent); display: block; letter-spacing: .04em; }
+.flow .arrow { text-align: center; color: var(--muted); font-family: var(--mono); line-height: 1; }
+.cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(210px, 1fr)); gap: 12px; margin: 16px 0; }
+.card { background: var(--paper); border: 1px solid var(--line); border-radius: 10px; padding: 12px 14px; }
+.card h4 { margin: 0 0 4px; font-family: var(--display); font-size: 1.05rem; }
+.card p { margin: 0; font-size: 14.5px; color: var(--muted); }
+.card code { font-size: 12px; }
+.big { font-family: var(--display); font-size: 2rem; font-weight: 700; line-height: 1; color: var(--ink); }
+.k { font-size: 13px; color: var(--muted); }
+svg text { font-family: var(--mono); }
+figure { margin: 18px 0; }
+figcaption { font-size: 13.5px; color: var(--muted); margin-top: 6px; }
+.tag { font-family: var(--mono); font-size: 11.5px; padding: 1px 7px; border-radius: 9px; background: var(--accent-soft); color: var(--accent); white-space: nowrap; }
+.tag.new { background: var(--keep-soft); color: var(--keep); }
+kbd { font-family: var(--mono); font-size: .85em; border: 1px solid var(--line); border-bottom-width: 2px; border-radius: 4px; padding: 0 5px; background: var(--paper); }
+</style>
+</head>
+<body>
+<div class="shell">
+<nav class="toc" aria-label="Contents">
+  <div class="label">Contents</div>
+  <ol>
+    <li><a href="#big-picture">The big picture</a></li>
+    <li><a href="#rules">Ground rules</a></li>
+    <li><a href="#live">Live: the chat reader loop</a></li>
+    <li><a href="#frame">Reading one frame</a></li>
+    <li><a href="#journal">The journal</a></li>
+    <li><a href="#merge">Stitching reads into one chat</a></li>
+    <li><a href="#gaps">Gaps: the 8-hour-shift bug</a></li>
+    <li><a href="#names">One fan, many spellings</a></li>
+    <li><a href="#panel">The fan panel</a></li>
+    <li><a href="#media">Pictures you sent</a></li>
+    <li><a href="#video">Video: recordings to chats</a></li>
+    <li><a href="#discord">Video: Discord streams</a></li>
+    <li><a href="#read-size">Video: reading at one size</a></li>
+    <li><a href="#viewer">Shift Viewer and the clone</a></li>
+    <li><a href="#obs">OBS recording</a></li>
+    <li><a href="#commands">Commands</a></li>
+    <li><a href="#limits">What it cannot do</a></li>
+    <li><a href="#today">What changed today, exactly</a></li>
+    <li><a href="#files">File map</a></li>
+  </ol>
+</nav>
+
+<main>
+<header class="top col">
+  <div class="eyebrow">MMA · shift capture · written 2026-10-22</div>
+  <h1>How shift capture works, and exactly what it does</h1>
+  <p class="dek">Every piece that turns your Infloww screen, live or recorded, into whole conversations on disk: how a frame is read, how hundreds of screenfuls become one chat, why the 8-hour shift came out as scraps and how that was fixed, and how recordings of Discord streams are handled.</p>
+</header>
+
+<div class="col">
+
+<!-- ─────────────────────────────────────────────────────────────── -->
+<section id="big-picture" style="border-top:0;margin-top:0;padding-top:0">
+<h2><span class="n">01</span>The big picture</h2>
+<p>There are two ways chats get in, live and from video. Both produce the same thing, and two tools show it:</p>
+<div class="cards">
+  <div class="card"><h4>Live shift recorder</h4><p>Watches the Infloww window while you work and records each screenful the moment it changes. <code>chatreader.pyw</code> + <code>shiftlog.py</code></p></div>
+  <div class="card"><h4>Video to chat</h4><p>Does the same to a screen recording (OBS, or a recorded Discord stream), frame by frame. <code>video2chat.py</code></p></div>
+  <div class="card"><h4>Shift Viewer</h4><p>Shows everything collected as a read-only copy of Infloww, so you can check it. <code>tools/shiftview</code></p></div>
+  <div class="card"><h4>Infloww clone</h4><p>The one shared, pixel-faithful renderer of Infloww that the viewer and TestFlow both draw with. <code>tools/inflowwclone</code></p></div>
+</div>
+<div class="flow" aria-label="Data flow">
+  <div class="step"><b>SOURCE</b>The Infloww window (live) or a video file</div>
+  <div class="arrow">↓ one frame</div>
+  <div class="step"><b>READ</b><code>transcript.py</code> finds the message pane and reads every bubble, its footer (time, chatter, price, paid), the fan's name in the header and the fan panel on the right</div>
+  <div class="arrow">↓ one "read" = one screenful</div>
+  <div class="step"><b>JOURNAL</b><code>shiftlog.record()</code> appends it as one line to <code>userdata/shiftlog/reads/&lt;date&gt;.jsonl</code>. This raw journal is the source of truth.</div>
+  <div class="arrow">↓ merge</div>
+  <div class="step"><b>CHATS</b>The read is stitched into that fan's file, <code>userdata/shiftlog/chats/&lt;account&gt;/&lt;fan&gt;.json</code>. These files are derived: delete them and <code>rebuild()</code> replays the journal to make them again.</div>
+  <div class="arrow">↓</div>
+  <div class="step"><b>VIEW / TRAIN</b>The Shift Viewer shows the chats. Later, training datasets get built from them.</div>
+</div>
+<p>A "read" is the unit of everything here: one screenful of one chat, read from one frame, with a timestamp. A long conversation is hundreds of overlapping reads. The hard part isn't reading the screen; it's stitching the reads back together.</p>
+</section>
+
+<!-- ─────────────────────────────────────────────────────────────── -->
+<section id="rules">
+<h2><span class="n">02</span>Ground rules</h2>
+<ul>
+  <li><b>Pixels only.</b> Nothing reads Infloww's internals: no page code, no dev tools, no network traffic. Everything comes from what is drawn on screen, plus typelog for what you typed.</li>
+  <li><b>Never steals focus.</b> Live capture uses <code>PrintWindow</code>, which copies the window's image even when it's behind other windows, in about 40 ms, without touching the keyboard or mouse.</li>
+  <li><b>Local only.</b> Chat data stays on this PC. Nothing is uploaded, and the viewer serves its pages only to <code>127.0.0.1</code>.</li>
+  <li><b>The window title decides the account.</b> "Infloww Messages - 333" files under account <code>333</code>. Tools that show chats must therefore never have "Infloww Messages" in their own title, or the reader would read <em>them</em>. TestFlow is the one deliberate exception: it's meant to be read, as a test window.</li>
+  <li><b>Raw first, derived second.</b> The journal is only ever appended to. Every improvement in this guide was applied to old shifts by rebuilding from it, so nothing already recorded is lost when the stitching gets smarter.</li>
+</ul>
+</section>
+
+<!-- ─────────────────────────────────────────────────────────────── -->
+<section id="live">
+<h2><span class="n">03</span>Live: the chat reader loop</h2>
+<p><code>src/services/llm/chatreader.pyw</code> runs in the background (MMA starts it; Settings ▸ Features ▸ "Chat reader"). It also feeds reply suggestions through <code>userdata/chat_now.json</code>; the shift recorder is a passenger on the same loop.</p>
+<h3>Every 0.7 seconds (<code>POLL_S</code>)</h3>
+<ol>
+  <li>Capture the Infloww window with PrintWindow.</li>
+  <li>Make three tiny grey <b>thumbnails</b> (96×32 px): the <b>message pane</b>, the <b>fan panel</b> on the right, and the <b>header</b> with the fan's name.</li>
+  <li>Compare each with the previous poll. A difference above <code>CHANGED = 0.6</code> counts as "moving".</li>
+</ol>
+<h3>The settle rule</h3>
+<p>Nothing is read while anything moves. All three thumbnails must hold still for <code>SETTLE_POLLS = 2</code> polls in a row. Then <em>everything</em> is read from that one frame.</p>
+<div class="warn"><p><b>Why all three, from one frame:</b> when you click another fan, Infloww updates the right panel first, then the messages, then the header name last. On the first live night the reader sometimes read the new chat under the old name, or the old fan's panel under the new name. Reads from 02:04–02:40 that night are partly mislabelled for this reason. Waiting until all three regions are still, then reading them together, fixed it.</p></div>
+<h3>What gets read once settled</h3>
+<ul>
+  <li><b>The chat</b>: when the pane or the header changed since the last chat read. Messages, footers, fan name.</li>
+  <li><b>The panel</b>: when the fan is different from the last panel read, or the panel thumbnail changed.</li>
+</ul>
+<h3>Switches (Settings ▸ Features)</h3>
+<div class="scroll"><table>
+<tr><th>Feature</th><th>Key in <code>mass_gui.cfg</code></th><th>What it turns on</th></tr>
+<tr><td>Shift log</td><td><code>ShiftLog</code></td><td>Journal every read (off = suggestions only)</td></tr>
+<tr><td>Shift times</td><td><code>ShiftTimes</code></td><td>Read the footer under each bubble (time, chatter, price, paid, liked). Turn it off if footer OCR misbehaves.</td></tr>
+<tr><td>Shift panel</td><td><code>ShiftPanel</code></td><td>Read the fan panel (spend, status, notes…)</td></tr>
+<tr><td>Shift media</td><td><code>ShiftMedia</code></td><td>Keep a picture of each image/PPV you send (§10)</td></tr>
+</table></div>
+<p><code>shiftlog.feat()</code> re-reads these on every check, cached by file modification time, so flipping one takes effect without a restart.</p>
+</section>
+
+<!-- ─────────────────────────────────────────────────────────────── -->
+<section id="frame">
+<h2><span class="n">04</span>Reading one frame</h2>
+<p><code>src/services/llm/transcript.py</code> turns one image into a list of messages ("turns").</p>
+<h3>1 · Find the message pane</h3>
+<p>Infloww draws its column dividers in exactly <code>#444444</code>. <code>find_layout()</code> looks for two vertical lines of that colour (±2) covering more than 95% of the middle of the window, then two horizontal lines between them: the line under the conversation header and the composer's top line. The rectangle between them is the message pane. The <b>scale</b> comes from the header line's height relative to its reference position (y = 133 on the 1920×1032 reference window). Your live window is 3442×1379 at scale 1.37.</p>
+<p>If the dividers aren't where a conversation puts them (the inbox, a settings page, a half-drawn frame), the answer is "no layout", never a guess.</p>
+<h3>2 · Find the bubbles</h3>
+<p>Fan bubbles are <code>#262626</code> on the left; yours are <code>#353535</code> on the right. Each bubble is cut out and its text OCR'd. Live uses <b>RapidOCR 1.2.3 (PP-OCRv3)</b>; on clean live captures a bake-off against newer engines was a draw. Media (photos, videos, PPVs) become text-less turns, and watermark text inside them is dropped by the <code>_MEDIA_JUNK</code> patterns.</p>
+<h3>3 · Footers <span class="tag">ShiftTimes</span></h3>
+<p>Under a bubble (4–32 px below, times the scale) sits its footer, for example <code>$15.00 not paid 9:19 pm</code> or <code>1:03 am ✓ tydrera</code>. <code>parse_footer()</code> splits it into <code>time</code>, <code>date</code>, <code>sender</code> (which chatter sent it), <code>price</code>, <code>paid</code>, and <code>liked</code>. Colour backs up the text:</p>
+<div class="scroll"><table>
+<tr><th>Thing</th><th>Colour</th><th>Meaning</th></tr>
+<tr><td>Price pill</td><td><code>#ff7c71</code></td><td>PPV not paid</td></tr>
+<tr><td>Price pill</td><td><code>#2bd4ac</code></td><td>PPV paid (from BallLore's notes, not yet measured live)</td></tr>
+<tr><td>Heart</td><td><code>#3467ff</code></td><td>Liked</td></tr>
+<tr><td>Media frame</td><td>measured per bubble</td><td><code>ppv_border</code>: opened / not opened</td></tr>
+</table></div>
+<p>A footer with no bubble above it (a PPV's image without a caption) is attached to the media turn above it.</p>
+<h3>4 · The fan's name</h3>
+<p>The header shows "<i>your nickname for him</i>(<i>his name</i>)" in white, followed by a grey edit pencil. Only near-white ink is kept (<code>NAME_INK</code>: 200 live, 140 for video, where compression dims thin white strokes), so the pencil never turns into extra letters.</p>
+<h3>5 · The panel <span class="tag">ShiftPanel</span></h3>
+<p><code>read_panel()</code> OCRs the right column into its tab (insights / sales / notes), raw rows and named fields: Total spend, Last spend, Spending power, Status, Nickname, and so on. <code>_tidy_value()</code> fixes the OCR's usual slips: <code>$o</code>→<code>$0</code>, <code>$33795</code>→<code>$337.95</code>, <code>$5714k</code>→<code>$57.14k</code>, <code>so Total</code>→<code>$0 Total</code>, <code>PPV I</code>→<code>PPV |</code>.</p>
+</section>
+
+<!-- ─────────────────────────────────────────────────────────────── -->
+<section id="journal">
+<h2><span class="n">05</span>The journal</h2>
+<p>Every read becomes one JSON line in <code>userdata/shiftlog/reads/</code>:</p>
+<pre><code>{"at": 1792627441.79,                         ← when (unix time)
+ "title": "Infloww Messages - 333",           ← which account
+ "fan": "…",                                  ← name from the header
+ "resumed": true,                             ← (video only) first read after Infloww was off screen
+ "turns": [{"who": "fan", "text": "…", "time": "1:45 am", "price": "15.00",
+            "paid": false, "footer": "$15.00 not paid 9:19 pm", …},
+           {"who": "model", "text": "", "media_img": "333/&lt;fan&gt;/&lt;hash&gt;.jpg", …}, …]}
+{"kind": "panel", "at": …, "fan": "…", "panel": {"tab": "insights", "rows": […], "fields": {…}}}</code></pre>
+<ul>
+  <li>Live reads go to <code>&lt;date&gt;.jsonl</code>; a video goes to <code>&lt;date&gt;.video-&lt;file name&gt;.jsonl</code>. Re-running a video replaces its file, never doubles it.</li>
+  <li><code>rebuild()</code> deletes <code>chats/</code> and replays <b>every</b> journal file in name order through the same merge, with name folding (§08). It takes seconds, and it's how today's fixes reached old shifts.</li>
+  <li>Saving a chat file writes a temp file and swaps it in. If Windows says "access denied" because something has the file open for a moment, it retries 20× over 2 seconds.</li>
+</ul>
+</section>
+
+<!-- ─────────────────────────────────────────────────────────────── -->
+<section id="merge">
+<h2><span class="n">06</span>Stitching reads into one chat</h2>
+<p>Each new read of a fan is merged into what is saved for that fan (<code>shiftlog.merge()</code>). OCR isn't perfectly repeatable: the same message can come back as "ur" in one read and "u r" in the next, or with and without its reply-quote header. So matching uses <code>same()</code>, a fuzzy comparison, never exact equality.</p>
+<h3>Step 1 · Exact fit</h3>
+<p>First the strict merge from the Live Trainer: slide the read over the end of the saved chat and accept the offset where <em>every</em> overlapping message matches. This handles the common case, including a one-message overlap after a quick scroll.</p>
+<h3>Step 2 · Diff-style fit</h3>
+<p>If that fails, align the two like a diff (longest common subsequence under <code>same()</code>). Text matches weigh 2 and media matches 1, so two photos can never outvote a real sentence. The read is accepted when:</p>
+<ul>
+  <li>at least <code>MIN_ANCHORS = 2</code> text messages match (or all of them, if the read has fewer), and</li>
+  <li>matches cover at least <code>MIN_AGREE = 60%</code> of the read's text messages between its first and last match.</li>
+</ul>
+<p>Then:</p>
+<ul>
+  <li><b>Fill-ins:</b> where the read has messages between two matches that sit next to each other in the saved chat, they are inserted (one read caught something an earlier one missed).</li>
+  <li><b>Older:</b> messages above the first match are added on top, but only if the match is at the very top of the saved chat (at most 2 media items above it, <code>LOOSE_EDGE</code>).</li>
+  <li><b>Newer:</b> messages below the last match are added at the bottom, under the same condition at the bottom. They are stamped with the read's time.</li>
+  <li>Matched messages are combined: the longer text wins, missing fields get filled in, and paid / liked / PPV border take the latest value (a PPV turns paid).</li>
+</ul>
+<h3>Step 3 · It fits nowhere</h3>
+<p>See the next section; this is where the 8-hour-shift problem lived.</p>
+<h3>Islands</h3>
+<p>When you scroll far back, each read overlaps the <em>previous read</em> but not the saved chat. Those reads grow an <b>island</b> of their own, merged with the same rules. After every successful merge, the 8 newest islands (<code>RETRY_ISLANDS</code>) are tried against the chat again. Once a read bridges the gap, the island joins. The viewer shows unjoined islands as orange "Fragment" sections.</p>
+<p>One special case: if the saved chat has no text at all (the first read caught the chat mid-load, one empty media bubble), it's thrown away, because nothing could ever line up with it.</p>
+</section>
+
+<!-- ─────────────────────────────────────────────────────────────── -->
+<section id="gaps">
+<h2><span class="n">07</span>Gaps: the 8-hour-shift bug <span class="tag new">fixed today</span></h2>
+<h3>What you saw</h3>
+<p>After a 13-hour live capture, the viewer showed mostly the <em>latest</em> few messages per fan, not whole conversations.</p>
+<h3>What was actually wrong</h3>
+<p>The reader <em>had</em> seen the shift: 723 of the 774 messages you sent (93%, checked against typelog) were in the journal. The stitching lost them:</p>
+<ol>
+  <li>Infloww <b>always opens a chat at the bottom</b>.</li>
+  <li>You leave a fan. While you're elsewhere, more arrives than one screen holds, or you send a PPV whose image fills most of the pane (a screen can drop to 3–4 messages).</li>
+  <li>You come back. Nothing on screen overlaps what was saved, so the merge fails.</li>
+  <li>The old rule assumed a failed merge meant <em>you scrolled back</em>, and parked the read as an island. Every later read overlapped that island, not the chat, so the whole rest of the conversation grew in the island.</li>
+  <li>An island only joins when a read bridges the gap, which takes scrolling back, which nobody does mid-shift. So <b>each chat froze at its first gap</b>.</li>
+  <li>The viewer then put the fragments first and the frozen main chat last, labelled "Recorded chat". The <em>oldest</em> part appeared at the bottom, where the newest belongs.</li>
+</ol>
+<p>Before the fix, 848 of 2,599 messages on account 333 were stuck in islands. One fan with 89 reads had 42 messages in his chat and the last 8 hours spread over five fragments.</p>
+<h3>The rule now: is it newer or older?</h3>
+<p>When a read fits nowhere, <code>_is_newer()</code> decides:</p>
+<ol>
+  <li>If any message in the read carries a <b>date</b>, it's an older day: an island, as before. Infloww shows dates only for days before today.</li>
+  <li>If both sides have <b>footer times</b>: take the last timed message of the saved chat (h) and the first timed message of the read (r). The read is newer when <code>(r − h) mod 1440 &lt; 720</code> minutes. The <em>mod</em> makes 11:58 pm → 12:03 am count as 5 minutes later, not 23 hours earlier.</li>
+  <li>With no times, it's newer only if the read is <b>fresh</b>: the first read after switching to this fan (the previous read was of another fan), or, from video, the first read after Infloww was off screen (<code>resumed</code>). A freshly opened chat is at the bottom, so it's the newest part.</li>
+</ol>
+<p>A newer read is appended below the chat, and its first message gets <code>gap_before: true</code>. The viewer draws that as a blue line: <span class="tag" style="background:var(--info-soft);color:var(--info)">··· not seen: messages came in while you were away · back at 4:46 am ···</span>. An older read still becomes an island, which is right for a real scroll-back.</p>
+<div class="good">
+<p><b>After rebuilding the same journal (account 333):</b></p>
+<div class="scroll"><table>
+<tr><th></th><th>Before</th><th>After</th></tr>
+<tr><td>Messages in the joined chat</td><td>1,751</td><td>2,383</td></tr>
+<tr><td>Messages stuck in fragments</td><td>848</td><td>212</td></tr>
+<tr><td>Marked gaps</td><td>—</td><td>75</td></tr>
+<tr><td>Median messages per fan</td><td>9</td><td>12</td></tr>
+</table></div>
+</div>
+<div class="warn"><p><b>Still true:</b> the median fan is about 12 messages because that's what was on screen while you had him open. Anything before the shift is captured only if you scroll up in that chat. To get long full histories of your regulars, scroll up through each one once during a shift; the scroll-back is recorded and joined.</p></div>
+</section>
+
+<!-- ─────────────────────────────────────────────────────────────── -->
+<section id="names">
+<h2><span class="n">08</span>One fan, many spellings</h2>
+<p>The header name is OCR'd fresh on every read, and it wobbles: "Kit I Notes(Kit", "Kit I Notes:Kiti" and "Kit I NotesiKit" are one fan. At rebuild, <code>canonical_names()</code> folds spellings together:</p>
+<ol>
+  <li>Count reads per (account, spelling), and the most common <b>Total spend</b> seen in that spelling's panel reads.</li>
+  <li>Walk spellings from most-read to least. Each one joins the first more-read spelling that is <b>close</b>, provided their spends don't contradict each other:
+    <ul>
+      <li>names of 4+ letters with a similarity of 0.75 or more (<code>NAME_SIMILAR</code>), or one containing the other (6+ letters);</li>
+      <li>or the same non-zero spend to the cent plus the same first 4 letters.</li>
+    </ul></li>
+  <li>Short names must match exactly: "TW" is not "TW MAX RUDY".</li>
+</ol>
+<p>The spend check is what keeps two different fans called "Raul" apart when one has spent $364 and the other $12.34k. Every spelling read is listed in the chat file's <code>names</code>, and the viewer shows "N spellings".</p>
+</section>
+
+<!-- ─────────────────────────────────────────────────────────────── -->
+<section id="panel">
+<h2><span class="n">09</span>The fan panel</h2>
+<p>Panel reads go to the same journal (<code>"kind": "panel"</code>). Each fan's file keeps:</p>
+<ul>
+  <li><code>panel[tab]</code>: the latest reading of each tab;</li>
+  <li><code>panel_log</code>: every reading with its time, so spend changes over the shift are visible. The viewer shows them as "Spend during the shift".</li>
+</ul>
+<p>On the first live shift: 312 panel snapshots, and 59 fans at $100+ total spend.</p>
+</section>
+
+<!-- ─────────────────────────────────────────────────────────────── -->
+<section id="media">
+<h2><span class="n">10</span>Pictures you sent <span class="tag new">new today</span></h2>
+<p>A PPV's caption is half the story; its first image is the other half (what was teased, what he was buying). So every read also keeps a picture of each of <b>your</b> media bubbles, live and from video:</p>
+<ol>
+  <li>After the turns are read, <code>keep_media()</code> looks at each of your text-less turns (media) that is <b>fully</b> on screen (not cut by the pane's top or bottom) and at least 60 px on each side.</li>
+  <li>It crops that bubble from the <b>same frame</b> the turns came from. For a PPV that's the first image of the bundle, with Infloww's "1/6" counter on it.</li>
+  <li>It computes a 16×16 average hash. If this fan's folder already has a picture within 24 of 256 bits (<code>MEDIA_SAME</code>), it's the same picture read again: the file is reused, and replaced only if the new crop is bigger. Otherwise it saves <code>userdata/shiftlog/media/&lt;account&gt;/&lt;fan&gt;/&lt;hash&gt;.jpg</code> (JPEG quality 88).</li>
+  <li>The turn gets <code>media_img</code> (the path) before it's journaled. The link lives in the raw journal, so rebuilds keep it, and merging fills it into the chat's message.</li>
+</ol>
+<p>The Shift Viewer shows the picture in place of the grey "photo / video" box. It asks for each picture once over its bridge (<code>Api.media</code>, path-checked, never the static server) and caches it.</p>
+<ul>
+  <li>Only your side. Pictures fans send aren't kept.</li>
+  <li>An image that is only ever seen cut off by the pane edge isn't kept. Scroll it fully into view once and it is.</li>
+  <li>Switch: Settings ▸ Features ▸ "Shift recorder: keep a picture of each image/PPV you send" (<code>ShiftMedia</code>). A failure to save a picture never costs the read.</li>
+</ul>
+<p>Tested on frames from both recordings: whole bundle-cover images were cut out cleanly (600×600 in the enlarged crop); 7 sightings of the same pictures became 5 files; half-visible ones were correctly skipped.</p>
+</section>
+
+<!-- ─────────────────────────────────────────────────────────────── -->
+<section id="video">
+<h2><span class="n">11</span>Video: recordings to chats</h2>
+<p><code>src/services/llm/video2chat.py</code> runs the same reading and the same journal on a video file. The differences, and why:</p>
+<h3>Sampling</h3>
+<p>One frame every <code>EVERY_S = 0.5</code> s of video. Decoding is the expensive part, so the frames in between are only <em>grabbed</em> (skipped cheaply). The settle rule is the same as live: pane, panel and header unchanged for <code>SETTLE = 2</code> samples, then all read from one frame.</p>
+<h3>Lines by contrast, not colour</h3>
+<p>Scaled and compressed, the 1 px <code>#444444</code> divider comes out around <code>#2c2c2c</code>, and once scaled down it's often 2 px of blur. So the video tool never looks for a colour; it looks for <b>contrast</b>. A pixel is "on a line" when it's at least <code>LINE_CONTRAST = 3</code> grey levels brighter than the pixels on both sides, 1 px away or 2 px away (<code>_line_map</code>). Bubble colours survive compression (<code>#353535</code> stays 53), so bubble finding is unchanged.</p>
+<h3>OCR engine</h3>
+<p>Video uses <b>PP-OCRv5, English model</b> (RapidOCR 3.10), swapped in for this process only. On compressed 1080p text the live engine dropped the spaces ("ialsousedmyvoice") and lost header names; v5 read both cleanly. It's installed with <code>--no-deps</code> plus <code>colorlog</code> and <code>omegaconf</code> to avoid an OpenCV clash.</p>
+<h3>Pop-ups</h3>
+<p>A scripts panel or similar pop-up over the composer draws its own horizontal line higher up. Each frame, if such a line crosses the pane, the pane is cut above it (<code>frame_layout</code>).</p>
+<h3>Time and account</h3>
+<ul>
+  <li>Each read is stamped <i>video start + offset</i>. The start comes from an OBS-style file name (<code>2026-04-03 00-52-29.mp4</code>), or else from the file's modified time minus its length. Messages also carry their own footer times, so nothing depends on this being exact.</li>
+  <li>The account can't be read reliably from video, so pass <code>--account "PINK VIP"</code>. Otherwise the file name is used.</li>
+  <li>A read with no fan name in the header (the chat list, a pop-up) is skipped: from video those were all junk.</li>
+</ul>
+</section>
+
+<!-- ─────────────────────────────────────────────────────────────── -->
+<section id="discord">
+<h2><span class="n">12</span>Video: Discord streams <span class="tag new">new today</span></h2>
+<p>A recording of a Discord stream isn't always Infloww. The two recordings in <code>E:\OldFiles\shadow\shadpwig\mndt</code> contain all of these:</p>
+<div class="scroll"><table>
+<tr><th>What is on screen</th><th>What happens</th></tr>
+<tr><td>Infloww full screen (Discord's purple "Streamer Mode" bar on top)</td><td>Found at 0.94×, read</td></tr>
+<tr><td>Infloww <b>windowed</b>: Discord's server and channel sidebar on the left, Infloww in the rest</td><td>Found at ~0.70×, cut out, enlarged 2×, read</td></tr>
+<tr><td>Infloww small: the stream tile with webcam tiles under it</td><td>Found (0.69× in the long video), read if ≥ 0.5×</td></tr>
+<tr><td>A Discord text channel</td><td>Rejected</td></tr>
+<tr><td>A screenshot of a chat that someone posted, opened in Discord's image viewer</td><td>Rejected: bubbles, but no columns</td></tr>
+<tr><td>The voice-channel grid of webcams</td><td>Rejected</td></tr>
+<tr><td>Infloww with a full-window modal (Vault) or the chat list only</td><td>Not read (nothing conversation-shaped visible)</td></tr>
+</table></div>
+
+<h3>Before: one rectangle per video</h3>
+<p>The tool used to measure Infloww's position once per video and apply it to every frame. A Discord frame was read as if it were Infloww, and only the "no fan name, skip" rule kept most of that junk out, by luck.</p>
+
+<h3>Now: every frame is located</h3>
+<p><code>locate(frame)</code> finds Infloww's rectangle from its own geometry, or returns nothing. Precisely:</p>
+<ol>
+  <li><b>Vertical lines.</b> Compute the contrast line map. For each column, find its longest stretch that is a line, allowing breaks of up to <code>RUN_GAP = 40</code> rows (a highlighted composer row or a pop-up crossing the divider), as long as it's a line on at least <code>RUN_DENSE = 55%</code> of that stretch. Text never passes this; its strokes line up for only a few rows. Keep columns whose stretch is ≥ <code>MIN_RUN = 18%</code> of the frame height, and keep one per cluster of neighbouring columns.</li>
+  <li><b>Pairs.</b> Every pair of such lines is a candidate (left divider, right divider). They must be at least 15% of the frame width apart and share most of their height.</li>
+  <li><b>Header line.</b> Between the pair, in the top 30% of their height (from 20 px above where they start), look at horizontal lines covering ≥ <code>H_SHARE = 30%</code> of the width. 30%, not more: shrunk to 0.69×, the 1 px line survives on only about a third of its width. Of the lines at least 70% as strong as the strongest, take the <b>lowest</b> (<code>_header_line</code>). The tab strip's line just above the header is just as strong; "strongest" picked either one, 35 px apart. A faint bubble edge lower down never reaches 70%.</li>
+  <li><b>Scale from the left edge.</b> The chat list is 400 px wide at 100%. Left of the left divider, look for the window's edge: a column where at least 70% of the rows step by 8+ grey levels (Discord's sidebar against Infloww, or a black letterbox against Infloww), taking the one nearest the list. No edge means Infloww starts at the frame's edge, as in full screen. <code>scale = (left divider − edge) / 400</code>, and it must be 0.3–1.7.</li>
+  <li><b>Composer line.</b> The composer is a fixed ~166 px tall (<code>COMPOSER</code>; measured 157 px at 0.94). So the composer's top line must sit at <code>bottom − 166 × scale</code>, ±28 × scale. A Discord channel or a webcam grid has no line there.</li>
+  <li><b>Right panel fits.</b> The fan panel is 281 px × scale wide; the rectangle must not run off the frame's right side.</li>
+  <li><b>No line inside the pane.</b> If another full-height line sits between the pair, the pair is wrong. That happens when Discord's sidebar edge is paired with Infloww's real divider.</li>
+  <li><b>Infloww's own background.</b> The median grey under the message pane and under the chat list must be 14–28. In every Infloww frame of both recordings, full or windowed, both come out at exactly <b>20</b> (<code>#141414</code>). Discord's sidebar and channels are 40+. This check alone removed the last false positives.</li>
+  <li>A line that is another candidate's <em>window edge</em> is not a divider. That stops Infloww's bright 1 px window border from being taken for the left divider, which gave the wrong scale on the small stream tile.</li>
+  <li>Of the surviving candidates, the largest wins.</li>
+</ol>
+<p>Tested on 60 frames spread over both recordings: no false positives. The windowed frames are found with the right scale, 0.69–0.71, and every full-screen frame where nothing covers Infloww is found at 0.94.</p>
+
+<h3>Following it through the video: <code>Tracker</code></h3>
+<p>The full search takes about 50 ms, so it doesn't run on every frame:</p>
+<ol>
+  <li>If Infloww's rectangle is already known, a <b>cheap check</b> (<code>still_there</code>): is the background under both columns still grey 14–28, and is the left divider still a line on ≥ 50% of its height, at the same place? If so, same window; read it.</li>
+  <li>Otherwise the full <code>locate()</code> runs. If it finds the same rectangle (within 4 px and 6% scale), carry on.</li>
+  <li><b>Same window, part covered.</b> If the new rectangle has the same dividers and scale but a different top or bottom, something is covering part of Infloww. While the mouse is over a stream, Discord shades the stream's bottom and draws its call controls there, which cuts the dividers and the composer line short; a pop-up can hide the header line. Covering only ever <em>shrinks</em> the box, so: a box inside the known one means covered, skip the frame. A box containing the known one means the known one was the covered version; take the bigger. Anything else (the window really moved) must hold for <code>MOVED = 6</code> samples (3 s) to be believed.</li>
+  <li>A <b>new</b> rectangle anywhere else must show up in <code>CONFIRM = 2</code> samples in a row before it's trusted. A one-frame misfire, such as a fade or half a transition, is ignored.</li>
+  <li>Nothing found: the frame is skipped.</li>
+  <li>Infloww coming back after <code>AWAY = 4</code> samples (2 s) away, or at a new position or size, starts a new <b>stretch</b>. The settle rule starts over, and the next chat read is marked <code>resumed</code>, which the gap rule treats like opening the chat fresh (§07).</li>
+</ol>
+
+<h3>The timeline, and <code>--scan</code></h3>
+<p>Every run prints what each stretch of the video was, and saves it next to the reads as <code>.timeline.txt</code>. With <code>--scan</code>, only the locating runs, with no OCR. The 17-minute recording scans in under a minute:</p>
+<pre><code>  0:00:01 – 0:01:31  Infloww at 0.94x
+  0:01:36 – 0:02:27  not Infloww
+  …
+  0:06:06 – 0:06:22  Infloww at 0.70x
+  …
+  0:15:59 – 0:17:08  Infloww at 0.70x
+  total: not Infloww 4.7 min, Infloww 11.6 min</code></pre>
+<p>The 3-hour recording scans as 164.9 min of Infloww, 22.8 min of other screens (Discord, modals, the chat list) and 18 s of a 0.48× window too small to read. It also showed what the old once-per-video layout got wrong: the <b>first 4 minutes</b> are the small windowed stream at 0.69×, which used to be read with the full-screen positions.</p>
+</section>
+
+<!-- ─────────────────────────────────────────────────────────────── -->
+<section id="read-size">
+<h2><span class="n">13</span>Video: reading at one size</h2>
+<p>The OCR was tuned on full-screen 1080p, where Infloww is at 0.94× and the frame was enlarged 1.5× before reading, an effective <b>1.41×</b>. 2× was worse, because PP-OCRv5 shrinks very large crops back down. Now, for every frame:</p>
+<ol>
+  <li><code>read_view()</code> cuts out just Infloww (from its left edge to the right panel's edge, from 150 px × scale above the header line to the window bottom). Discord's pixels never reach the OCR.</li>
+  <li>It enlarges the crop by <code>TARGET / scale</code> (1.41 / 0.94 = 1.5 full screen, 1.41 / 0.70 ≈ 2 windowed), capped at 3×. <code>--upscale</code> can force a fixed factor.</li>
+  <li>The pop-up cut is measured on the native pixels (enlarging smears 1 px lines), then the layout is scaled to the enlarged crop.</li>
+</ol>
+<p><b>Too small:</b> below <code>MIN_SCALE = 0.5</code> nothing is read; the timeline says "Infloww, too small to read". The cutoff comes from testing. A real windowed stream at 0.71 read cleanly: fan name, every message, times, the chatter, a $200 PPV marked paid. Frames shrunk to under 0.5 fell apart (names garbled, under half the text right). There was no real recording between 0.5 and 0.7 to test, so 0.5 is a cautious line.</p>
+<div class="good">
+<p><b>The 17-minute recording, extracted end to end:</b> 42 Infloww stretches (full screen and windowed, between Discord), 12.5 min read and 4.2 min skipped as not Infloww. 119 chat reads and 73 panel reads in 14.5 min; 31 reads marked <code>resumed</code>; 8 messages linked to 5 kept pictures. Fan names read correctly in the windowed stretches too. One fix came out of it: a "name" with fewer than 2 letters (for example "1 1", a half-covered header) is now skipped like an empty one.</p>
+</div>
+</section>
+
+<!-- ─────────────────────────────────────────────────────────────── -->
+<section id="viewer">
+<h2><span class="n">14</span>Shift Viewer and the clone</h2>
+<h3>Shift Viewer (<code>tools/shiftview</code>)</h3>
+<p>A desktop window (pywebview, title "MMA Shift Viewer", never "Infloww Messages") that draws the collected chats as Infloww. Start it with <code>tools/shiftview/ShiftViewer.vbs</code>.</p>
+<ul>
+  <li>Accounts as the pills at the top. Filters: All / Warnings / PPVs / Paid. Sorting and search. Reloads every 4 s while a shift is being recorded.</li>
+  <li>Chats are drawn in order, oldest at the top: orange <b>Fragment</b> sections (scroll-backs not joined yet), then the chat, with blue <b>not seen</b> lines at every gap.</li>
+  <li>Hovering a message shows the footer exactly as read and when it was first seen.</li>
+  <li>The right panel shows the latest insights plus "Spend during the shift" and "Read as" (all spellings).</li>
+  <li><b>Rebuild</b> replays the whole journal (§05).</li>
+</ul>
+<h3>Infloww clone (<code>tools/inflowwclone</code>)</h3>
+<p>One renderer, <code>IC.render(root, model, hooks)</code>, used by the Shift Viewer (read-only) and TestFlow (live, typeable). It's measured from your live window, and keeps the pixel contract the readers rely on: <code>#444444</code> only on the pane lines, <code>#262626</code> / <code>#353535</code> bubbles, the ⋮ menu 3×13 at (x0−12, y1−19), and the header line at y = 133 when framed. MMA's own readers read the clone exactly as they read Infloww, which is what makes TestFlow work as a test bench.</p>
+</section>
+
+<!-- ─────────────────────────────────────────────────────────────── -->
+<section id="obs">
+<h2><span class="n">15</span>OBS recording</h2>
+<ul>
+  <li>Profile <b>Shifts</b>: a 3440×1382 canvas at 5 fps, saved to <code>D:\ShiftRecordings</code>. The output width must be a multiple of 4.</li>
+  <li>The window source is <code>Infloww Messages - 333</code> with priority <b>"title must match"</b>. The earlier setting fell back to "same program", and recorded the Infloww admin window all night.</li>
+  <li>A tray-icon OBS ignores a normal close message; stop recordings from OBS itself.</li>
+  <li>Zoomed-in recordings of other windows (Discord): the scene items must be <em>fit to screen</em> (bounds type "scale to inner bounds", 1920×1080). The default scene was fixed that way.</li>
+</ul>
+</section>
+
+<!-- ─────────────────────────────────────────────────────────────── -->
+<section id="commands">
+<h2><span class="n">16</span>Commands</h2>
+<pre><code># where Infloww is in a recording (no OCR, about 1 min per 17 min of video)
+python src/services/llm/video2chat.py "VIDEO.mp4" --scan
+
+# the first read only, nothing saved: check it reads at all
+python src/services/llm/video2chat.py "VIDEO.mp4" --probe [--from 16.5]
+
+# extract everything (replaces this video's earlier reads, then rebuilds)
+python src/services/llm/video2chat.py "VIDEO.mp4" --account "PINK VIP"
+#   --from / --to MIN    only part of it        --every 0.5   seconds between samples
+#   --upscale K          fixed enlargement      --no-rebuild  skip the rebuild at the end
+
+# rebuild all chats from the journal (after any stitching change)
+python -c "import sys; sys.path.insert(0,'src/services/llm'); import shiftlog; print(shiftlog.rebuild())"
+
+# the viewer
+tools\shiftview\ShiftViewer.vbs</code></pre>
+</section>
+
+<!-- ─────────────────────────────────────────────────────────────── -->
+<section id="limits">
+<h2><span class="n">17</span>What it cannot do</h2>
+<ul>
+  <li><b>See what was never on screen.</b> Chat history from before the shift, and messages that arrive and scroll away while you're in another chat. These show as gaps, honestly marked, never invented.</li>
+  <li><b>Tell two Infloww windows apart in a video.</b> If a stream shows a different account, or someone else's Infloww, it's read as Infloww under the account you passed. The next step would be reading the account pill at top-left.</li>
+  <li><b>Read tiny windows.</b> Under 0.5× it's flagged, not read.</li>
+  <li><b>Read under modals.</b> While Vault or another full-window modal covers Infloww, nothing is read; the frame fails the background check.</li>
+  <li><b>Half-visible pictures.</b> A PPV image only ever seen cut off by the pane edge isn't kept (§10).</li>
+  <li><b>Paid colour unconfirmed.</b> The "paid" pill colour comes from old notes, not a live measurement; a screenshot of a paid PPV would settle it. Same for the Sales and Notes panel tabs.</li>
+</ul>
+</section>
+
+<!-- ─────────────────────────────────────────────────────────────── -->
+<section id="today">
+<h2><span class="n">18</span>What changed today, exactly</h2>
+<h3>Gap fix (live and video)</h3>
+<ul>
+  <li><code>shiftlog.py</code>: new <code>_mins()</code> (footer time → minutes past midnight; dated messages give none) and <code>_is_newer()</code> (§07). <code>_apply()</code> now tracks the previous read's chat in <code>_prev</code> to know when a read is "fresh", and appends newer misfits with <code>gap_before</code> instead of making an island. <code>rebuild()</code> resets <code>_prev</code>.</li>
+  <li><code>shiftlog.record()</code> copies a video's <code>resumed</code> flag into the journal line; <code>_apply()</code> counts it as fresh.</li>
+  <li><code>tools/shiftview/ui/view.js</code>: chats are split into sections at each <code>gap_before</code>, with a "not seen" divider; the "Recorded chat" label now heads the first part, not the last.</li>
+  <li><code>tools/inflowwclone</code>: a section can be a <code>gap</code> (blue label style).</li>
+  <li>All chats rebuilt from the journal. The chat reader was restarted so new reads use the fix.</li>
+</ul>
+<h3>Discord-aware video</h3>
+<ul>
+  <li><code>video2chat.py</code>: removed the once-per-video <code>measure_layout()</code> and its helpers. Added <code>Box</code>, <code>_line_map</code>, <code>_longest_run</code>, <code>_columns</code>, <code>_hrows</code>, <code>_left_edge</code>, <code>_box</code>, <code>locate</code> (§12), <code>still_there</code>, <code>Tracker</code>, <code>read_view</code> (§13), <code>Timeline</code>, <code>scan</code>, and the <code>--scan</code> option. <code>--upscale</code> now defaults to automatic.</li>
+  <li>The run loop: locate → (skip if not Infloww, covered, or too small) → crop and enlarge → settle → read, with a new stretch restarting the settle rule and marking the next read <code>resumed</code>. It prints each new stretch and the timeline at the end.</li>
+</ul>
+<h3>Pictures you sent</h3>
+<ul>
+  <li><code>shiftlog.py</code>: <code>MEDIA</code>, <code>_ahash</code>, <code>_known</code>, <code>keep_media</code>; <code>record()</code> takes the frame (<code>rgb=</code>) and, with <code>ShiftMedia</code> on, keeps pictures first.</li>
+  <li><code>chatreader.pyw</code> and <code>video2chat.py</code> pass the frame they read from. The chat reader was restarted.</li>
+  <li><code>modes.ahk</code>: <code>FEAT_Def("shiftMedia", "ShiftMedia", …)</code>. <code>MMA.ahk</code> passes the AHK syntax check (exit 0).</li>
+  <li><code>shiftview.pyw</code>: <code>Api.media(path)</code>. <code>view.js</code>: loads and caches pictures. <code>inflowwclone</code>: <code>msg.image</code> draws a real picture in a media bubble.</li>
+</ul>
+<h3>Not changed</h3>
+<ul>
+  <li>The live reader's reading, its OCR engine and its settle rule.</li>
+  <li><code>transcript.py</code>: all bubble, footer, name and panel reading is unchanged; video just hands it a cleaner, correctly scaled image.</li>
+  <li>Nothing was committed to git.</li>
+</ul>
+</section>
+
+<!-- ─────────────────────────────────────────────────────────────── -->
+<section id="files">
+<h2><span class="n">19</span>File map</h2>
+<div class="scroll"><table>
+<tr><th>Path</th><th>What</th></tr>
+<tr><td><code>src/services/llm/chatreader.pyw</code></td><td>Live loop: capture, thumbnails, settle, read, journal</td></tr>
+<tr><td><code>src/services/llm/transcript.py</code></td><td>Reading one frame: layout, bubbles, footers, name, panel</td></tr>
+<tr><td><code>src/services/llm/shiftlog.py</code></td><td>Journal, merge, islands, gaps, names, panel log, rebuild</td></tr>
+<tr><td><code>src/services/llm/video2chat.py</code></td><td>Video: locate, track, crop, read, timeline</td></tr>
+<tr><td><code>tools/livetrainer/trainer.py</code></td><td>The strict merge and <code>same()</code>, shared with the Live Trainer</td></tr>
+<tr><td><code>tools/shiftview/</code></td><td>The Shift Viewer (window, page, launcher)</td></tr>
+<tr><td><code>tools/inflowwclone/</code></td><td>Shared Infloww renderer, Inter font</td></tr>
+<tr><td><code>tools/testflow/</code></td><td>Test bench and AI-training lab on the clone</td></tr>
+<tr><td><code>userdata/shiftlog/reads/*.jsonl</code></td><td>The journal (source of truth); <code>*.timeline.txt</code> next to video reads</td></tr>
+<tr><td><code>userdata/shiftlog/chats/&lt;account&gt;/*.json</code></td><td>Stitched chats (derived; rebuildable)</td></tr>
+<tr><td><code>userdata/shiftlog/media/&lt;account&gt;/&lt;fan&gt;/*.jpg</code></td><td>Pictures of the media you sent (linked from the journal)</td></tr>
+<tr><td><code>userdata/mass_gui.cfg</code></td><td>The ShiftLog / ShiftTimes / ShiftPanel switches</td></tr>
+<tr><td><code>%APPDATA%/obs-studio/basic/scenes/Shifts.json</code></td><td>OBS shift-recording scene</td></tr>
+</table></div>
+</section>
+
+</div>
+</main>
+</div>
+</body>
+</html>

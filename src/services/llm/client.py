@@ -69,9 +69,10 @@ Model = mistral-nemo:12b
 ; ever, "0" unloads immediately.
 KeepAlive = 30m
 
-; Give up after this long. A local model answers in well under a second when it
-; is warm; anything near this number means it is loading or on the CPU.
-TimeoutMs = 30000
+; Give up after this long. Generous on purpose: workflows that work beat fast
+; ones, so a bigger model that takes 1-2 minutes (or spills onto the CPU) must
+; still finish rather than fail. Lower it only to debug a hung Ollama.
+TimeoutMs = 300000
 
 [Draft]
 ; How many alternative replies to offer.
@@ -88,6 +89,17 @@ MaxTokens = 80
 ; Who she is, in your words. This is the highest-leverage line in the file —
 ; edit it until the replies sound like the model you are writing as.
 Persona = a flirty, playful adult creator talking to a paying fan
+
+[Grammar]
+; Fix-grammar keys (hotkeys.ini [util] fixGrammarCasual / fixGrammarAlice).
+; Low on purpose: a proofreader should give the same answer every time. Above
+; ~0.5 it starts rephrasing instead of correcting.
+Temperature = 0.2
+
+; Which model proofreads. Pinned to the plain model on purpose: [Ollama] Model
+; above may become a roleplay model for suggestions, and that is the wrong tool
+; for proofreading. Blank = use [Ollama] Model.
+Model = mistral-nemo:12b
 """
 
 
@@ -125,8 +137,12 @@ def host() -> str:
     return get("Ollama", "Host", "http://127.0.0.1:11434").rstrip("/")
 
 
+# Set by a CLI's --model to try a model without editing llm.ini (comparisons).
+MODEL_OVERRIDE = ""
+
+
 def model() -> str:
-    return get("Ollama", "Model", "mistral-nemo:12b")
+    return MODEL_OVERRIDE or get("Ollama", "Model", "mistral-nemo:12b")
 
 
 def _post(path: str, payload: dict, timeout: float):
@@ -157,20 +173,34 @@ def reachable() -> tuple[bool, str]:
 
 
 def chat(messages: list[dict], *, temperature: float = 0.8,
-         max_tokens: int = 120) -> tuple[str, str]:
+         max_tokens: int = 120, use_model: str = "",
+         fmt: dict | str | None = None) -> tuple[str, str]:
     """Ask the model. Returns (text, error) — exactly one of them is non-empty.
+
+    `use_model` lets one feature run a different model from [Ollama] Model —
+    the grammar fixer keeps a plain model for proofreading while suggestions
+    use a roleplay one. Empty = the shared setting.
+
+    `fmt` is Ollama's `format`: "json", or a JSON schema the reply must match
+    (nextmove.py uses one, so the step is always one of its names).
 
     Never raises. A hotkey that throws because a background service is down is
     worse than one that says so.
     """
-    timeout = get_int("Ollama", "TimeoutMs", 30000) / 1000.0
+    timeout = get_int("Ollama", "TimeoutMs", 300000) / 1000.0
     payload = {
-        "model": model(),
+        "model": use_model or model(),
         "messages": messages,
         "stream": False,
         "keep_alive": get("Ollama", "KeepAlive", "30m"),
         "options": {"temperature": temperature, "num_predict": max_tokens},
+        # Gemma 4 models (Artemis) think by default and spend the whole
+        # max_tokens reasoning: content came back "" on every call. Models
+        # without a thinking mode ignore this (checked on Rocinante).
+        "think": False,
     }
+    if fmt:
+        payload["format"] = fmt
     try:
         r = _post("/api/chat", payload, timeout)
     except urllib.error.URLError as e:

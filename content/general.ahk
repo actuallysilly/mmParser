@@ -244,11 +244,16 @@ ANTICC_MAX_CENTS := 20000
 ; Randomises whole CENTS, not a float. Random(199.0, 200.0) returns a double, and
 ; formatting one to two places rounds 199.996 up to "200.00" — the values at the
 ; edges would come up more often than the ones in between.
+RandPrice(minCents, maxCents)
+{
+    cents := Random(minCents, maxCents)
+    return Format("{1}.{2:02}", cents // 100, Mod(cents, 100))
+}
+
 AntiCcAmount()
 {
     global ANTICC_MIN_CENTS, ANTICC_MAX_CENTS
-    cents := Random(ANTICC_MIN_CENTS, ANTICC_MAX_CENTS)
-    return Format("{1}.{2:02}", cents // 100, Mod(cents, 100))
+    return RandPrice(ANTICC_MIN_CENTS, ANTICC_MAX_CENTS)
 }
 
 AntiCc()
@@ -257,6 +262,18 @@ AntiCc()
 }
 
 HK_Bind("general.antiCc", AntiCc)
+
+; ── __randprice ───────────────────────────────────────────────────────────────
+; Same idea as antiCc as a hotstring, over 198.00-200.00: "__randprice" -> "198.47".
+RANDPRICE_MIN_CENTS := 19800
+RANDPRICE_MAX_CENTS := 20000
+
+; @added 2026-10-24
+:*:__randprice::
+{
+    global RANDPRICE_MIN_CENTS, RANDPRICE_MAX_CENTS
+    SendText(RandPrice(RANDPRICE_MIN_CENTS, RANDPRICE_MAX_CENTS))
+}
 
 ; ── __curr ────────────────────────────────────────────────────────────────────
 ; Today's PPV name: 25 July 2026 -> "725".
@@ -364,4 +381,27 @@ PpvNameToday()
 {
     snd("lets play new game: hide and seek but better edition")
     snd("i hide and you seek professional help")
+}
+
+; @added 2026-09-07 02:40
+:*:....limitedFunds::
+{
+    snd("You have funds to spare BUT you are concerned about it being `"worth it`" am I right?")
+}
+
+; @added 2026-09-08 02:36
+:*:__doesntOpen::
+{
+    Sendt("if you don't open that bundle I'm putting you on the `"Waste of time`" list", 1500)
+    Sendt("`"Mummy I'm brok I can't`"", 1500)
+    Sendt("Yes you can, if you were really brok you wouldn't be on the website", 1500)
+    Sendt("`"Well yes mummy but I'm not sure if it's worth it`"", 1500)
+    Sendt("Your dream girl got naked for you, being ignored turns me off, so yes I've made it 100% worth it, but I expect your commitmen", 1500)
+    Sendt("`"Ok mummy... This time I will please you`"", 1500)
+}
+
+; @added 2026-11-09 06:02
+:*:..code::
+{
+    snd("8008135")
 }

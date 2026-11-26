@@ -33,9 +33,9 @@ where they are) are full of abandoned drafts run into the sent text.
 Same shape as the pinger and the automation listener (see core/processes.ahk):
 a headless background process with no console and no AHK window, so MMA drives it
 through a NAMED EVENT — its existence answers "is it up?", setting it means
-"please exit" — and it is launched via a .vbs so nothing flashes on screen.
+"please exit" — and the runner launches it under pythonw so nothing flashes on screen.
 
-  typelog_start.vbs        start it silently (pythonw, no console)
+  runner.pyw --start typelog   start it silently (pythonw, no console)
   typelog.pyw --stop       ask a background recorder to exit
   typelog.pyw --status     is one running?
   typelog.pyw --listen     headless: log operational lines to MMA's error_log.txt
@@ -63,7 +63,7 @@ and message text live. So:
     reason;
   * the log is plain text on YOUR disk under userdata\\, which is gitignored and
     never leaves the machine;
-  * PAUSE it (the [typelog] pause hotkey, default Ctrl+Alt+F9) before typing
+  * PAUSE it (the [typelog] pause hotkey, default Ctrl+Win+F9) before typing
     anything you would not want written down;
   * delete old logs once you have mined them for hotstrings.
 
@@ -124,7 +124,7 @@ HOTKEYS_INI    = MMA_USERDATA / "hotkeys.ini"
 ACTIVE_NOW     = MMA_USERDATA / "active_now.ini"
 CONV_IDLE_S    = 600                   # nothing sent for this long = a new conversation
 HOTKEY_SECTION = "typelog"
-PAUSE_FALLBACK = "^!F9"                 # used only if the ini has no [typelog] pause
+PAUSE_FALLBACK = "^#F9"                 # used only if the ini has no [typelog] pause
 
 # ── config ───────────────────────────────────────────────────────────────────
 SCOPE_ENABLED        = True
@@ -624,11 +624,14 @@ def run_recorder(interval: float = 0.5) -> int:
         threading.Thread(target=_scope_poll, daemon=True).start()
 
     raw = read_pause_key()
-    spec = ahk_to_pynput(raw)
+    # Several keys may share the action, " | " between them (hotkeys.ahk's overload
+    # format); each one pauses.
+    specs = {s: _toggle_pause for s in (ahk_to_pynput(k.strip()) for k in raw.split(" | ")) if s}
+    spec = ", ".join(specs)
     hotkeys = None
-    if spec:
+    if specs:
         try:
-            hotkeys = keyboard.GlobalHotKeys({spec: _toggle_pause})
+            hotkeys = keyboard.GlobalHotKeys(specs)
             hotkeys.start()
             print(f"pause/resume: {raw}   (Settings ▸ Hotkeys ▸ [typelog] pause)")
         except Exception as e:

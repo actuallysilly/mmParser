@@ -13,7 +13,8 @@ that is the useful bit later.
 | 2 | [hotstring-search.md](hotstring-search.md) — search a trigger in place | planned, v2.1.4 |
 | 3 | [snapping.md](snapping.md) — fractional coords, semantic targets | planned, v2.1.4 (prediction deferred) |
 | 4 | [replytime.md](replytime.md) — where the time in Infloww goes | planned, v2.1.4 |
-| 5 | [fantools.md](fantools.md) — fan profiles from their messages | **deferred**, needs a decision doc first |
+| 5 | [fantools.md](fantools.md) — fan profiles from their messages | superseded by fan-memory.md |
+| 6 | [fan-memory.md](fan-memory.md) — fan identity (handle, not header name) + per-fan memory | planned — decision entry first |
 
 ---
 

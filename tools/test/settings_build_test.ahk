@@ -21,7 +21,7 @@
 ; That is exactly how the MASS_DOC declaration bug presented.
 #Warn All, StdOut
 
-; A third argument previews a theme — `settings_build_test.ahk hold 7 dark`.
+; A third argument previews a theme — `settings_build_test.ahk hold 8 dark`.
 ;
 ; Through the environment, NOT by writing Theme into mass_gui.cfg: a tool that
 ; leaves your settings changed is a tool that has broken something, and this one
@@ -87,7 +87,7 @@ global defaultHotkeyFile := IniRead(CFG_FILE, "Settings", "DefaultHotkeyFile", "
 global mouseControl := 1
 global openTabFu2 := 0, openTabFu3 := 1, openTabPpv := 0
 global walletCheckFu3 := 0, fastParseAutosave := 1, promptAltCtrl := 1
-global autoRestart := 1, _doubleMM := false
+global autoRestart := 1
 global startupScripts := []
 ; The Scripts tab's "Open with Code" button reads this; main_window.ahk resolves
 ; the real path.
@@ -126,13 +126,25 @@ CheckUpdate(silent := false, *) {
 }
 _BroadcastWallet(val) {
 }
-ToggleDoubleMM() {
+
+; The Tools window's "Open…" buttons and its Save. Real ones live in
+; main_core.ahk; this test builds the window and does not press them.
+OpenHotstrings(*) {
+}
+OpenBranchBuilder(*) {
+}
+OpenChatSim(*) {
+}
+CORE_OpenActivity() {
+}
+CORE_AutowordModelCheck() {
 }
 
 ; The owner window OpenSettings hangs itself off. Never shown.
 global g := Gui("+Resize", "stub main")
 
 #Include "../../src/ui/settings_window.ahk"
+#Include "../../src/ui/tools_settings.ahk"
 
 ; ── build it ──────────────────────────────────────────────────────────────────
 OpenSettings()
@@ -176,20 +188,23 @@ Ck("one tab control", Cnt("SysTabControl"), 1)
 ; Two lists: the hotkey editor's, and the Debug tab's self-test results.
 Ck("both list views",  Cnt("SysListView"),  2)
 
-; TCM_GETITEMCOUNT. Eight tabs is the contract this window is built around; seven
+; TCM_GETITEMCOUNT. Nine tabs is the contract this window is built around; eight
 ; means a UseTab call went missing and a whole page's controls landed on its
 ; neighbour, which looks like a layout bug and is not one.
 ;
 ; It has been renumbered twice now, both times by INSERTION rather than appending:
 ; the GUI tab went in between Hotkeys and Debug (Debug 6 -> 7), and General went in
 ; ahead of Models, which shifted every tab in the window by one. That is exactly
-; the kind of edit this assertion exists to catch.
+; the kind of edit this assertion exists to catch. A third time for Autoword,
+; after Features (Scripts 5 -> 6 and everything after it with it) — and back to
+; eight when Autoword moved to the Tools window (2026-10-24).
 Ck("eight tabs", SendMessage(0x1304, 0, 0, "SysTabControl321", "ahk_id " hwnd), 8)
 
-; Three model names, the wait time, the four NextFu region fields, OCR scale,
-; needle length, needle minimum, the default-FU3 box and the hotkey search box —
-; plus the GUI tab's picker width and lift.
-Ck("every edit field present", Cnt("Edit") >= 15, 1)
+; A name per model, the wait time, the four NextFu region fields, OCR scale,
+; needle length, needle minimum, the default-FU3 box, the hotstring expiry and
+; the hotkey search box — plus the GUI tab's picker width and lift. (The Reply
+; timers' eight boxes went to the Tools window.)
+Ck("every edit field present", Cnt("Edit") >= modelCount + 13, 1)
 
 ; The model count and the default hotkey file, then THREE per model: its platform,
 ; its place in the Infloww tab order, and its place in the Fansly rail order. The
@@ -247,6 +262,24 @@ try {
 } catch as e
     Ck("theme radios are clickable", "threw: " e.Message, "no throw")
 
+; ── the Tools window builds too ───────────────────────────────────────────────
+;  Every non-core tool's settings, on one page that scrolls. One list entry per
+;  heading and per tool, and the page taller than the viewport it scrolls in.
+SetTitleMatchMode(2)
+OpenToolsWindow(g.Hwnd)
+thwnd := WinExist("MMA Tools")
+Ck("tools window exists", thwnd ? 1 : 0, 1)
+if thwnd {
+    _n := 0
+    for _s in TW_Sections()
+        _n++
+    Ck("...all of them", SendMessage(0x18B, 0, 0, TOOLS_WIN.nav), _n)   ; LB_GETCOUNT
+    Ck("the page is taller than the view", TOOLS_WIN.pageH > TOOLS_WIN.vpH, 1)
+    TOOLS_WIN.ScrollTo(400)
+    Ck("scrolling moves the page", TOOLS_WIN.pos, 400)
+    TOOLS_WIN.ScrollTo(0)
+}
+
 Out("")
 Out(pass " passed, " fail " failed")
 
@@ -258,6 +291,18 @@ if (A_Args.Length && StrLower(A_Args[1]) = "hold") {
     ; because setting the selection with a message does NOT make AHK swap the
     ; page — Tab3 does that off the control's notification, so a message-only
     ; switch lights the tab you asked for while still showing tab 1's controls.
+    ; `hold tools [n]` shows the Tools window instead, scrolled to list entry n.
+    if (A_Args.Length > 1 && StrLower(A_Args[2]) = "tools") {
+        WinHide("MMA Settings")
+        if (A_Args.Length > 2 && IsInteger(A_Args[3])) {
+            TOOLS_WIN.nav.Value := Integer(A_Args[3])
+            TOOLS_WIN.NavPicked()
+        }
+        Out("holding the Tools window open — it goes on its own in 60s")
+        SetTimer(() => ExitApp(fail ? 1 : 0), -60000)
+        Persistent
+        return
+    }
     if (A_Args.Length > 1) {
         ; SW_TAB.Value, not Ctrl+Tab and not TCM_SETCURSEL. Ctrl+Tab needs the
         ; focus to already be inside the tab control and silently does nothing

@@ -66,7 +66,11 @@ global MASS_CUR_MODEL := 1
 Afk := false
 ClearInterval := 1000*30 ; 60s
 
-global topChat := 300
+; topChat is the top chat row's [x, y] and belongs to coords.ahk. This used to say
+; `global topChat := 300`, which ran AFTER coords.ahk in the engine and turned the
+; point into a number, so focusAuto's clickOn(topChat) threw "Integer has no
+; property named __Item" (known since 2026-07-12, AHK_engine.log). Declared only.
+global topChat
 ; # Win
 ; ^ CTRL
 ; ! ALT
@@ -1429,7 +1433,9 @@ focusAuto(){
         _savedChatY := my
         focusTextbox()
     } else {
-        clickOn(topChat)
+        ; A script without coords.ahk has no top-chat point: fall back to coords'
+        ; own value rather than throw.
+        clickOn(IsSet(topChat) && IsObject(topChat) ? topChat : [181, 308])
         if (_savedChatY > 900)
             Send "{WheelDown 4}"
     }

@@ -1,5 +1,125 @@
 ﻿# Changelog
 
+## 2.1.0 — 2026-11-26
+
+### Chatting suite: recorder, lore gatherer, fan database
+
+- **Fan recorder** (Settings ▸ Features ▸ Fan recorder, on): every chat you open, both
+  sides, is saved per fan under his **@handle** in `D:\FanData\<account>\<@handle>\` (the
+  header name is chatter-rewritten, so it split fans). Messages carry their time and day
+  (from Infloww's date lines), and a picture of every bubble OCR can't read. For a new fan
+  whose handle is cut off, a corner toast (never takes focus) asks you to click his name; the
+  popup it opens is read and he is filed. Runs beside the old shift recorder for now.
+- **`__lore`**: type it in a spare "Open in new tab" window with a fan open. Pick how far
+  up (AI decides / whole chat / a date / last N messages / last N spending events), and it
+  reads his @handle from the name popup, scrolls UP in the background (no mouse, no focus:
+  the window only has to be visible, e.g. on another monitor), keeps every page in his
+  folder, OCRs his Notes card (never clicks into it), and writes a lore card: who, into,
+  money, recently, right now, avoid, and reach-out lines. Saved as `summary.md`.
+  Replaces `__analyse`, which used the real mouse and kept nothing.
+- **Fan Viewer** (was Shift Viewer) shows the fan files by default: every fan with his
+  chat, spend, baller tier (very small → insane), lore card, tags and notes. "Source"
+  switches to the old shift log.
+
+- **Video → chat** (Tools ▸ AI suite): pick a screen recording of Infloww and turn it
+  into chats. **Save** adds them to the shift log; **One-time view** converts into a temp
+  folder, opens a Fan Viewer on just that video, and deletes it when the viewer closes.
+
+### Cleanup
+
+- One copy of the chat-stitching code (`llm/stitch.py`) instead of three. Live Trainer
+  files sessions by @handle when the recorder knows it. The PPV library learns from the fan
+  files (old shift-log chats only as a fallback: they were all filed under "333", which is
+  a count in the window title, not an account).
+- The nine `.vbs` launchers are gone; everything starts through the runner.
+- Fixed: Settings' Help tab never built (a variable shadowed the `HelpPanel` function);
+  the "unknown model" prompt threw on every check after you closed it, so MMA never asked
+  about the next one; `focusAuto` clicked "300" instead of the top chat row and threw.
+- With a spare Infloww window open, the chat reader and unread ping now read your WORK
+  window (the one with the chat list), not the spare.
+
+## 2026-10-24
+
+### No more console windows at startup
+
+- Every Python tool (automation, pinger, typelog, autoword, chat reader, and TestFlow, Arena,
+  Live Trainer, Shift Viewer, chatview, analyse) now starts through **one hidden runner**
+  (`src/services/runner/runner.pyw`) instead of a `.vbs` each. The `.vbs` files flashed a
+  console window every time they looked for Python. If a service crashes, the runner restarts it
+  (waiting 1s, 2s, 4s … up to a minute between tries). If the runner itself dies, the services
+  stop with it, so nothing is left running in the background. Logs: `debuglogs/runner.log`, and
+  each tool's crash output in `debuglogs/runner/<tool>.log`. Their normal lines still go to
+  `error_log.txt`.
+- `userdata/shortcuts.ini` can say `tool:<name>` (e.g. `__analyse = tool:analyse`).
+- Desktop shortcuts from Tools ▸ AI suite need to be made again (they pointed at the `.vbs`).
+
+### Timer
+
+- **Timer** (`Ctrl+Alt+Shift+T` opens it): a countdown with minutes and seconds, **Repeat**
+  (starts over when it runs out, until you stop it) and **Beep** (beeps when done; with Beep
+  off a tooltip says "Timer done"). `Ctrl+Alt+X` starts and stops it **with no window**, using
+  what the window last saved. Closing the window does not stop the timer. On by default
+  (Settings ▸ Features ▸ Screen helpers); its settings are also in Tools ▸ Timer.
+
+### MM Gatherer
+
+- **MM Gatherer** (`Ctrl+Alt+K` in Discord, press again to stop): scrolls the open channel
+  up to its first message and saves every mass-shaped message (long, with paragraphs or a
+  ppv / !mm line) to `userdata/gathered/<channel>.txt`, oldest first, tagged with the
+  channel's model. It reads with OCR in the background, so you can keep working while it
+  scrolls, but emojis are lost. Re-running skips masses already in the file. Discord must be
+  open (not minimized). Its pane box and thresholds are in Tools ▸ Discord import.
+
+### Co-chatter and the Arena
+
+- **Co-chatter** is the new default in the suggestion window (and a button in TestFlow's Lab).
+  It reads the moment itself and drafts her next 1–3 short texts in the voice of the account in
+  front, with your own real moments from the shift log as examples. 📝 lines are notes for you
+  (never copied); ✋ means it hands the message to you: it does that without asking the model
+  when he asks if she's a bot / AI / chatter, or mentions a refund or chargeback. Put the next
+  PPV in "PPV content" and it sets that up. Filler and PPV still work as before.
+- Voices live in `userdata/personas/` (Alice for AW/ALIW, Jessie for JES, Sophie for SOF).
+  Each card's FACTS and DOESN'T MAKE lines are waiting for you; an account with no card gets
+  no voice card and examples from both voices.
+
+- **TestFlow Arena** (Tools window ▸ AI suite ▸ Arena, or `tools/testflow/Arena.vbs`): the
+  AI fan plays her AI (co-chatter or the older agent) while you watch. Type as either side,
+  edit any message and replay from it, re-roll a turn, rewind, fork, send PPVs as her. Every
+  cut is kept and can be restored. Edits and 👍/👎 are logged to `userdata/testflow/arena.jsonl`.
+  The hotkey (`arena`) is unbound by default.
+- The AI fan no longer stops TestFlow or the Arena by answering with nothing: an empty answer
+  is redrawn (mistral-nemo did it on 2 of 4 draws).
+
+- **New default model: Artemis-31B** (`artemis` in Ollama; TheDrummer's Gemma 4 roleplay model). Much better writing than Rocinante, but slower: about 20 s per suggestion, since a third of it runs from system RAM. Grammar fixing stays on mistral-nemo. TestFlow and the Arena now use llm.ini's model by default.
+- **Voices:** category cards for basic (the default, Sophie-style), latina and gamer/goth/cosplay; Alice rewritten (dark, dry humour, no forced Wonderland). New checks catch copying the prompt, asking him for pics, pointing at content that was never sent, and stray foreign script.
+- **docs/How to chat.md:** the whole job from zero, as Claude understands it, with 14 open questions at the end.
+
+### Settings rework, and a Tools window
+
+- **Tools window.** Every non-core tool's settings on one scrolling page, with a list on the
+  left that jumps to a section. Background services keep On / Off / Restart there. Settings
+  that had no window before (detector geometry, stats overlay colours, the click wall, the
+  local AI model, the Discord channel-name box, …) are on their tool's section. Reply timers,
+  Autoword and the archive switch moved here from Settings. Open it from the main window's
+  **Tools** button or Settings ▸ **Tools…**.
+- **One action, several keys.** `fu1 = F1 | ^F1 | XButton2` replaces the separate "second key",
+  "third key" and "mouse" rows. Settings ▸ Hotkeys has **Add key…**, and right-click removes one
+  key. Your hotkeys.ini is migrated on the next start (schema 3): every key moves onto the
+  action it always fired, nothing is lost. Mark unread (left) and the two Enter pass-throughs
+  are overloads too.
+- **Removed:** Double MM (the switch, the MButton toggle, the Settings checkbox and the engine
+  path); the FuSingle grid switch, which nothing read; the Debug grey search and the
+  "hop over kebabs (test)" keys; the long-dead brPick/brFu2/brFu3/brPpv lines.
+- **Settings tabs:** General is only the wait time. Models says in plain words which model each
+  site sees and where the shared keys will send, for Infloww and Fansly. Sending has no
+  explanations under its options, and "Next follow-up" is **Auto detect next follow up (single
+  button mode)**. Features is regrouped into seven small sections, so it fits the tab. Scripts
+  lost the read-only service list. Hotkeys hides hotstring keys and unused model sections.
+  Debug is the log and the tests, with everything else under **Advanced…**.
+- **Purchase sound** (Features ▸ Chat reading and AI): rings when a "has purchased your
+  message" bubble appears in the open chat. Choose the sound in the Tools window.
+- **`__randprice`** types a random price from 198.00 to 200.00.
+
 ## 2.0.5 — 2026-10-05
 
 ### Hotstring keys expire

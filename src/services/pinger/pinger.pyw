@@ -19,11 +19,11 @@ against a fixed pitch does not survive a real session. Note this contradicts the
 fixed pitch 170 / `(x-3)//170` recorded in ../infloww ui elements/UI-ELEMENT-MAP.md,
 which was measured on a 4-tab capture.
 
-Runs headless under pythonw.exe (see pinger_start.vbs): no console, output goes
+Runs headless under pythonw.exe (started by src/services/runner/runner.pyw): no console, output goes
 to MMA's error_log.txt. MMA launches and stops it from the Settings window the
 same way it drives the automation listener.
 
-    pinger_start.vbs        start it silently
+    runner.pyw --start pinger   start it silently
     pinger.pyw --stop       ask a background pinger to exit
     pinger.pyw --status     is one running?
     pinger.pyw --once       one scan, printed (for debugging)

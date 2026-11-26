@@ -96,14 +96,13 @@ _PickModelCount() {
 ; What a [mass.active] slot should ASK about, or 0 for the slots that ask nothing
 ; and keep manual mode's remembered model.
 ;
-;   fu1 / fu2short / mFu3 / altFu2 …  →  1, 2 or 3   the follow-up group
-;   ppv / mPpv                        →  "ppv"
-;   ppvFus / mPpvFus                  →  "ppvFus"
+;   fu1 / fu2 / fu3                   →  1, 2 or 3   the follow-up group
+;   ppv                               →  "ppv"
+;   ppvFus                            →  "ppvFus"
 ;   mass / nextFu / anything else     →  0
 ;
-; Derived from the slot NAME rather than a second list of handlers: fu2, fu2short,
-; mFu2 and altFu2 are four ids for one action, and a hand-kept list of them is the
-; thing that goes stale the next time a slot is added.
+; A mouse button or a second key for the same action is an overload in that
+; slot's value, not a slot of its own, so the slot name is the whole answer.
 ;
 ; ── why PPV is here and `mass` is not ────────────────────────────────────────
 ; The PPV keys have the follow-up keys' exact failure shape — in "I pick" mode they
@@ -121,14 +120,12 @@ _PickModelCount() {
 ; follow-up to send, so it is already looking at the screen you would be answering
 ; about, and it is the one shared key where a window would cost more than it saves.
 PickGroupForSlot(slot) {
-    if RegExMatch(slot, "i)^(?:m|alt)?fu([123])(?:short)?$", &m)
+    if RegExMatch(slot, "i)^fu([123])$", &m)
         return Integer(m[1])
     if FEAT("ppvPicker") {
-        if RegExMatch(slot, "i)^m?ppv$")
+        if (slot = "ppv")
             return "ppv"
-        ; No b1Ppv here even though it runs DoPpvFus: it is a [mass.1] slot, model 1
-        ; by definition, and never reaches _RunOnActiveModel to be asked about.
-        if RegExMatch(slot, "i)^m?ppvFus$")
+        if (slot = "ppvFus")
             return "ppvFus"
     }
     return 0

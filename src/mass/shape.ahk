@@ -146,8 +146,7 @@ AltPpvVariants(m) {
 ; Group 3 alone has a fallback: a mass with no f3 at all sends the DefaultFu3 text
 ; from Settings instead of nothing. Applied here rather than in sndFu because
 ; SndFuEditable takes the same parts and has no idea which group it is holding —
-; one place covers the plain send, the editable/wallet paste, and both halves of
-; a double-MM (so a second model with no f3 still gets the default).
+; one place covers both the plain send and the editable/wallet paste.
 MASS_FuParts(m, group) {
     parts := [m.%"fu" group%, m.%"fu" group "_5"%, m.%"fu" group "_7"%]
     if (group != 3)

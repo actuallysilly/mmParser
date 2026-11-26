@@ -19,6 +19,9 @@ MMA_USERDATA = MMA_ROOT / "userdata"
 MMA_DEBUGLOGS = MMA_ROOT / "debuglogs"
 INI = MMA_USERDATA / "autoword.ini"
 
+# [Suggest] StopWords when the ini has none; the same list DEFAULT_INI writes.
+DEFAULT_STOP_WORDS = "i, me, my, myself, we, our, ours, you, your, yours, yourself, he, him, his, she, her, hers, it, its, they, them, their, what, which, who, whom, this, that, these, those, am, is, are, was, were, be, been, being, have, has, had, having, do, does, did, doing, a, an, the, and, but, if, or, because, as, until, while, of, at, by, for, with, about, against, between, into, through, during, before, after, above, below, to, from, up, down, in, out, on, off, over, under, again, further, then, once, here, there, when, where, why, how, all, any, both, each, few, more, most, other, some, such, no, nor, not, only, own, same, so, than, too, very, can, will, just, should, now, i'm, you're, it's, that's, don't, can't, i'll, im, u, ur, dont, ill"
+
 DEFAULT_INI = """\
 ; autoword — next-word suggestions while you type.
 ; Written automatically with defaults. Edit freely; the service re-reads it on
@@ -66,6 +69,22 @@ MinSaving = 1
 
 ; drop candidates below this share of the context's total count
 MinProbability = 0.03
+
+; rank real words above stop words (to, the, you, it, and...). Half of what you
+; type is ~60 short words that are quicker to type than to pick, so the list is
+; better spent on the longer words you would actually take.
+;   off      plain ranking
+;   empty    only while no letter of the word is typed yet (needs MinChars = 0
+;            to show anything there); once you type a letter it ranks as usual
+;   always   before and after the first letter
+; Each candidate's probability is multiplied by StopWordWeight or
+; ContentWordWeight and the list is re-sorted: a stop word still wins when it
+; is far more likely, it just no longer wins every close call.
+PreferContentWords = off
+StopWordWeight = 0.3
+ContentWordWeight = 2.0
+; what counts as a stop word. Comma separated, lowercase.
+StopWords = i, me, my, myself, we, our, ours, you, your, yours, yourself, he, him, his, she, her, hers, it, its, they, them, their, what, which, who, whom, this, that, these, those, am, is, are, was, were, be, been, being, have, has, had, having, do, does, did, doing, a, an, the, and, but, if, or, because, as, until, while, of, at, by, for, with, about, against, between, into, through, during, before, after, above, below, to, from, up, down, in, out, on, off, over, under, again, further, then, once, here, there, when, where, why, how, all, any, both, each, few, more, most, other, some, such, no, nor, not, only, own, same, so, than, too, very, can, will, just, should, now, i'm, you're, it's, that's, don't, can't, i'll, im, u, ur, dont, ill
 
 ; type the word with no keypress at all when it is obvious: when NO other word
 ; in your corpus has ever followed this context with this prefix, you have typed
@@ -150,6 +169,10 @@ ListSize = 5
 ; only suggest while one of these is the foreground process (comma separated).
 ; Empty = everywhere.
 Processes = infloww.exe
+; also suggest in any window whose title contains one of these (comma separated).
+; TestFlow, the local Infloww clone in tools\\testflow, runs as pythonw.exe and is
+; let in this way instead of by process.
+Titles = TestFlow
 
 [Model]
 ; rebuild the n-gram model from the typelog corpus on every start. The corpus is
@@ -175,11 +198,30 @@ Predictor = ngram
 LmPath = userdata\\corpus\\models\\qwen05-ft
 ; how much the n-gram counts in the mix: LM + weight * log(n-gram)
 LmWeight = 0.5
+; what the language model reads before the message you are typing:
+;   typed   your previous sent message, as you typed it
+;   chat    the open chat's last few bubbles, fan and model, as the chat reader
+;           OCR'd them (userdata\\chat_now.json). Needs Settings > Features >
+;           "Chat reader" on; falls back to typed whenever its read is missing
+;           or for another window. Only lm and shadow use it.
+Context = typed
 
 [Strip]
-; position is relative to the foreground window, in pixels
+; where the strip sits:
+;   click   above the line you last clicked on in the window, sliding right as
+;           you type so it stays over the word. Rough: it counts characters, it
+;           does not see the text, so it drifts on long lines and wraps.
+;   window  a fixed spot: the window's bottom-left plus OffsetX / OffsetY
+Follow = click
+; position is relative to the foreground window, in pixels. With Follow = click,
+; OffsetX is where the message box's text starts (clicks left of it, on the fan
+; list, are ignored) and OffsetY is only used until the first click.
 OffsetX = 40
 OffsetY = -90
+; Follow = click: the average width of one typed character, and the gap between
+; the strip and the line. Raise CharWidth if the strip lags behind the word.
+CharWidth = 8
+Gap = 10
 FontSize = 11
 FontName = Segoe UI
 Background = #202020
@@ -202,6 +244,10 @@ class Config:
     auto_idle_ms: int = 250
     auto_only_fragments: bool = True
     auto_never: list[str] = field(default_factory=list)
+    prefer_content: str = "off"           # off | empty | always
+    stop_weight: float = 0.3
+    content_weight: float = 2.0
+    stop_words: list[str] = field(default_factory=lambda: _csv(DEFAULT_STOP_WORDS))
 
     accept_key: str = "tab"
     cycle_key: str = "shift+tab"
@@ -209,6 +255,7 @@ class Config:
     reword_list_size: int = 5
 
     processes: list[str] = field(default_factory=lambda: ["infloww.exe"])
+    titles: list[str] = field(default_factory=lambda: ["TestFlow"])
 
     retrain_on_start: bool = True
     extra_corpora: list[str] = field(default_factory=list)
@@ -216,9 +263,13 @@ class Config:
     predictor: str = "ngram"
     lm_path: str = r"userdata\corpus\models\qwen05-ft"
     lm_weight: float = 0.5
+    lm_context: str = "typed"
 
     strip_offset_x: int = 40
     strip_offset_y: int = -90
+    strip_follow: str = "click"
+    strip_char_width: float = 8
+    strip_gap: int = 10
     strip_font_size: int = 11
     strip_font_name: str = "Segoe UI"
     strip_bg: str = "#202020"
@@ -228,6 +279,15 @@ class Config:
 
 def _csv(raw: str) -> list[str]:
     return [p.strip() for p in raw.split(",") if p.strip()]
+
+
+def _prefer(raw: str) -> str:
+    """PreferContentWords: off | empty | always. It started as a true/false
+    switch, so those still mean always and off."""
+    v = raw.strip().lower()
+    if v in ("1", "true", "yes", "on", "always"):
+        return "always"
+    return "empty" if v == "empty" else "off"
 
 
 def load(path: Path = INI) -> Config:
@@ -271,11 +331,16 @@ def load(path: Path = INI) -> Config:
         auto_only_fragments=get("Suggest", "AutoCompleteOnlyFragments", "true")
         .strip().lower() in ("1", "true", "yes", "on"),
         auto_never=[w.lower() for w in _csv(get("Suggest", "AutoCompleteNever", ""))],
+        prefer_content=_prefer(get("Suggest", "PreferContentWords", "off")),
+        stop_weight=num("Suggest", "StopWordWeight", 0.3, float),
+        content_weight=num("Suggest", "ContentWordWeight", 2.0, float),
+        stop_words=[w.lower() for w in _csv(get("Suggest", "StopWords", DEFAULT_STOP_WORDS))],
         accept_key=get("Keys", "Accept", "tab").strip().lower(),
         cycle_key=get("Keys", "Cycle", "shift+tab").strip().lower(),
         reword_key=get("Reword", "Key", "ctrl+tab").strip().lower(),
         reword_list_size=max(1, num("Reword", "ListSize", 5)),
         processes=[p.lower() for p in _csv(get("Scope", "Processes", "infloww.exe"))],
+        titles=_csv(get("Scope", "Titles", "TestFlow")),
         retrain_on_start=get("Model", "RetrainOnStart", "true").strip().lower()
         in ("1", "true", "yes", "on"),
         extra_corpora=_csv(get("Model", "ExtraCorpora", "")),
@@ -283,11 +348,55 @@ def load(path: Path = INI) -> Config:
         predictor=get("Model", "Predictor", "ngram").strip().lower(),
         lm_path=get("Model", "LmPath", r"userdata\corpus\models\qwen05-ft").strip(),
         lm_weight=num("Model", "LmWeight", 0.5, float),
+        lm_context=get("Model", "Context", "typed").strip().lower(),
         strip_offset_x=num("Strip", "OffsetX", 40),
         strip_offset_y=num("Strip", "OffsetY", -90),
+        strip_follow=get("Strip", "Follow", "click").strip().lower(),
+        strip_char_width=num("Strip", "CharWidth", 8, float),
+        strip_gap=num("Strip", "Gap", 10),
         strip_font_size=num("Strip", "FontSize", 11),
         strip_font_name=get("Strip", "FontName", "Segoe UI"),
         strip_bg=get("Strip", "Background", "#202020"),
         strip_fg=get("Strip", "Foreground", "#b0b0b0"),
         strip_hl=get("Strip", "Highlight", "#ffffff"),
     )
+
+
+def save_keys(section: str, values: dict[str, object], path: Path = INI) -> None:
+    """Set keys in one section of the ini, in place: comments, order and the
+    other keys stay as they are, a missing key goes at the end of its section,
+    and a byte-order mark the file had is kept. For what the service changes on
+    its own (the strip dragged somewhere) — everything else is hand-edited or
+    written by MMA's Settings."""
+    raw = path.read_bytes() if path.exists() else b""
+    bom = raw.startswith(b"\xef\xbb\xbf")
+    text = raw.decode("utf-8-sig", errors="replace")
+    nl = "\r\n" if "\r\n" in text else "\n"
+    lines = text.splitlines()
+    todo = {k.lower(): (k, v) for k, v in values.items()}
+    start = end = None
+    for i, line in enumerate(lines):
+        t = line.strip()
+        if t.startswith("[") and t.endswith("]"):
+            if start is not None and end is None:
+                end = i
+            if t[1:-1].strip().lower() == section.lower():
+                start = i
+            continue
+        if start is not None and end is None and "=" in t and not t.startswith(";"):
+            key = t.split("=", 1)[0].strip().lower()
+            if key in todo:
+                k, v = todo.pop(key)
+                lines[i] = f"{k} = {v}"
+    if start is None:
+        lines += ["", f"[{section}]"]
+        end = len(lines)
+    elif end is None:
+        end = len(lines)
+    # new keys go after the section's last non-blank line
+    at = end
+    while at > (start or 0) + 1 and not lines[at - 1].strip():
+        at -= 1
+    lines[at:at] = [f"{k} = {v}" for k, v in todo.values()]
+    out = nl.join(lines) + nl
+    path.write_bytes((b"\xef\xbb\xbf" if bom else b"") + out.encode("utf-8"))

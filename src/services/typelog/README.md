@@ -101,12 +101,12 @@ process holds so they stay honest if it dies.
 
 By hand:
 
-    typelog_start.vbs          start silently (pythonw, no console)
+    runner.pyw --start typelog start silently (MMA does this through the runner)
     python typelog.pyw --stop     ask it to exit (an unsent draft is dropped)
     python typelog.pyw --status   is one running?
     python scope_debug.py         print what the scope check sees (records nothing)
 
-Headless (via the .vbs) its operational lines — started, pauses, errors — go to
+Headless (through the runner) its operational lines — started, pauses, errors — go to
 MMA's `debuglogs\error_log.txt`, tagged `[typelog]`. The recorded text never goes
 there; that is `userdata\typelog\` only.
 

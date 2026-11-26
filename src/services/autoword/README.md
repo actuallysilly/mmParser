@@ -34,7 +34,7 @@ python autoword.pyw --train      rebuild the model from the corpus and exit
 python autoword.pyw --evaluate   held-out accuracy, changes nothing
 ```
 
-Or `autoword_start.vbs` for a hidden background start, like the pinger.
+Or `pythonw src\services\runner\runner.pyw --start autoword` for a hidden background start (MMA does this through the runner).
 
 ## Modes
 
@@ -296,7 +296,7 @@ single pass enough.
 follow this context with this prefix, its answer passes straight through. That
 uniqueness is what auto-completion gates on.
 
-**Setup.** It needs autoword's own venv, which `autoword_start.vbs` prefers
+**Setup.** It needs autoword's own venv, which the runner prefers
 whenever it exists:
 
 ```

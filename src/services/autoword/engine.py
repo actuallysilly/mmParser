@@ -28,12 +28,20 @@ stale buffer costs a wrong word in a message to a paying customer.
 Coming back from that used to need Enter, which in practice meant one click —
 on the conversation, on the box, anywhere at all — killed suggestions for the
 whole message you were about to type. So `recover` takes the next *typed space*
-as the cheaper re-entry: after it the caret sits somewhere we watched, the next
-word is known from its first character, and since the model conditions on at
-most two preceding words, two more words restore full context quality on their
-own. The one thing still unknown is whatever sits to the RIGHT of the caret —
-hence `anchored`, which keeps a backspace out of a recovered buffer from walking
-blind into it.
+as the cheaper re-entry: after it the caret sits somewhere we watched, and the
+next word is known from its first character. The one thing still unknown is
+whatever sits to the RIGHT of the caret — hence `anchored`, which keeps a
+backspace out of a recovered buffer from walking blind into it.
+
+What was typed between the click and that space is KEPT, not dropped (the
+"blind head"). In Infloww you click the box before nearly every message, so
+dropping it meant the language model never saw a message's first word and the
+previous message was never recorded — measured on two held-out days, that put
+the LM below the plain n-gram (33.8% vs 41.5% top-3 with nothing typed). The
+risk it carries is that the click landed mid-word, gluing the blind head to text
+we never saw. That costs a ranking a little; it must not cost a word typed into
+a live message, so auto-completion waits until the blind head is out of the two
+words it decides from.
 
 ────────────────────────────────────────────────────────────────────────────────
 ONE STRING, NOT A WORD LIST
@@ -97,11 +105,17 @@ class Engine:
     auto_only_fragments: bool = True                  # never extend a finished word
     auto_never: set[str] = field(default_factory=set) # and never these, ever
     reword_list_size: int = 5
+    prefer_content: str = "off"                       # off | empty | always: rank real
+                                                      # words above stop words
+    stop_words: set[str] = field(default_factory=set)
+    stop_weight: float = 0.3
+    content_weight: float = 2.0
 
-    text: str = ""                                    # the segment, as typed
+    text: str = ""                                  # the segment, as typed
     suggestion: Suggestion | None = None
     valid: bool = True                                # is the buffer trustworthy?
     anchored: bool = True                             # does it start where the text does?
+    blind_head: int = 0                               # chars of text typed before recovery
     auto_paused: bool = False                         # one auto-completion per word
     auto_undo: tuple[str, str] | None = None          # (word, prefix) we just typed
 
@@ -124,6 +138,7 @@ class Engine:
         self.suggestion = None
         self.valid = True
         self.anchored = True
+        self.blind_head = 0
         self.auto_paused = False
         self.auto_undo = None
 
@@ -134,6 +149,7 @@ class Engine:
         self.suggestion = None
         self.valid = False
         self.anchored = False
+        self.blind_head = 0
         self.auto_paused = False
         self.auto_undo = None
 
@@ -142,18 +158,22 @@ class Engine:
 
         Not `reset`: the segment did not start here, so `anchored` stays False
         and there may be text to the right of the caret we have never seen.
+        What was typed while blind stays as context (the header says why), and
+        `blind_head` remembers how much of it could be glued to unseen text.
         """
-        self.text = ""
         self.suggestion = None
         self.valid = True
+        self.blind_head = len(self.text)
 
     # ── input ────────────────────────────────────────────────────────────────
     def on_char(self, ch: str) -> Suggestion | None:
         if not self.valid:
-            # Blind since a click or a caret move. A space is the one signal
-            # that puts us back on known ground — everything after it, we saw.
+            # Blind since a click or a caret move. Keep what is typed — it is on
+            # screen, left of the caret — but suggest nothing until a space says
+            # where the word boundaries are.
             if ch.isspace():
                 self.recover()
+            self.text += ch
             return None
         # Typing anything closes the undo window on the last auto-completion:
         # the correction you can make with one Backspace is the one you make
@@ -166,6 +186,10 @@ class Engine:
 
     def on_backspace(self) -> Suggestion | None:
         if not self.valid:
+            # Blind: undo our own copy of what was typed since the click. Once
+            # that is gone, this backspace ate text we never saw — and the
+            # buffer stays empty, which is still true of everything after it.
+            self.text = self.text[:-1]
             return None
         self.auto_undo = None
         # Any correction stops it completing until the next word boundary. While
@@ -181,14 +205,22 @@ class Engine:
                 self.invalidate()
             return None
         self.text = self.text[:-1]
+        if not self.anchored and len(self.text) <= self.blind_head:
+            # Back over the space we recovered on: the caret is against the
+            # blind head again, which may continue a word we never saw.
+            self.valid = False
+            self.suggestion = None
+            return None
         return self._refresh()
 
     def on_boundary(self) -> None:
         """Enter / Send — the segment is finished."""
         # A predictor that reads more than the current sentence (lm.LmPredictor)
-        # keeps the message just sent as context for the next one.
+        # keeps the message just sent as context for the next one. A recovered
+        # segment counts too: after a click into an empty box — the usual way a
+        # message starts — it IS the whole message.
         done = getattr(self.predictor, "segment_done", None)
-        if done and self.valid and self.anchored:
+        if done and self.valid:
             done(self.text)
         self.reset()
 
@@ -212,12 +244,21 @@ class Engine:
 
         # Ask for two even when only one is displayed: "is there a second
         # candidate at all" is the whole auto-completion test.
-        cands = self.predictor.predict(context, partial, max(2, self.list_size))
+        # Re-weighting needs a wider pool than the list, or a content word ranked
+        # just below it can never move up into it.
+        ask = max(2, self.list_size)
+        prefer = (self.prefer_content == "always"
+                  or (self.prefer_content == "empty" and not partial))
+        if prefer:
+            ask = max(ask, 4 * self.list_size)
+        cands = self.predictor.predict(context, partial, ask)
 
         if not cands and self.predict_mode == "both" and context:
-            cands = self.predictor.predict((), partial, max(2, self.list_size))
+            cands = self.predictor.predict((), partial, ask)
 
         alone = len(cands) == 1
+        if prefer:
+            cands = sorted(cands, key=self._content_score, reverse=True)
         cands = cands[:self.list_size]
 
         # Gate on characters SAVED, never on word length. Accepting costs one
@@ -232,6 +273,12 @@ class Engine:
 
         self.suggestion = Suggestion(cands, 0, auto=self._is_obvious(alone, cands[0]))
         return self.suggestion
+
+    def _content_score(self, c: Candidate) -> float:
+        """[Suggest] PreferContentWords: a stop word still wins when it is far
+        more likely, it just stops winning every close call."""
+        w = self.stop_weight if c.word.lower() in self.stop_words else self.content_weight
+        return c.probability * w
 
     def _is_obvious(self, alone: bool, top: Candidate) -> bool:
         """Should this be typed without being asked?
@@ -258,6 +305,12 @@ class Engine:
         """
         if self.auto_min_chars <= 0 or self.auto_paused or not alone:
             return False
+        # The blind head may be glued to a word we never saw, so it must not be
+        # one of the two context words "alone" was measured against.
+        if not self.anchored and self.blind_head:
+            head = len(WORD.findall(self.text[:self.blind_head]))
+            if head and len(self.words) - head <= 1:
+                return False
         partial = self.partial
         if len(partial) < self.auto_min_chars or top.count < self.auto_min_count:
             return False
@@ -291,6 +344,12 @@ class Engine:
         self.auto_paused = False
         return remainder
 
+    def refresh(self) -> Suggestion | None:
+        """Suggest for where the buffer now stands, without a keystroke. After
+        an accept the caret is past a space, which with MinChars = 0 is exactly
+        where the next word's list belongs."""
+        return self._refresh()
+
     def reword(self) -> Suggestion | None:
         """Ctrl+Tab: other words for the one you have just typed.
 
@@ -308,6 +367,8 @@ class Engine:
         match = LAST_WORD.search(self.text)
         if not match:
             return None
+        if not self.anchored and match.start(1) < self.blind_head:
+            return None                  # the blind head: may be half a word
         word, tail = match.group(1), match.group(2)
         words = self.thesaurus.alternatives(word, self.reword_list_size)
         if not words:
@@ -382,6 +443,14 @@ class Engine:
         return n
 
     # ── introspection ────────────────────────────────────────────────────────
+    @property
+    def word_col(self) -> int:
+        """Characters before the word being typed, on its line — where the
+        strip should sit horizontally. Counted from what we saw: after a click
+        into a draft it starts at the click, not at the box's edge."""
+        line = self.text.rsplit("\n", 1)[-1]
+        return len(line) - len(self.partial)
+
     @property
     def context_text(self) -> str:
         partial = self.partial

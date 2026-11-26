@@ -44,7 +44,44 @@ global HK_INI_DEFAULT := MMA_HK_DEFAULT
 ; now. Included here because every script that binds a key already includes this
 ; file, which makes this the one place that reaches every sender and receiver.
 #Include "messages.ahk"
-global HK_SCHEMA := 2
+; 3 = overloads: one action, several keys, in one value (see HK_KeyList). The
+; migration that folds the old "second key" / "third key" / mouse ids into their
+; base action is HK_MigrateOverloads.
+global HK_SCHEMA := 3
+
+; ── one action, several keys ──────────────────────────────────────────────────
+;  An action can carry any number of keys, written in its one ini value:
+;
+;      fu1 = F1 | ^F1 | XButton1
+;
+;  " | " WITH the spaces is the separator, so a key that is itself "|" still
+;  reads as a key. This replaced separate ids that each meant "another key for
+;  the same thing" — fu1short, altFu1 and mFu1 beside fu1 — which put three rows
+;  in the Hotkeys window for one action (2026-10-24).
+global HK_SEP := " | "
+
+HK_KeyList(v) {
+    out := []
+    for k in StrSplit(v, HK_SEP)
+        if ((k := Trim(k)) != "")
+            out.Push(k)
+    return out
+}
+
+HK_KeyJoin(keys) {
+    s := ""
+    for k in keys
+        s .= (s = "" ? "" : HK_SEP) k
+    return s
+}
+
+; Does this key press a mouse button? Modifiers are stripped first, so ^MButton
+; and !XButton1 count. The wheel too: WheelUp on a follow-up is exactly the kind
+; of accident "Mouse-button follow-ups: off" is meant to prevent.
+HK_IsMouseKey(key) {
+    key := RegExReplace(Trim(key), "^[\^!+#<>*~$]+")
+    return RegExMatch(key, "i)^(?:L|R|M|X)Button[12]?$|^XButton[12]$|^Wheel(?:Up|Down|Left|Right)$") > 0
+}
 
 global HK_META  := Map()      ; id -> {id, label, when, owner}
 global HK_ORDER := []         ; ids in declaration order (GUI display order)
@@ -188,7 +225,7 @@ HK_Split(id) {
     return {section: SubStr(id, 1, p - 1), key: SubStr(id, p + 1)}
 }
 
-; Scripts register their own non-window contexts (see main_window.ahk's "mouseControl").
+; Scripts may register their own non-window contexts.
 ; Window contexts that any script may need are pre-registered below.
 HK_Context(name, criterion) {
     HK_CTX[name] := criterion
@@ -204,7 +241,6 @@ HK_Section("nav", "Navigation")
 HK_Def("nav.unread",      "Mark unread / drag back",   , "engine.ahk")
 HK_Def("nav.focusAuto",   "Focus textbox or top chat", , "engine.ahk")
 HK_Def("nav.nextChat",    "Next chat down",            , "engine.ahk")
-HK_Def("nav.unreadLeft",  "Mark unread (left)",        , "engine.ahk")
 HK_Def("nav.focusTop",    "Focus top chat",            , "engine.ahk")
 HK_Def("nav.clickUnread", "Click unread button",       , "engine.ahk")
 HK_Def("nav.clickHome",   "Click home",                , "engine.ahk")
@@ -214,28 +250,18 @@ HK_Section("mass.1", "Mass — model 1")
 HK_Def("mass.1.fu1",      "Follow-up 1",                  , "engine.ahk")
 HK_Def("mass.1.fu2",      "Follow-up 2",                  , "engine.ahk")
 HK_Def("mass.1.fu3",      "Follow-up 3",                  , "engine.ahk")
-; Third key for fu1-3, kept so an existing ^F1 binding does not go dead. They no
-; longer mean anything of their own: the plain follow-up key stages every alt AND
-; every branch, so "pick alt" is what fu1 does.
-HK_Def("mass.1.altFu1",   "Follow-up 1 (third key)",      , "engine.ahk")
-HK_Def("mass.1.altFu2",   "Follow-up 2 (third key)",      , "engine.ahk")
-HK_Def("mass.1.altFu3",   "Follow-up 3 (third key)",      , "engine.ahk")
-; "second key", not "alt key": another binding for the plain follow-up. Labelled
-; "(alt key)" they sat three rows under "Follow-up 1 — pick alt", where the same
-; word meant two different things — and now that alts and branches are both on
-; the plain key, all three of these rows are just extra keys for one action.
-HK_Def("mass.1.fu1short", "Follow-up 1 (second key)",     , "engine.ahk")
-HK_Def("mass.1.fu2short", "Follow-up 2 (second key)",     , "engine.ahk")
-HK_Def("mass.1.fu3short", "Follow-up 3 (second key)",     , "engine.ahk")
+; altFu1-3 ("third key") and fu1short-3 ("second key") were here: two more ids
+; for each follow-up, each meaning only "another key for the same action". They
+; are overloads of fu1-3 now — several keys in one value — so one action is one
+; row. HK_MigrateOverloads folded every existing binding in.
 ; mass.1.mFu1-3 lived here — the mouse-button follow-ups, declared under MODEL 1
 ; and therefore hard-wired to model 1 forever. They are the same three physical
 ; buttons whichever model you are looking at, so binding them to one model meant
 ; pressing XButton1 in front of model 2 sent MODEL 1's follow-up to model 2's fan.
 ; A mouse button is a shared key by nature; shared keys belong in [mass.active].
-HK_Def("mass.1.nextFu",   "Next follow-up (reads the chat)", , "engine.ahk")
+HK_Def("mass.1.nextFu",   "Auto detect next follow up (single button mode)", , "engine.ahk")
 HK_Def("mass.1.ppv",      "PPV base",                     , "engine.ahk")
 HK_Def("mass.1.ppvFus",   "PPV follow-ups",               , "engine.ahk")
-HK_Def("mass.1.b1Ppv",    "PPV follow-ups (second key)",  , "engine.ahk")
 ; mass.<n>.brPick / brFu2 / brFu3 / brPpv are GONE from all four sections.
 ;
 ; A branch is one more way to answer a follow-up, so its variants are staged by
@@ -251,10 +277,7 @@ HK_Section("mass.2", "Mass — model 2")
 HK_Def("mass.2.fu1",   "Follow-up 1",       , "engine.ahk")
 HK_Def("mass.2.fu2",   "Follow-up 2",       , "engine.ahk")
 HK_Def("mass.2.fu3",   "Follow-up 3",       , "engine.ahk")
-HK_Def("mass.2.altFu1",   "Follow-up 1 (third key)",      , "engine.ahk")
-HK_Def("mass.2.altFu2",   "Follow-up 2 (third key)",      , "engine.ahk")
-HK_Def("mass.2.altFu3",   "Follow-up 3 (third key)",      , "engine.ahk")
-HK_Def("mass.2.nextFu",   "Next follow-up (reads the chat)", , "engine.ahk")
+HK_Def("mass.2.nextFu",   "Auto detect next follow up (single button mode)", , "engine.ahk")
 HK_Def("mass.2.ppv",    "PPV base",         , "engine.ahk")
 HK_Def("mass.2.ppvFus", "PPV follow-ups",   , "engine.ahk")
 
@@ -262,10 +285,7 @@ HK_Section("mass.3", "Mass — model 3")
 HK_Def("mass.3.fu1",   "Follow-up 1",       , "engine.ahk")
 HK_Def("mass.3.fu2",   "Follow-up 2",       , "engine.ahk")
 HK_Def("mass.3.fu3",   "Follow-up 3",       , "engine.ahk")
-HK_Def("mass.3.altFu1",   "Follow-up 1 (third key)",      , "engine.ahk")
-HK_Def("mass.3.altFu2",   "Follow-up 2 (third key)",      , "engine.ahk")
-HK_Def("mass.3.altFu3",   "Follow-up 3 (third key)",      , "engine.ahk")
-HK_Def("mass.3.nextFu",   "Next follow-up (reads the chat)", , "engine.ahk")
+HK_Def("mass.3.nextFu",   "Auto detect next follow up (single button mode)", , "engine.ahk")
 HK_Def("mass.3.ppv",    "PPV base",         , "engine.ahk")
 HK_Def("mass.3.ppvFus", "PPV follow-ups",   , "engine.ahk")
 
@@ -292,26 +312,17 @@ HK_Section("mass.active", "Mass — active model (shared keys)")
 ;  the branches and the mass body would still need you to know which numbered key
 ;  belonged to the model in front, which is the exact problem this solves.
 ;
-;  mFu1-3 / mPpv / mPpvFus are the MOUSE overload — a second key for the same
-;  action, the same trick fu1short and b1Ppv play in [mass.1] (which is what
-;  "second key" in their labels means; it is NOT the alt wordings). They are here and
-;  not under a model because a mouse button cannot be per-model: there is one
-;  XButton1 and it is under your thumb whichever tab is open.
+;  The mouse buttons are overloads of the keys below (fu1 = F13 | XButton1), not
+;  ids of their own any more. They live here and not under a model because a mouse
+;  button cannot be per-model: there is one XButton1 and it is under your thumb
+;  whichever tab is open. Mouse-button follow-ups: off skips them at bind time.
 HK_Def("mass.active.fu1",    "Follow-up 1 — active model",  , "engine.ahk")
 HK_Def("mass.active.fu2",    "Follow-up 2 — active model",  , "engine.ahk")
 HK_Def("mass.active.fu3",    "Follow-up 3 — active model",  , "engine.ahk")
-HK_Def("mass.active.mFu1",   "Follow-up 1 — active model (mouse)", , "engine.ahk")
-HK_Def("mass.active.mFu2",   "Follow-up 2 — active model (mouse)", , "engine.ahk")
-HK_Def("mass.active.mFu3",   "Follow-up 3 — active model (mouse)", , "engine.ahk")
-HK_Def("mass.active.altFu1", "Follow-up 1 — active model (second key)", , "engine.ahk")
-HK_Def("mass.active.altFu2", "Follow-up 2 — active model (second key)", , "engine.ahk")
-HK_Def("mass.active.altFu3", "Follow-up 3 — active model (second key)", , "engine.ahk")
 HK_Def("mass.active.ppv",    "PPV base — active model",     , "engine.ahk")
 HK_Def("mass.active.ppvFus", "PPV follow-ups — active model", , "engine.ahk")
-HK_Def("mass.active.mPpv",    "PPV base — active model (mouse)", , "engine.ahk")
-HK_Def("mass.active.mPpvFus", "PPV follow-ups — active model (mouse)", , "engine.ahk")
 HK_Def("mass.active.mass",   "Paste the mass — active model", , "engine.ahk")
-HK_Def("mass.active.nextFu", "Next follow-up — reads the chat, sends f1/f2/f3", , "engine.ahk")
+HK_Def("mass.active.nextFu", "Auto detect next follow up (single button mode) — active model", , "engine.ahk")
 
 ; --- Which model the [mass.active] keys mean, when you say so yourself ---------
 ;  Manual mode (Settings ▸ "Decide which model by: I pick). The detector reads
@@ -342,6 +353,7 @@ HK_Section("seq", "Sequences")
 HK_Def("seq.openFarmolijer", "Open Farmolijer DM",            , "sequences.ahk")
 HK_Def("seq.copyDiscordMsg", "Copy Discord message → parse", "discord", "sequences.ahk")
 HK_Def("seq.selectTopPpv",   "Select top PPV",                , "sequences.ahk")
+HK_Def("seq.mmGather",       "MM Gatherer: save every mass in this channel (again = stop)", "discord", "sequences.ahk")
 ; @recorder-sequences@  <- recorder.ahk inserts new sequence declarations here.
 ;                          Keep this marker; new ones arrive unbound (blank key),
 ;                          ready to assign in the Hotkeys GUI.
@@ -350,18 +362,40 @@ HK_Section("util", "Utilities")
 HK_Def("util.afkClick",        "AFK click cycle",            , "engine.ahk")
 HK_Def("util.recoverMsg",      "Recover last typed message", , "engine.ahk")
 HK_Def("util.clickSecondGrey", "Click 2nd grey icon",        , "engine.ahk")
-HK_Def("util.debugGrey",       "Debug grey search",          , "engine.ahk")
+; Rewrites the message box through the local model (chat/grammar.ahk).
+HK_Def("util.fixGrammarCasual", "Fix grammar — casual",      , "engine.ahk")
+HK_Def("util.fixGrammarAlice",  "Fix grammar — Alice (British English)", , "engine.ahk")
+; Suggests the next sexting message from the chat on screen (chat/suggest.ahk).
+HK_Def("util.suggest",          "Suggest next message",       , "engine.ahk")
+; Ranks reusable PPV captions by how often they sold, for the fan on screen
+; (chat/ppvpick.ahk, services/llm/ppvlib.py).
+HK_Def("util.ppvPick",          "PPV script picker",          , "engine.ahk")
+; Rewords a PPV caption / mass follow-up with the fan's words (chat/reword.ahk).
+HK_Def("util.reword",           "Freestyle reword (PPV / follow-up)", , "engine.ahk")
+; Debug window: the chat reader's read beside the real pane (chat/suggest.ahk).
+HK_Def("util.chatView",         "What's on screen (debug)",   , "engine.ahk")
+; Live Trainer: grade the AI's draft after each fan message (tools/livetrainer).
+HK_Def("util.liveTrainer",      "Live Trainer",               , "engine.ahk")
+; The rest of the AI suite (core/ai_suite.ahk): the training lab, and the viewer
+; for what the shift recorder saved.
+HK_Def("util.testFlow",         "TestFlow (AI training lab)", , "engine.ahk")
+HK_Def("util.shiftViewer",      "Fan Viewer (every fan: chats, spend, lore cards)", , "engine.ahk")
+; The Arena: the AI fan against her AI, with you stepping in (tools/testflow/arena.pyw).
+HK_Def("util.arena",            "Arena (AI fan vs her AI)",   , "engine.ahk")
 
 HK_Section("gui", "GUI")
 HK_Def("gui.addHotkeyGrab",  "Grab selection → Add Hotkey",  ,              "main_window.ahk")
 HK_Def("gui.ocrGrab",        "Add hotstring with OCR",       ,              "main_window.ahk")
-HK_Def("gui.toggleDoubleMM", "Toggle double-MM",             "mouseControl", "main_window.ahk")
 HK_Def("gui.toggleStats",    "Toggle stats overlay",         ,              "stats_overlay.ahk")
 ; Show/hide the reply-timer frames without stopping the service, so turning them
 ; back on is instant. Owned by the overlay itself, like the stats one above.
 HK_Def("gui.toggleReplyBox", "Toggle reply timers",          "replyBox",    "reply_box.ahk")
 ; Owned by the TRACKER, not by the main window: the chart is only reachable when
 ; something has been recorded, and the tracker running is exactly that condition.
+; Owned by the timer service (src/timer/timer.ahk). timerToggle is the no-window
+; key: it starts or stops the timer with the last settings and opens nothing.
+HK_Def("gui.timer",          "Timer window",                 ,             "timer.ahk")
+HK_Def("gui.timerToggle",    "Timer start/stop (no window)", ,             "timer.ahk")
 HK_Def("gui.activity",       "Activity chart (typing stats)", ,            "tracker.ahk")
 HK_Def("gui.branchBuilder",  "Branch builder (draw a conversation)", ,     "main_window.ahk")
 HK_Def("gui.chatSim",        "Chat simulator (write a mass in context)", , "main_window.ahk")
@@ -371,6 +405,7 @@ HK_Def("gui.actions",        "Actions menu (what can I do?)", ,             "act
 ; one, and why exactly one, is HSQ_Register in hotstrings\quick_menu.ahk.
 HK_Def("gui.hotstringMenu",  "Hotstrings quick menu (pinned + recent)", ,   "general.ahk")
 HK_Def("gui.quickActions",   "Quick actions (pinned buttons)", ,            "actions_menu.ahk")
+HK_Def("gui.help",           "Help: what every key does",     ,             "main_window.ahk")
 ; Owned by the ENGINE, not by a window: the badge is built there, beside the lock
 ; badge, because that is the process that resolves the model it names
 ; (ui\fansly_badge.ahk). Ships with no key — it is meant to be reached by typing
@@ -403,9 +438,8 @@ HK_Def("recorder.toggle", "Start / stop recording", , "recorder.ahk")
 ; polls, so it must be running for them to fire. It gates itself to the Infloww
 ; Messages window, which is why "when" is blank rather than a registered context.
 HK_Section("automation", "Automation (automation.py)")
-HK_Def("automation.hopKebabs", "Hop cursor over model kebabs (test)", , "automation.py")
 HK_Def("automation.unsendLast", "Unsend last message (again = whole run)", , "automation.py")
-HK_Def("automation.countSales", "Total your sales in Notifications > Purchases", , "automation.py")
+HK_Def("automation.countSales", "Sales tally: total the last shift (open Notifications > Purchases first)", , "automation.py")
 
 ; One key, python-bound, same arrangement as [automation] above: DECLARED here so
 ; the Hotkeys GUI lists, edits and conflict-checks it, but no AHK HK_Bind touches
@@ -431,8 +465,7 @@ HK_Def("general.antiCc",      "Type a random 199.00-200.00 amount", , "general.a
 
 HK_Section("cap", "Capitalizer")
 HK_Def("cap.enterCap",   "Enter + capitalize next",  , "capitalizer.ahk")
-HK_Def("cap.enterPass1", "Shift+Enter (pass through)", , "capitalizer.ahk")
-HK_Def("cap.enterPass2", "Ctrl+Enter (pass through)", , "capitalizer.ahk")
+HK_Def("cap.enterPass",  "Enter without capitalizing (pass through)", , "capitalizer.ahk")
 
 ; ── resolving ─────────────────────────────────────────────────────────────────
 
@@ -569,7 +602,7 @@ HK_Bind(id, fn) {
         HK_Log("HK_Bind('" id "') — context '" m.when "' not registered; refusing to bind globally")
         return
     }
-    _HK_BOUND[id] := {fn: fn, key: ""}
+    _HK_BOUND[id] := {fn: fn, key: "", keys: []}
     _HK_Apply(id, HK_Key(id))
 }
 
@@ -578,17 +611,28 @@ _HK_Apply(id, key) {
     b := _HK_BOUND[id]
     if (m.when != "")
         HotIf(HK_CTX[m.when])
-    if (b.key != "")
-        try Hotkey(b.key, "Off")
-    if (key != "") {
-        try {
-            Hotkey(key, _HK_Wrap(id, b.fn))
-            LOGI("hk.bind", id " ← " key (m.when != "" ? "   (only in: " m.when ")" : ""))
-        } catch as e {
-            HK_Log("'" key "' is not a valid key for " id " — " e.Message)
-            key := ""
+    for old in b.keys
+        try Hotkey(old, "Off")
+    ; Every key of the overload. "On" explicitly: a key that was just switched Off
+    ; above and is bound again keeps its Off state otherwise.
+    live := []
+    for k in HK_KeyList(key) {
+        ; Mouse-button follow-ups off: a mass key's MOUSE overloads stay dark and
+        ; its keyboard ones still bind. Tested per key, because the setting is
+        ; about the button, not about which action it sends.
+        if (SubStr(id, 1, 5) = "mass." && HK_IsMouseKey(k) && !FEAT("mouseControl")) {
+            LOG_Bail("hk.bind", id " skips " k " — Mouse-button follow-ups is off"
+                              . " (Settings ▸ Features)")
+            continue
         }
-    } else {
+        try {
+            Hotkey(k, _HK_Wrap(id, b.fn), "On")
+            live.Push(k)
+            LOGI("hk.bind", id " ← " k (m.when != "" ? "   (only in: " m.when ")" : ""))
+        } catch as e
+            HK_Log("'" k "' is not a valid key for " id " — " e.Message)
+    }
+    if (key = "") {
         ; Blank in the ini is "deliberately disabled" and absent was already
         ; reported by HK_Key. Either way the action has no key, which is worth a
         ; line: it is the difference between a broken feature and an unassigned
@@ -598,6 +642,7 @@ _HK_Apply(id, key) {
     }
     HotIf()
     b.key := key
+    b.keys := live
 }
 
 ; Enable/disable an already-bound id without forgetting its key (used by gating).
@@ -605,12 +650,13 @@ HK_SetState(id, state) {
     if !_HK_BOUND.Has(id)
         return
     b := _HK_BOUND[id]
-    if (b.key = "")
+    if !b.keys.Length
         return
     m := HK_META[id]
     if (m.when != "")
         HotIf(HK_CTX[m.when])
-    try Hotkey(b.key, state)
+    for k in b.keys
+        try Hotkey(k, state)
     HotIf()
 }
 
@@ -751,7 +797,63 @@ OnMessage(HK_MSG_FIRE, _HK_OnFire)
 HK_Migrate() {
     if (IniRead(HK_INI, "meta", "SchemaVersion", "0") >= HK_SCHEMA)
         return
+    HK_MigrateOverloads()
     IniWrite(HK_SCHEMA, HK_INI, "meta", "SchemaVersion")
+}
+
+; Schema 3: the ids that only ever meant "another key for this action" become
+; keys in that action's own value, and their lines go. Nothing a user bound is
+; lost — every key moves, deduplicated, onto the action it always fired.
+;
+;   [mass.N] / [mass.active]   fu1 ← altFu1, fu1short, mFu1   (and 2, 3)
+;                              ppv ← mPpv     ppvFus ← b1Ppv, mPpvFus
+;   [nav]                      unread ← unreadLeft
+;   [cap]                      enterPass ← enterPass1, enterPass2
+;
+; Plus lines nothing has read for a release or more: brPick/brFu2/brFu3/brPpv,
+; [util] debugGrey, [automation] hopKebabs.
+HK_MigrateOverloads() {
+    secs := ["mass.active"]
+    Loop 12
+        secs.Push("mass." A_Index)
+    for sec in secs {
+        Loop 3
+            _HK_Fold(sec, "fu" A_Index, "altFu" A_Index, "fu" A_Index "short", "mFu" A_Index)
+        _HK_Fold(sec, "ppv", "mPpv")
+        _HK_Fold(sec, "ppvFus", "b1Ppv", "mPpvFus")
+        for dead in ["brPick", "brFu2", "brFu3", "brPpv"]
+            try IniDelete(HK_INI, sec, dead)
+    }
+    _HK_Fold("nav", "unread", "unreadLeft")
+    _HK_Fold("cap", "enterPass", "enterPass1", "enterPass2")
+    try IniDelete(HK_INI, "util", "debugGrey")
+    try IniDelete(HK_INI, "automation", "hopKebabs")
+    LOGI("hk.migrate", "hotkeys.ini moved to schema " HK_SCHEMA
+                     . " — extra keys are overloads of their action now")
+}
+
+; Move every key of each `extras` line onto `base`, then delete those lines.
+_HK_Fold(sec, base, extras*) {
+    cur  := IniRead(HK_INI, sec, base, HK_UNSET)
+    keys := (cur == HK_UNSET) ? [] : HK_KeyList(cur)
+    moved := false
+    for x in extras {
+        v := IniRead(HK_INI, sec, x, HK_UNSET)
+        if (v == HK_UNSET)
+            continue
+        moved := true
+        for k in HK_KeyList(v) {
+            dup := false
+            for have in keys
+                if (StrLower(have) = StrLower(k))
+                    dup := true
+            if !dup
+                keys.Push(k)
+        }
+        try IniDelete(HK_INI, sec, x)
+    }
+    if moved
+        IniWrite(HK_KeyJoin(keys), HK_INI, sec, base)
 }
 
 ; ── keeping a user's hotkeys.ini across updates ───────────────────────────────
@@ -1081,8 +1183,12 @@ HK_KeyOwner(key, exceptId := "") {
             if !eq
                 continue
             k := Trim(SubStr(line, 1, eq - 1))
-            v := StrLower(Trim(SubStr(line, eq + 1)))
-            if (v = "" || v != key)          ; blank = declared but disabled
+            v := Trim(SubStr(line, eq + 1))
+            hit := false                     ; blank = declared but disabled
+            for kk in HK_KeyList(v)
+                if (StrLower(kk) = key)
+                    hit := true
+            if !hit
                 continue
             id := section "." k
             if (id = exceptId)
@@ -1110,3 +1216,29 @@ HK_DefHotstrings() {
                       . " hotkeys.ini)")
 }
 HK_DefHotstrings()
+
+
+; ── the Help list: every key that is bound, and what it does ──────────────────
+;  Settings ▸ Help is drawn from this, in both Settings windows. Read from the
+;  INI, so it is what MMA will actually do right now — a key you rebound five
+;  minutes ago shows its new key, and an unbound action is not listed at all
+;  (a cheat sheet full of dashes is a list of things you cannot press).
+;
+;  One row per KEY, not per action: an overload "F1 | ^F1" is two rows, because
+;  the question this answers is "what does THIS key do", asked with the key.
+;  Returns an Array of Maps: key (raw, as the ini has it), what, group, where.
+HK_HelpRows() {
+    rows := []
+    for id in HK_ORDER {
+        s := HK_Split(id)
+        v := IniRead(HK_INI, s.section, s.key, "")
+        if (Trim(v) = "")
+            continue
+        m := HK_META[id]
+        group := HK_SECTION_LABEL.Has(s.section) ? HK_SECTION_LABEL[s.section] : s.section
+        where := (m.when = "chrome") ? "Chrome only" : (m.when = "discord") ? "Discord only" : ""
+        for k in HK_KeyList(v)
+            rows.Push(Map("key", k, "what", m.label, "group", group, "where", where))
+    }
+    return rows
+}

@@ -417,6 +417,9 @@ SelectTopPPVSeq() {
 
 HK_Bind("seq.selectTopPpv", SelectTopPPVSeq)
 
+; Scroll a Discord channel to the top and save every mass in it — see the file.
+#Include "mm_gatherer.ahk"
+
 ; "The Discord import broke AGAIN" has been reported more than once, and the cause
 ; has never once been this file's logic — it was the script not running, or the
 ; key not bound. Both are now one line in the log, at the moment it starts.

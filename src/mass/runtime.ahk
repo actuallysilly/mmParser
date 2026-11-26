@@ -109,8 +109,6 @@ editableFu1    := LOG_IniInt(MMA_CFG, "Settings", "EditableFu1",    0, "mass.boo
 editableFu2    := LOG_IniInt(MMA_CFG, "Settings", "EditableFu2",    0, "mass.boot")
 editableFu3    := LOG_IniInt(MMA_CFG, "Settings", "EditableFu3",    0, "mass.boot")
 
-doubleMM := false
-
 ; What this process resolved at load, in one line.
 ;
 ; These eight values decide what every follow-up key does, they are read ONCE
@@ -133,15 +131,6 @@ LOG_Kv("mass.boot", Map("masses",     MMA_MASSES,
 ; that used to sit here with a comment listing what each one meant.
 ; _BroadcastEditableFu() there posts to every running model script; before this
 ; file only 1_mass.ahk listened.
-ToggleDMMMsg(wParam, lParam, msg, hwnd) {
-    global doubleMM
-    doubleMM := !doubleMM
-    LOGI("mass.setting", "double-MM " (doubleMM ? "ON — follow-up keys now send"
-                                                . " models 1 AND 2 back to back"
-                                                : "off"))
-}
-OnMessage(MMA_MSG_DOUBLE_MM, ToggleDMMMsg)
-
 SetWalletMsg(wParam, lParam, msg, hwnd) {
     global walletCheckFu3
     walletCheckFu3 := wParam
@@ -219,12 +208,6 @@ CurMass() {
     return MASS_AsObject(MASS_Active(MASS_DOC, MASS_CUR_MODEL))
 }
 
-; One of the current model's three slots, as an object.
-CurMassSlot(slot) {
-    global MASS_DOC, MASS_CUR_MODEL
-    return MASS_AsObject(MASS_Get(MASS_DOC, MASS_CUR_MODEL, slot))
-}
-
 ; The key _activeBranch is remembered under. Includes the MODEL, not just the
 ; slot: with three models in one process, "mass 1" alone would let model 2's
 ; chosen branch overwrite model 1's.
@@ -235,29 +218,27 @@ _BranchKey() {
 
 ; One follow-up group. `group` is 1/2/3; `editable` is that group's toggle.
 ; Order matters: let an alt chooser intercept first, then the editable paste, then
-; the plain send. doubleMM sends slots 1 and 2 back to back.
+; the plain send.
 ;
 ; No gate any more. The key that got here was bound to a specific model (or was
 ; resolved against the detector by _RunOnActiveModel), so by this point there is
 ; nothing left to second-guess.
 _DoFuGroup(group, editable, openTab) {
-    global doubleMM, openInNewTabButton, MASS_CUR_MODEL, MASS_DOC
-    ; Each extra is both a user setting and a feature; Easy mode drops all three
-    ; back to "paste the follow-up and press Enter", which is all v1.4.0 did.
+    global openInNewTabButton, MASS_CUR_MODEL, MASS_DOC
+    ; Each extra is both a user setting and a feature; Easy mode drops both back
+    ; to "paste the follow-up and press Enter", which is all v1.4.0 did.
     editable := editable && FEAT("editableFu")
     openTab  := openTab  && FEAT("openTab")
-    sendBoth := doubleMM && FEAT("doubleMM")
     ; The state every follow-up decision is made from, in one line, before any of
-    ; it is acted on. Which model, which mass slot, and the three modifiers — the
-    ; four things you would ask for first when somebody says "it sent the wrong
-    ; thing" or "it sent nothing".
+    ; it is acted on. Which model, which mass slot, and the modifiers — the things
+    ; you would ask for first when somebody says "it sent the wrong thing" or "it
+    ; sent nothing".
     LOG_Kv("mass.fu", Map("group",    group,
                           "model",    MASS_CUR_MODEL,
                           "massNo",   MASS_MassNo(MASS_DOC, MASS_CUR_MODEL),
                           "branch",   ActiveBranchNo(),
                           "editable", editable ? "y" : "n",
-                          "openTab",  openTab ? "y" : "n",
-                          "doubleMM", sendBoth ? "y" : "n"))
+                          "openTab",  openTab ? "y" : "n"))
     ; Which follow-up you last aimed at, for the capture window's dropdowns to open
     ; on — see MASS_RememberSent in mass/store.ahk. Noted here, on the press,
     ; rather than after the send: a follow-up with nothing in it is exactly the one
@@ -276,12 +257,7 @@ _DoFuGroup(group, editable, openTab) {
         SndFuEditable(MASS_FuParts(m, group)*)
         return
     }
-    if sendBoth {
-        sndFu(group, MASS_FuParts(CurMassSlot(1), group)*)
-        sndFu(group, MASS_FuParts(CurMassSlot(2), group)*)
-    } else {
-        sndFu(group, MASS_FuParts(m, group)*)
-    }
+    sndFu(group, MASS_FuParts(m, group)*)
     if openTab
         clickReturn(openInNewTabButton)
 }
@@ -430,32 +406,25 @@ global ALT_ON_PICK := RememberBranch
 
 ; Every slot a mass section can declare, and what runs it.
 ;
-; Several slots share a handler on purpose — that is what a key OVERLOAD is here.
-; fu1short, mFu1 and fu1 are three ids for one action, so one action can carry a
-; keyboard key, a mouse button and a Scimitar button at once without any of them
-; knowing about the others. Add an id to hotkeys.ahk, add a line here, done.
+; One slot per action. A keyboard key, a mouse button and a Scimitar button for
+; the same action are OVERLOADS — several keys in that slot's one ini value
+; (fu1 = F1 | ^F1 | XButton1, see HK_KeyList) — not slots of their own. They were
+; slots once (fu1short, altFu1, mFu1, b1Ppv, mPpv…), three rows in the Hotkeys
+; window for one action.
+;
+; brPick / brFu2 / brFu3 / brPpv are gone too, not renamed: the branch variants
+; are in the same staged list as the alts, and the branch you are on is
+; remembered from what you pick there.
 MassSlotHandlers() {
     return Map(
-        "fu1",      DoFu1,  "fu1short", DoFu1,  "mFu1", DoFu1,
-        "fu2",      DoFu2,  "fu2short", DoFu2,  "mFu2", DoFu2,
-        "fu3",      DoFu3,  "fu3short", DoFu3,  "mFu3", DoFu3,
-        "ppv",      DoPpv,      "mPpv",    DoPpv,
-        "ppvFus",   DoPpvFus,   "mPpvFus", DoPpvFus,
-        "b1Ppv",    DoPpvFus,
+        "fu1",      DoFu1,
+        "fu2",      DoFu2,
+        "fu3",      DoFu3,
+        "ppv",      DoPpv,
+        "ppvFus",   DoPpvFus,
         "mass",     DoMass,
         ; One key for the whole f1->f2->f3 walk; see mass/next_fu.ahk.
-        "nextFu",   DoNextFu,
-        ; altFu1-3 are a SECOND KEY for fu1-3, kept only so an existing ^F1
-        ; binding does not go dead. They do exactly what the plain key does —
-        ; there is nothing left for a separate "pick alt" key to do now that the
-        ; plain key stages every alt AND every branch.
-        ;
-        ; brPick / brFu2 / brFu3 / brPpv were here. They are gone, not renamed:
-        ; the branch variants are in the same staged list as the alts, and the
-        ; branch you are on is remembered from what you pick there.
-        "altFu1",   DoFu1,
-        "altFu2",   DoFu2,
-        "altFu3",   DoFu3)
+        "nextFu",   DoNextFu)
 }
 
 ; Bind one model's EXPLICIT keys — [mass.<n>] in hotkeys.ini.
@@ -477,44 +446,6 @@ MassBindModel(n) {
             HK_Bind(id, _ModelFire(n, fn))
     }
 
-    _MassApplyMouseControl("mass." n)
-}
-
-; Mouse-control off means the mouse-button keys stay dark. Done after binding
-; rather than by skipping the bind, so flipping the setting back on only needs a
-; reload, not a rebind.
-;
-; Shared by both binders. It used to be inline in MassBindModel and named only
-; mFu1-3, which is the shape of bug that keeps recurring here: a list of slots
-; written out by hand in one of the two places that binds them, going stale the
-; moment a slot is added. The list comes from the handler table now.
-_MassApplyMouseControl(section) {
-    global mouseControl
-    if mouseControl
-        return
-    for slot in MassSlotHandlers() {
-        if (SubStr(slot, 1, 1) != "m" || SubStr(slot, 1, 4) = "mass")
-            continue                          ; mFu1-3, mPpv, mPpvFus — not "mass"
-        id := section "." slot
-        if !HK_META.Has(id)
-            continue
-        ; The slot name says "overload", not "mouse". Nothing stops a keyboard key
-        ; going in one — mPpv/mPpvFus hold F4/F5 — and a setting labelled
-        ; "Mouse-button follow-ups" must not reach across and darken those. Test the
-        ; KEY, which is the thing the setting is actually about; a slot named m-
-        ; anything with LButton nowhere in it is not what is being switched off.
-        if !_IsMouseKey(HK_Key(id))
-            continue
-        HK_SetState(id, "Off")
-    }
-}
-
-; Does this binding press a mouse button? Modifiers are stripped first, so ^MButton
-; and !XButton1 count. Wheel included: WheelUp on a follow-up is exactly the kind of
-; accident "mouse control off" is meant to prevent.
-_IsMouseKey(key) {
-    key := RegExReplace(Trim(key), "^[\^!+#<>*~$]+")
-    return RegExMatch(key, "i)^(?:L|R|M|X)Button[12]?$|^XButton[12]$|^Wheel(?:Up|Down|Left|Right)$") > 0
 }
 
 ; Bind the SHARED keys — [mass.active] in hotkeys.ini.
@@ -534,7 +465,6 @@ MassBindActive() {
         if HK_META.Has(id)
             HK_Bind(id, _ActiveFire(fn, slot))
     }
-    _MassApplyMouseControl("mass.active")
 }
 
 ; The SLOT is carried through as well as the handler, because "I pick" mode needs
@@ -767,7 +697,7 @@ _LockSuffix() {
     return n ? "   ▸ LOCKED" : ""
 }
 
-; ^!l, or whatever [mass.select] lock says. One key, both directions.
+; ^#F5, or whatever [mass.select] lock says. One key, both directions.
 ;
 ; Locks to WHICHEVER MODEL IS ALREADY RESOLVED, rather than asking. In "I pick"
 ; mode that is the model you last selected — the one whose messages you are in the

@@ -1,7 +1,10 @@
 ﻿#Requires AutoHotkey v2.0
 #Include "../core/paths.ahk"
+; The Advanced window is themed like Settings.
+#Include "../core/theme.ahk"
 ; ═══════════════════════════════════════════════════════════════════════════════
-;  debug_panel.ahk — the Debug tab: launch the probes, run the tests, read the logs.
+;  debug_panel.ahk — the Debug tab: the log and the self-tests; the probes and
+;  the rest behind an Advanced… button.
 ; ───────────────────────────────────────────────────────────────────────────────
 ;  Everything here already existed as a file in tools\ that you had to find in
 ;  Explorer and double-click. That is fine when you wrote them; it is useless at
@@ -146,187 +149,203 @@ class DebugPanel {
         ; uncomment one. Writes only to A_Temp.
         {label: "hotstring shortcuts",  file: "tools\test\shortcuts_test.ahk"}]
 
+    ; The tab holds what you reach for when something misbehaves: the log, and
+    ; the self-tests. Everything else — the probes, the rail readout, log
+    ; markers, the environment dump, the raw files — is one click further, in
+    ; the Advanced window. Silly, 2026-10-24: "Debug: God knows what this even
+    ; is." Twenty controls on one page with a paragraph each is how it got there.
     __New(hostGui, x, y, w, h) {
         this.gui     := hostGui
         this.queue   := []            ; tests still to run
         this.running := false
+        this.adv     := 0             ; the Advanced window, while it is open
 
         y0 := y
 
-        ; ══ diagnostics ═══════════════════════════════════════════════════════
+        ; ══ the log ═══════════════════════════════════════════════════════════
         hostGui.SetFont("s9 Bold")
-        hostGui.Add("Text", "x" x " y" y0 " w" w, "Diagnostics")
+        hostGui.Add("Text", "x" x " y" y0 " w" w, "Log")
         hostGui.SetFont("s9 Norm")
         y0 += 22
-
         hostGui.SetFont("s8")
         hostGui.Add("Text", "x" x " y" y0 " w" w " cGray",
-                    "Every MMA process writes to one file, debuglogs\mma.log — what it"
-                  . " did, and every point where it deliberately did nothing. These"
-                  . " apply within a second or two, everywhere, with no restart.")
-        hostGui.SetFont("s9")
-        y0 += 30
-
-        forced := DebugPanel.Forced()
-
-        ; ── four switches in two rows of three columns ────────────────────────
-        ; THREE columns, not two, and no new row — measured, because this tab has
-        ; no room for one. The page is 622px tall and the Environment buttons at
-        ; the bottom already ended within 4px of it (the note on the probe-row
-        ; pitch further down is about the same wall). A fourth switch on a row of
-        ; its own plus a help line under it came to 52px and pushed those buttons
-        ; 48px off the page — invisible in the source, obvious the moment you open
-        ; the tab. tools\ has no fixture for this; it was measured by building the
-        ; panel into an unshown Gui and comparing the lowest control's bottom
-        ; against CY+CH. Do that again before adding a fifth.
-        this.cbLog := hostGui.Add("Checkbox", "x" x " y" y0 " w300"
-                                            . (DebugPanel.Get("Logging", "1") ? " Checked" : ""),
-                                  "Write a log file")
-        this.cbPop := hostGui.Add("Checkbox", "x" (x + 310) " y" y0 " w300"
-                                            . (DebugPanel.Get("Popups", "0") ? " Checked" : ""),
-                                  "Report errors with a pop-up")
-
-        ; ── the Fansly rail readout ───────────────────────────────────────────
-        ; The only one of the four that puts something ON SCREEN rather than into
-        ; a file. It belongs here anyway, for the reason the other three do: it is
-        ; a thing MMA shows you about itself, not a thing MMA does for you, so it
-        ; is a debug switch and not a Feature (see this file's header).
-        ;
-        ; It also has to be reachable while the rail is misbehaving, which is
-        ; exactly when you do not want to be hunting through Features — and being
-        ; written on click means it is live in the engine within a second and a
-        ; half, with no Save and no restart.
-        ;
-        ; What it shows and how to read it is on the badge itself, not here: green
-        ; names the model, amber says the shared keys have no answer with the
-        ; reason on the line under it. A legend in Settings for a thing that is
-        ; already on screen explaining itself is a legend nobody reads.
-        this.cbRail := hostGui.Add("Checkbox", "x" (x + 620) " y" y0 " w" (w - 620)
-                                             . (DebugPanel.Get("FanslyRail", "0") ? " Checked" : ""),
-                                   "Fansly rail readout")
-        y0 += 22
-        this.cbMax := hostGui.Add("Checkbox", "x" x " y" y0 " w300"
-                                            . (DebugPanel.Get("MaxLogging", "0") ? " Checked" : ""),
-                                  "Max logging (log absolutely everything)")
-        hostGui.SetFont("s8")
-        this.lblForced := hostGui.Add("Text", "x" (x + 310) " y" (y0 + 2) " w" (w - 310)
-                                            . " cGray", "")
+                    "What MMA did, and why it did nothing when it did nothing. When"
+                  . " something misbehaves, make a report and send that one file.")
         hostGui.SetFont("s9")
         y0 += 26
 
+        forced := DebugPanel.Forced()
+        this.cbLog := hostGui.Add("Checkbox", "x" x " y" y0 " w220"
+                                            . (DebugPanel.Get("Logging", "1") ? " Checked" : ""),
+                                  "Keep a log")
+        this.cbPop := hostGui.Add("Checkbox", "x" (x + 230) " y" y0 " w220"
+                                            . (DebugPanel.Get("Popups", "0") ? " Checked" : ""),
+                                  "Pop up on errors")
+        this.cbMax := hostGui.Add("Checkbox", "x" (x + 460) " y" y0 " w300"
+                                            . (DebugPanel.Get("MaxLogging", "0") ? " Checked" : ""),
+                                  "Log everything (only while hunting a bug)")
         this.cbLog.OnEvent("Click", (*) => this.SetFlag("Logging", this.cbLog.Value))
         this.cbPop.OnEvent("Click", (*) => this.SetFlag("Popups", this.cbPop.Value))
         this.cbMax.OnEvent("Click", (*) => this.SetFlag("MaxLogging", this.cbMax.Value))
-        this.cbRail.OnEvent("Click", (*) => this.SetFlag("FanslyRail", this.cbRail.Value))
-
-        ; The environment beats the cfg, so if it is set these boxes cannot do
-        ; anything. Say that and grey them, rather than letting somebody tick a
+        y0 += 24
+        ; The environment beats the cfg, so if MMA_DEBUG is set these boxes cannot
+        ; do anything. Say that and grey them, rather than letting somebody tick a
         ; box and wonder why the log did not change.
-        ;
-        ; The rail readout is deliberately NOT in this list. MMA_DEBUG forces the
-        ; three LOGGING levels and has no opinion about an overlay, so grey it and
-        ; you have taken away a working switch to report an override that is not
-        ; overriding it — which is the same "silently does nothing" failure this
-        ; branch exists to prevent, pointed the other way.
+        hostGui.SetFont("s8")
+        this.lblForced := hostGui.Add("Text", "x" x " y" y0 " w" w " cGray", "")
+        hostGui.SetFont("s9")
         if (forced != "") {
             for _, cb in [this.cbLog, this.cbPop, this.cbMax]
                 cb.Enabled := false
             this.lblForced.Text := "MMA_DEBUG=" forced " in the environment is"
-                                 . " overriding all three."
+                                 . " overriding these three."
         }
+        y0 += 20
 
         bx := x
-        for _, b in [["Open mma.log",  "log"],
-                     ["Mark log",      "mark"],
-                     ["Diagnostic report", "report"],
-                     ["Error log",     "errlog"],
-                     ["Open folder",   "folder"],
-                     ["Clear logs",    "clear"]] {
-            btn := hostGui.Add("Button", "x" bx " y" y0 " w118 h28", b[1])
+        for _, b in [["Make a report", "report", 130],
+                     ["Open the log",  "log",    118],
+                     ["Error log",     "errlog", 118],
+                     ["Clear logs",    "clear",  118]] {
+            btn := hostGui.Add("Button", "x" bx " y" y0 " w" b[3] " h28", b[1])
             btn.OnEvent("Click", this.DiagAction.Bind(this, b[2]))
-            bx += 124
+            bx += b[3] + 8
         }
-        y0 += 36
+        y0 += 42
 
         hostGui.Add("Text", "x" x " y" y0 " w" w " h1 0x10")
         y0 += 12
 
-        ; ── probes ────────────────────────────────────────────────────────────
+        ; ══ self-tests ═════════════════════════════════════════════════════════
         hostGui.SetFont("s9 Bold")
-        hostGui.Add("Text", "x" x " y" y0 " w" w, "Probes")
+        hostGui.Add("Text", "x" x " y" y0 " w" w, "Check MMA")
         hostGui.SetFont("s9 Norm")
         y0 += 22
         hostGui.SetFont("s8")
         hostGui.Add("Text", "x" x " y" y0 " w" w " cGray",
-                    "Each is a SEPARATE script. Its hotkey only exists while it runs —"
-                  . " look for the badge in the top-right corner. Ctrl+Alt+F10 samples,"
-                  . " Ctrl+Alt+F12 quits.")
+                    "Runs MMA's own tests. Nothing is sent, clicked or typed; two of"
+                  . " them flash a window.")
         hostGui.SetFont("s9")
-        y0 += 30
-        ; One row each, with what it does written beside it rather than hidden in a
-        ; tooltip — and note GuiCtrl has no .ToolTip property in AHK v2.0 anyway,
-        ; so assigning one throws the moment this tab is built.
-        for _, p in DebugPanel.PROBES {
-            btn := hostGui.Add("Button", "x" x " y" y0 " w150 h26", p.label)
-            btn.OnEvent("Click", this.RunFile.Bind(this, p.file))
-            hostGui.SetFont("s8")
-            hostGui.Add("Text", "x" (x + 160) " y" (y0 + 6) " w" (w - 160) " cGray", p.note)
-            hostGui.SetFont("s9")
-            ; 28, not 30. This tab is placed absolutely inside a fixed 720px window
-            ; and the Environment buttons at the bottom already sat 4px clear of it
-            ; — a fourth probe row at the old pitch pushed them off the page, which
-            ; is a layout bug that only shows up on the LAST row added.
-            y0 += 28
-        }
-        y0 += 6
-
-        hostGui.Add("Text", "x" x " y" y0 " w" w " h1 0x10")
-        y0 += 12
-
-        ; ── self-tests ────────────────────────────────────────────────────────
-        hostGui.SetFont("s9 Bold")
-        hostGui.Add("Text", "x" x " y" y0 " w" w, "Self-tests")
-        hostGui.SetFont("s9 Norm")
-        y0 += 22
+        y0 += 24
         this.btnRun := hostGui.Add("Button", "x" x " y" y0 " w130 h28", "Run all tests")
         this.btnRun.OnEvent("Click", (*) => this.StartTests())
         this.lblTests := hostGui.Add("Text", "x" (x + 140) " y" (y0 + 7) " w" (w - 140),
                                      "Not run yet.")
-        y0 += 34
-        this.lv := hostGui.Add("ListView", "x" x " y" y0 " w" w " h96 Grid -Multi",
+        y0 += 36
+        this.lv := hostGui.Add("ListView", "x" x " y" y0 " w" w " h170 Grid -Multi",
                                ["Test", "Result", "File"])
         this.lv.ModifyCol(1, 200)
         this.lv.ModifyCol(2, 150)
         this.lv.ModifyCol(3, w - 380)
-        y0 += 106
+        y0 += 182
 
         hostGui.Add("Text", "x" x " y" y0 " w" w " h1 0x10")
+        y0 += 14
+
+        btnAdv := hostGui.Add("Button", "x" x " y" y0 " w130 h28", "Advanced" Chr(0x2026))
+        btnAdv.OnEvent("Click", (*) => this.OpenAdvanced())
+        hostGui.SetFont("s8")
+        hostGui.Add("Text", "x" (x + 140) " y" (y0 + 7) " w" (w - 140) " cGray",
+                    "Probes, the Fansly rail readout, log markers, what is running,"
+                  . " and the raw settings files.")
+        hostGui.SetFont("s9")
+    }
+
+    ; ── the Advanced window ───────────────────────────────────────────────────
+    ;  Its own small window rather than more of the tab: none of it is something
+    ;  you need to see to know whether MMA is healthy, and all of it was on the
+    ;  tab, which is why nobody could tell what the tab was for.
+    OpenAdvanced() {
+        if this.adv {
+            try {
+                this.adv.Show()
+                return
+            }
+        }
+        W := 760
+        ag := Gui("+Owner" this.gui.Hwnd, "MMA Debug — Advanced")
+        bg := THEME_WindowBg()
+        if (bg != "")
+            ag.BackColor := bg
+        ag.SetFont("s9" THEME_FontOpt(), "Segoe UI")
+        this.adv := ag
+        x := 16, w := W - 32, y0 := 14
+
+        ; ── probes ────────────────────────────────────────────────────────────
+        ag.SetFont("s9 Bold")
+        ag.Add("Text", "x" x " y" y0 " w" w, "Probes")
+        ag.SetFont("s9 Norm")
+        y0 += 22
+        ag.SetFont("s8")
+        ag.Add("Text", "x" x " y" y0 " w" w " cGray",
+               "Each is its own little script with a badge in the top-right corner;"
+             . " its keys only work while it runs. Ctrl+Alt+F10 samples, Ctrl+Alt+F12"
+             . " quits.")
+        ag.SetFont("s9")
+        y0 += 32
+        for _, p in DebugPanel.PROBES {
+            btn := ag.Add("Button", "x" x " y" y0 " w150 h26", p.label)
+            btn.OnEvent("Click", this.RunFile.Bind(this, p.file))
+            ag.SetFont("s8")
+            ag.Add("Text", "x" (x + 160) " y" (y0 + 6) " w" (w - 160) " cGray", p.note)
+            ag.SetFont("s9")
+            y0 += 30
+        }
+        ; The one switch that puts something ON SCREEN rather than into a file. A
+        ; debug switch rather than a Feature: it is MMA showing you about itself.
+        ; Written on click, like the log switches, so it is live in the engine in
+        ; about a second and a half.
+        this.cbRail := ag.Add("Checkbox", "x" x " y" (y0 + 4) " w" w
+                                        . (DebugPanel.Get("FanslyRail", "0") ? " Checked" : ""),
+                              "Show the Fansly rail readout (which card MMA thinks is selected)")
+        this.cbRail.OnEvent("Click", (*) => this.SetFlag("FanslyRail", this.cbRail.Value))
+        y0 += 34
+
+        ag.Add("Text", "x" x " y" y0 " w" w " h1 0x10")
         y0 += 12
 
-        ; ── environment ───────────────────────────────────────────────────────
-        ; The "Logs and files" row that stood here is gone — its four buttons were
-        ; the same job as the Diagnostics row at the top of this tab, and two rows
-        ; of file buttons at opposite ends of one page is how you end up clicking
-        ; the wrong one. mass_gui.cfg and hotkeys.ini are both reproduced in full
-        ; inside the diagnostic report, which is the thing you actually send.
-        hostGui.SetFont("s9 Bold")
-        hostGui.Add("Text", "x" x " y" y0 " w" w, "Environment")
-        hostGui.SetFont("s9 Norm")
+        ; ── what is running, and the files ───────────────────────────────────
+        ag.SetFont("s9 Bold")
+        ag.Add("Text", "x" x " y" y0 " w" w, "What is running")
+        ag.SetFont("s9 Norm")
         y0 += 22
-        this.lblEnv := hostGui.Add("Text", "x" x " y" y0 " w" w " h60", "")
-        y0 += 64
-        btnRefresh := hostGui.Add("Button", "x" x " y" y0 " w110 h28", "Refresh")
-        btnRefresh.OnEvent("Click", (*) => this.PaintEnv())
-        btnEngine := hostGui.Add("Button", "x" (x + 118) " y" y0 " w130 h28", "Restart engine")
-        btnEngine.OnEvent("Click", (*) => this.RestartEngine())
-        btnCfg := hostGui.Add("Button", "x" (x + 256) " y" y0 " w130 h28", "mass_gui.cfg")
-        btnCfg.OnEvent("Click", this.Reveal.Bind(this, MMA_CFG))
-        btnHk := hostGui.Add("Button", "x" (x + 394) " y" y0 " w130 h28", "hotkeys.ini")
-        btnHk.OnEvent("Click", this.Reveal.Bind(this, MMA_HK_INI))
-        btnLnk := hostGui.Add("Button", "x" (x + 532) " y" y0 " w150 h28", "Desktop shortcut")
-        btnLnk.OnEvent("Click", (*) => this.MakeShortcut())
+        this.lblEnv := ag.Add("Text", "x" x " y" y0 " w" w " h64", "")
+        y0 += 70
+        bx := x
+        for _, b in [["Refresh", "refresh", 90], ["Restart engine", "engine", 120],
+                     ["Mark the log", "mark", 110], ["Open folder", "folder", 104],
+                     ["mass_gui.cfg", "cfg", 104], ["hotkeys.ini", "hk", 96]] {
+            btn := ag.Add("Button", "x" bx " y" y0 " w" b[3] " h28", b[1])
+            btn.OnEvent("Click", this.AdvAction.Bind(this, b[2]))
+            bx += b[3] + 6
+        }
+        y0 += 36
+        btn := ag.Add("Button", "x" x " y" y0 " w150 h28", "Desktop shortcut")
+        btn.OnEvent("Click", (*) => this.MakeShortcut())
+        y0 += 44
 
+        ag.OnEvent("Close", (*) => this.CloseAdvanced())
+        ag.OnEvent("Escape", (*) => this.CloseAdvanced())
+        THEME_ApplyTo(ag)
+        THEME_BoldButtons(ag)
         this.PaintEnv()
+        ag.Show("w" W " h" y0)
+    }
+
+    CloseAdvanced() {
+        try this.adv.Destroy()
+        this.adv := 0
+    }
+
+    AdvAction(what, *) {
+        switch what {
+        case "refresh": this.PaintEnv()
+        case "engine":  this.RestartEngine()
+        case "mark":    this.DiagAction("mark")
+        case "folder":  this.DiagAction("folder")
+        case "cfg":     this.Reveal(MMA_CFG)
+        case "hk":      this.Reveal(MMA_HK_INI)
+        }
     }
 
     ; ── the three switches ────────────────────────────────────────────────────
@@ -578,6 +597,8 @@ class DebugPanel {
     ; ── environment ───────────────────────────────────────────────────────────
 
     PaintEnv(*) {
+        if !this.adv
+            return
         up := []
         up.Push("engine" (EngineRunning() ? " ●" : " ○"))
         ; Every declared service, in registry order, rather than the four this
@@ -611,7 +632,7 @@ class DebugPanel {
 
         ver := "?"
         try ver := Trim(FileRead(MMA_VERSION, "UTF-8"))
-        this.lblEnv.Text := "MMA v" ver "   ·   AutoHotkey " A_AhkVersion
+        try this.lblEnv.Text := "MMA v" ver "   ·   AutoHotkey " A_AhkVersion
                           . "   ·   mode: " MODE_Current()
                           . "`n" MMA_ROOT
                           . "`nchildren:  " DebugPanel.Join(up, "    ")

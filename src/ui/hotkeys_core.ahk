@@ -61,8 +61,16 @@ HKP_KeyTokens(k) {
     return out
 }
 
-; The same thing as one string, for a ListView cell and for searching.
+; The same thing as one string, for a ListView cell and for searching. An action
+; with several keys (an overload, "F1 | ^F1") reads as a list: "F1, Ctrl+F1".
 HKP_Pretty(k) {
+    keys := HK_KeyList(k)
+    if (keys.Length > 1) {
+        out := ""
+        for one in keys
+            out .= (out = "" ? "" : ", ") HKP_Pretty(one)
+        return out
+    }
     out := ""
     for _, t in HKP_KeyTokens(k)
         out .= (out = "" ? "" : "+") t
@@ -210,12 +218,21 @@ HKP_IsChanged(pendingKey, defaultKey) {
 HKP_Conflicts(pending) {
     byKey := Map(), out := Map()
     for id in HK_ORDER {
-        k := pending[id]
-        if (k = "")
+        if !pending.Has(id)
             continue
-        if !byKey.Has(k)
-            byKey[k] := []
-        byKey[k].Push(id)
+        ; Every key of an overload clashes on its own: "F1 | ^F1" against
+        ; another action's "^F1" is a clash on ^F1.
+        for k in HK_KeyList(pending[id]) {
+            k := StrLower(k)
+            if !byKey.Has(k)
+                byKey[k] := []
+            dup := false
+            for have in byKey[k]
+                if (have = id)
+                    dup := true
+            if !dup
+                byKey[k].Push(id)
+        }
     }
     for k, ids in byKey {
         if (ids.Length < 2)
@@ -227,11 +244,132 @@ HKP_Conflicts(pending) {
                     continue
                 names .= (names = "" ? "" : ", ") HK_META[b].label
             }
+            ; An overload can clash on more than one of its keys; keep them all.
             if (names != "")
-                out[a] := names
+                out[a] := out.Has(a) ? out[a] ", " names : names
         }
     }
     return out
+}
+
+; ── the Windows guard: keys that something else already answers to ────────────
+;  "" when `key` is free to take, otherwise who already has it, in words. Every
+;  capture in MMA asks this and REFUSES the key when it answers — Silly asked
+;  for a guard that will not let a hotkey go onto a combo something else uses,
+;  and a warning you can click past is how Ctrl+Win+L ends up locking the PC
+;  mid-shift.
+;
+;  Two checks, because there are two kinds of owner:
+;
+;   1. WINDOWS' OWN SHORTCUTS, from the table below. Most of these are not
+;      registered the normal way (the shell catches them in a hook, Win+L in
+;      the logon process itself), so no API can be asked about them — they have
+;      to be written down. Win+L with ANY modifiers is in a class of its own:
+;      Windows locks before any program sees the key.
+;   2. OTHER PROGRAMS, by asking Windows: RegisterHotKey on the chord and see if
+;      it is refused with "already registered". That catches Discord, OBS,
+;      ShareX, the GPU overlay — anything that took a global hotkey the normal
+;      way. It cannot see a program that reads the keyboard with a hook instead
+;      (another AHK script, a pynput listener); nothing can.
+;
+;  Any key already in hotkeys.ini skips both checks (Win+L aside): MMA
+;  registered it, so check 2 would report it taken, and if it is on the table it
+;  is an override you already chose. A clash between two MMA rows is reported by
+;  HKP_Conflicts, with the row names, which this could not give.
+HKP_SystemOwner(key) {
+    k := RegExReplace(Trim(key), "^[*~$]+")
+    if (k = "" || HK_IsMouseKey(RegExReplace(k, "^[\^!+#<>]+")))
+        return ""
+    mods := "", c := false, a := false, s := false, w := false
+    while (k != "" && InStr("^!+#<>", SubStr(k, 1, 1))) {
+        ch := SubStr(k, 1, 1), k := SubStr(k, 2)
+        c := c || ch = "^", a := a || ch = "!", s := s || ch = "+", w := w || ch = "#"
+    }
+    base := StrLower(k)
+    ; One spelling per key, so the table needs only one.
+    static ALIAS := Map("delete", "del", "esc", "escape", "return", "enter",
+                        "prtsc", "printscreen")
+    if ALIAS.Has(base)
+        base := ALIAS[base]
+    mods := (c ? "c" : "") (a ? "a" : "") (s ? "s" : "") (w ? "w" : "")
+
+    if (w && base = "l")
+        return "Windows: lock the PC (Win+L locks whatever else is held)"
+    ; A key MMA already has bound was chosen on purpose and works (Alt+F4 sends
+    ; PPV follow-ups, Alt+Space focuses the box): re-capturing it must not be
+    ; refused. A clash with another MMA row is HKP_Conflicts' job, not this one's.
+    if (HK_KeyOwner(key) != "")
+        return ""
+    t := HKP_WindowsTable()
+    if t.Has(mods "|" base)
+        return "Windows: " t[mods "|" base]
+    ; Plain Win+key: Windows uses nearly all of them (Win+E, Win+V, Win+1…),
+    ; and the ones it does not use today it adds in the next update.
+    if (mods = "w" && RegExMatch(base, "^([a-z0-9]|[.,;=\-/\\``'\[\]]|space|tab|enter|home|end|up|down|left|right|pause|printscreen)$"))
+        return "Windows: Win+" k " is one of Windows' own shortcuts"
+
+    ; Check 2.
+    vk := GetKeyVK(k)
+    if !vk
+        return ""
+    flags := (a ? 1 : 0) | (c ? 2 : 0) | (s ? 4 : 0) | (w ? 8 : 0) | 0x4000
+    static PROBE_ID := 0xBFF0
+    if DllCall("RegisterHotKey", "Ptr", 0, "Int", PROBE_ID, "UInt", flags, "UInt", vk) {
+        DllCall("UnregisterHotKey", "Ptr", 0, "Int", PROBE_ID)
+        return ""
+    }
+    ; 1409 = ERROR_HOTKEY_ALREADY_REGISTERED. Any other failure is a probe that
+    ; did not work, which is not evidence the key is taken.
+    return (A_LastError = 1409) ? "another program running right now already uses it" : ""
+}
+
+; Windows' shortcuts that take a modifier other than Win alone. Key is
+; "<mods>|<key>", mods from c(trl) a(lt) s(hift) w(in) in that order.
+HKP_WindowsTable() {
+    static t := 0
+    if t
+        return t
+    t := Map()
+    add(mods, keys, what) {
+        for kk in StrSplit(keys, " ")
+            t[mods "|" kk] := what
+    }
+    add("ca",  "del",                 "security screen (Ctrl+Alt+Del)")
+    add("ca",  "tab",                 "window switcher")
+    add("cs",  "escape",              "Task Manager")
+    add("c",   "escape",              "Start menu")
+    add("a",   "tab escape f4 space", "window switching / closing")
+    add("as",  "tab",                 "window switcher")
+    add("",    "printscreen",         "Snipping Tool")
+    add("a",   "printscreen",         "screenshot of the window")
+    ; Ctrl+Win — MMA's own modifier, so the ones Windows has matter most.
+    add("cw",  "d left right f4",     "virtual desktops")
+    add("cw",  "enter n",             "Narrator")
+    add("cw",  "o",                   "on-screen keyboard")
+    add("cw",  "c",                   "colour filters")
+    add("cw",  "s",                   "speech recognition")
+    add("cw",  "q",                   "Quick Assist")
+    add("cw",  "v",                   "sound output")
+    add("cw",  "f",                   "find PCs on the network")
+    add("cw",  "space",               "switch keyboard language")
+    add("cw",  "1 2 3 4 5 6 7 8 9 0", "jump to a taskbar app's window")
+    add("csw", "b",                   "restart the graphics driver")
+    add("csw", "1 2 3 4 5 6 7 8 9 0", "open a taskbar app as admin")
+    add("sw",  "s",                   "Snipping Tool")
+    add("sw",  "m",                   "restore minimised windows")
+    add("sw",  "left right up down",  "move / stretch the window")
+    add("sw",  "1 2 3 4 5 6 7 8 9 0", "open another copy of a taskbar app")
+    add("aw",  "1 2 3 4 5 6 7 8 9 0", "taskbar app's jump list")
+    add("aw",  "r g b k d printscreen", "Game Bar / HDR / mic / clock")
+    add("w",   "f1",                  "Windows help")
+    return t
+}
+
+; Shown when a capture is refused, by every window that captures.
+HKP_RefuseMsg(key, why) {
+    return HKP_Pretty(key) " is taken — " why ".`n`nPick another key."
+             . " MMA's keys are Ctrl+Win+key (Ctrl+Shift+Win+key when that is"
+             . " taken)."
 }
 
 ; ── the two things that TOUCH something ───────────────────────────────────────
@@ -265,6 +403,12 @@ HKP_Capture(fb := "") {
 HKP_SaveKeys(pending) {
     n := 0
     for id in HK_ORDER {
+        ; An editor that does not offer an id has nothing to say about it. The
+        ; hotstring keys are the case: they belong to the Hotstrings window, and
+        ; writing back a copy read when Settings opened would undo any change
+        ; made there since.
+        if !pending.Has(id)
+            continue
         s   := HK_Split(id)
         cur := IniRead(HK_INI, s.section, s.key, HK_UNSET)
         if (cur == HK_UNSET || Trim(cur) != pending[id]) {

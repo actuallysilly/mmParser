@@ -107,6 +107,11 @@ class LmPredictor:
         self.scorer = scorer
         self.weight = weight
         self.prev = ""                       # the last message sent, as typed
+        # [Model] Context = chat: a chatctx.ChatContext. Its OCR'd bubbles stand
+        # in for `prev` whenever it has a usable read; otherwise `prev` does.
+        self.chat = None
+        self.log = lambda message: None
+        self._chat_why = None
         self._by_letter: dict[str, list[str]] | None = None
 
     # -- delegated -------------------------------------------------------------
@@ -137,7 +142,17 @@ class LmPredictor:
     def _context_text(self, context: Sequence[str]) -> str:
         words = [surface(w, i == 0) for i, w in enumerate(context)]
         cur = " ".join(words)
-        return (self.prev + "\n" + cur) if self.prev else cur
+        before = self.prev
+        if self.chat is not None:
+            chat = self.chat.text()
+            why = "" if chat else self.chat.why
+            if why != self._chat_why:
+                self._chat_why = why
+                self.log("context: the open chat (OCR)" if not why
+                         else f"context: previous typed message ({why})")
+            if chat:
+                before = chat
+        return (before + "\n" + cur) if before else cur
 
     # -- ranking ---------------------------------------------------------------
     def _vocab(self, prefix: str) -> list[str]:

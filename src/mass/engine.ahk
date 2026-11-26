@@ -28,6 +28,10 @@
 
 #Include "runtime.ahk"
 #Include "../chat/nav.ahk"
+#Include "../chat/grammar.ahk"
+#Include "../chat/suggest.ahk"
+#Include "../chat/ppvpick.ahk"
+#Include "../chat/reword.ahk"
 #Include "../sequences/composer.ahk"
 ; Vertical divider bars on your own tab strip. Included here rather than by
 ; runtime.ahk because nothing in the mass runtime calls into it — it is a thing this

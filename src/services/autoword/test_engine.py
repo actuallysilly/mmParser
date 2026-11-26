@@ -59,6 +59,28 @@ def new_engine(table=None, counts=None, finished=(), **kw):
     return Engine(predictor=StubPredictor(table or {}, counts, finished), **kw)
 
 
+def test_prefer_content_words():
+    table = {((), "t"): ["to", "the", "that", "tits", "tongue", "tease"]}
+    eng = new_engine(table, min_saving=1)
+    check("off: plain ranking", [c.word for c in type_text(eng, "t").candidates],
+          ["to", "the", "that"])
+    eng = new_engine(table, min_saving=1, prefer_content="always",
+                     stop_words={"to", "the", "that"})
+    # stub probabilities are 1/rank: to 1.0*0.3, tits 0.25*2 = 0.5 wins
+    check("always: real words move up", [c.word for c in type_text(eng, "t").candidates],
+          ["tits", "tongue", "tease"])
+    eng = new_engine(table, min_saving=1, prefer_content="empty",
+                     stop_words={"to", "the", "that"})
+    check("empty: a typed letter ranks as usual",
+          [c.word for c in type_text(eng, "t").candidates], ["to", "the", "that"])
+    blank = {((), ""): ["to", "the", "that", "tits", "tongue", "tease"]}
+    eng = new_engine(blank, min_saving=1, min_chars=0, prefer_content="empty",
+                     stop_words={"to", "the", "that"})
+    eng._refresh()
+    check("empty: nothing typed prefers real words",
+          [c.word for c in eng.suggestion.candidates], ["tits", "tongue", "tease"])
+
+
 def type_text(eng, text):
     last = None
     for ch in text:
@@ -72,6 +94,31 @@ def test_suggests_after_min_chars():
     check("no suggestion before min_chars", eng.on_char("") if False else eng.suggestion, None)
     s = type_text(eng, "w")
     check("suggests after 1 char", [c.word for c in s.candidates], ["want", "with"])
+
+
+def test_min_chars_zero_suggests_after_space():
+    """Settings ▸ Features ▸ When to suggest = right after space."""
+    table = {(("i",), ""): ["want", "need"]}
+    check("waits for a letter by default", type_text(new_engine(table), "i "), None)
+    s = type_text(new_engine(table, min_chars=0), "i ")
+    check("suggests with nothing typed", [c.word for c in s.candidates], ["want", "need"])
+
+
+def test_accept_offers_the_next_word_at_once():
+    table = {((), "w"): ["want"], (("want",), ""): ["to", "you"]}
+    eng = new_engine(table, min_chars=0)
+    type_text(eng, "w")
+    check("typed for you", eng.accept(), "ant ")
+    check("next list without a keypress",
+          [c.word for c in eng.refresh().candidates], ["to", "you"])
+
+
+def test_word_col_is_where_the_word_starts():
+    eng = new_engine({})
+    type_text(eng, "do you wa")
+    check("chars before the word", eng.word_col, 7)
+    type_text(eng, "nt ")
+    check("after a space, the next word's start", eng.word_col, 12)
 
 
 def test_context_is_previous_words():
@@ -147,7 +194,7 @@ def test_boundary_restores_trust():
 def test_space_recovers_after_a_click():
     """One click used to cost every suggestion until the next Enter. The next
     typed space is enough to know where the caret is again."""
-    eng = new_engine({((), "w"): ["want"]})
+    eng = new_engine({(("hi",), "w"): ["want"]})
     eng.invalidate()
     check("silent while blind", type_text(eng, "hi"), None)
     check("the space itself suggests nothing", eng.on_char(" "), None)
@@ -156,15 +203,57 @@ def test_space_recovers_after_a_click():
     check("suggests on the word after the space", [c.word for c in s.candidates], ["want"])
 
 
-def test_recovered_buffer_forgets_the_unseen_context():
-    """`hi` was typed while blind, so it is NOT context — the words before the
-    caret are unknown and the first prediction has to go in with none."""
-    eng = new_engine({((), "w"): ["want"], (("hi",), "w"): ["wrong"]})
+def test_recovered_buffer_keeps_what_was_typed_blind():
+    """`hi` was typed after the click, so it is on screen left of the caret. In
+    Infloww a click into the empty box starts nearly every message, and dropping
+    it starved the language model of the first word."""
+    eng = new_engine({((), "w"): ["wrong"], (("hi",), "w"): ["want"]})
     eng.invalidate()
     type_text(eng, "hi w")
-    check("blind words never enter the context", eng.words, [])
-    check("predicts with no context",
+    check("blind words are context", eng.words, ["hi"])
+    check("predicts from them",
           [c.word for c in eng.suggestion.candidates], ["want"])
+
+
+def test_backspace_while_blind_edits_the_blind_head():
+    eng = new_engine({(("hi",), "w"): ["want"]})
+    eng.invalidate()
+    type_text(eng, "hx")
+    eng.on_backspace()
+    type_text(eng, "i w")
+    check("the corrected word is the context",
+          [c.word for c in eng.suggestion.candidates], ["want"])
+
+
+def test_recovered_segment_becomes_the_previous_message():
+    sent = []
+    eng = new_engine({})
+    eng.predictor.segment_done = sent.append
+    eng.invalidate()
+    type_text(eng, "hey you")
+    eng.on_boundary()
+    check("a message started with a click is still remembered", sent, ["hey you"])
+
+
+def test_no_auto_completion_from_the_blind_head():
+    """The click may have landed mid-word, so `jus` could be the end of `adjus`.
+    Auto-completion types into a live message and must not decide from it."""
+    table = {(("so",), "jus"): ["just"], (("i", "want"), "jus"): ["just"]}
+    eng = auto_engine(table)
+    eng.invalidate()
+    s = type_text(eng, "so jus")
+    check("offered", [c.word for c in s.candidates], ["just"])
+    check("but not typed", s.auto, False)
+    eng.invalidate()
+    s = type_text(eng, "so i want jus")
+    check("once it is out of the last two words, it may", s.auto, True)
+
+
+def test_reword_skips_the_blind_head():
+    eng = reword_engine()
+    eng.invalidate()
+    type_text(eng, "touched ")
+    check("half a word, maybe — not replaced", eng.reword(), None)
 
 
 def test_recovered_context_heals_as_you_type():

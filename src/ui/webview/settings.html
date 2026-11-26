@@ -245,6 +245,21 @@ button.mreset:hover{background:var(--hover)}
 }
 #toast.on{opacity:1;transform:translateX(-50%) translateY(0)}
 #empty{color:var(--dim);padding:26px 2px}
+
+/* ── the Help section: a cheat sheet of every bound key ─────────────────── */
+#hsearch{width:100%;box-sizing:border-box;font:inherit;font-size:15px;padding:9px 12px;
+  border:1px solid var(--borderStrong);border-radius:8px;background:var(--inputBg);
+  color:var(--inputText);margin:4px 0 10px}
+#hsearch:focus{outline:2px solid var(--accent);outline-offset:-1px}
+.hrow{display:grid;grid-template-columns:200px 1fr;gap:4px 16px;
+  align-items:center;padding:6px 2px;border-bottom:1px solid var(--border)}
+.hkeys{display:flex;flex-wrap:wrap;gap:3px;align-items:center}
+.kc{display:inline-block;min-width:14px;text-align:center;padding:2px 7px;border-radius:5px;
+  border:1px solid var(--borderStrong);border-bottom-width:2px;background:var(--card);
+  font-size:12px;font-weight:600;white-space:nowrap}
+.kp{color:var(--dim);font-size:11px}
+.hwhat{min-width:0}
+.hwhere{color:var(--dim);font-size:12px;margin-left:6px}
 </style>
 </head>
 <body>
@@ -323,7 +338,85 @@ function allRows(){
 function sections(){
   const out = [];
   for(const r of allRows()) if(!out.includes(r.sect)) out.push(r.sect);
+  if(S && S.help) out.push("Help");
   return out;
+}
+
+// ── Help: what every key does ──────────────────────────────────────────────
+// The same rules as the Win32 Help tab (ui\help_panel.ahk HelpQuery /
+// HelpMatches): a query that names modifiers is a KEY search — "ctrl win r"
+// finds exactly Ctrl+Win+R — and anything else is words that must all appear.
+const NICE = {LButton:"Left click",RButton:"Right click",MButton:"Middle click",
+  XButton1:"Mouse 4",XButton2:"Mouse 5",WheelUp:"Wheel up",WheelDown:"Wheel down"};
+function keyParts(k){
+  const out = [];
+  while(k && "^!+#".includes(k[0])){
+    out.push({"^":"Ctrl","!":"Alt","+":"Shift","#":"Win"}[k[0]]);
+    k = k.slice(1);
+  }
+  out.push(NICE[k] || (k.length === 1 ? k.toUpperCase() : k));
+  return out;
+}
+let hquery = "";
+function helpQuery(text){
+  const MW = {ctrl:"ctrl",control:"ctrl",win:"win",alt:"alt",shift:"shift"};
+  const words = text.toLowerCase().trim().split(/[+\s]+/).filter(Boolean);
+  const mods = new Set(), rest = [];
+  for(const w of words) (MW[w] ? mods.add(MW[w]) : rest.push(w));
+  return {words, mods, isKey: mods.size > 0 && rest.length <= 1, main: rest[0] || ""};
+}
+function helpMatches(q, h){
+  if(!q.words.length) return true;
+  const parts = keyParts(h.key).map(p => p.toLowerCase());
+  if(q.isKey){
+    const main = parts.pop();
+    if(parts.length !== q.mods.size || !parts.every(p => q.mods.has(p))) return false;
+    return !q.main || q.main === main;
+  }
+  const hay = (parts.join(" ") + " " + h.what + " " + h.group).toLowerCase();
+  return q.words.every(w => hay.includes(w));
+}
+function helpRow(h){
+  const row = document.createElement("div"); row.className = "hrow";
+  const ks = document.createElement("div"); ks.className = "hkeys";
+  keyParts(h.key).forEach((p, i) => {
+    if(i){ const plus = document.createElement("span"); plus.className = "kp"; plus.textContent = "+"; ks.appendChild(plus); }
+    const c = document.createElement("span"); c.className = "kc"; c.textContent = p; ks.appendChild(c);
+  });
+  const w = document.createElement("div"); w.className = "hwhat";
+  w.textContent = h.what;
+  if(h.where){ const s2 = document.createElement("span"); s2.className = "hwhere"; s2.textContent = h.where; w.appendChild(s2); }
+  row.appendChild(ks); row.appendChild(w);
+  return row;
+}
+function renderHelpList(list, q){
+  list.textContent = "";
+  let group = null, n = 0;
+  for(const h of S.help){
+    if(!helpMatches(q, h)) continue;
+    if(h.group !== group){
+      group = h.group;
+      const g = document.createElement("h2"); g.className = "sect"; g.textContent = group;
+      list.appendChild(g);
+    }
+    list.appendChild(helpRow(h)); n++;
+  }
+  if(!n){
+    const e = document.createElement("div"); e.id = "empty";
+    e.textContent = "No key matches that.";
+    list.appendChild(e);
+  }
+}
+function renderHelp(body){
+  const inp = document.createElement("input");
+  inp.id = "hsearch"; inp.type = "text"; inp.spellcheck = false;
+  inp.placeholder = "Type a key (ctrl win r) or what it does (grammar)";
+  inp.value = hquery;
+  const list = document.createElement("div");
+  inp.oninput = () => { hquery = inp.value; renderHelpList(list, helpQuery(hquery)); };
+  body.appendChild(inp); body.appendChild(list);
+  renderHelpList(list, helpQuery(hquery));
+  setTimeout(() => inp.focus(), 0);
 }
 function matches(r){
   if(!query) return true;
@@ -641,6 +734,15 @@ function render(){
   // Models is laid out, not listed. Searching still falls through to the flat
   // list below, because a search is a question about one setting and the answer
   // is that setting's row wherever it lives.
+  if(section === "Help" && !query){
+    renderHelp(body);
+    body.scrollTop = 0;
+    const dh = $("dirty");
+    dh.textContent = S.dirty ? "Unsaved changes" : "";
+    dh.className = S.dirty ? "on" : "";
+    return;
+  }
+
   if(section === "Models" && !query){
     renderModels(body);
     // After the content exists, not before — setting it on an empty div does
@@ -653,8 +755,10 @@ function render(){
   }
 
   const rows = allRows().filter(r => (query ? matches(r) : r.sect === section));
+  // The top search box finds keys too, so "grammar" answers with its key.
+  const keyHits = (query && S.help) ? S.help.filter(h => helpMatches(helpQuery(query), h)) : [];
 
-  if(!rows.length){
+  if(!rows.length && !keyHits.length){
     const e = document.createElement("div");
     e.id = "empty";
     e.textContent = query ? ("Nothing matches “" + query + "”.") : "Nothing here.";
@@ -676,6 +780,11 @@ function render(){
       }
       body.appendChild(buildRow(r));
     }
+  }
+  if(keyHits.length){
+    const h = document.createElement("h2"); h.className = "sect"; h.textContent = "Keys (Help)";
+    body.appendChild(h);
+    for(const k of keyHits) body.appendChild(helpRow(k));
   }
   const d = $("dirty");
   d.textContent = S.dirty ? "Unsaved changes" : "";

@@ -87,7 +87,16 @@ class HotkeysPanel {
         this.pending  := Map()          ; id -> key as edited, not yet saved
         this.saved    := Map()          ; id -> key as it stands in hotkeys.ini
         this.defaults := Map()          ; id -> key hotkeys.default.ini asks for
+        ; How many models are in use. The numbered sections past it are not shown
+        ; — "Mass — model 3" on a one-model setup is a list of keys for nothing.
+        this.models   := Integer(IniRead(MMA_CFG, "Settings", "ModelCount", "3"))
         for id in HK_ORDER {
+            ; The hotstring keys are not offered here. Hotstrings come and go —
+            ; they are temporary by design — and they have their own window, which
+            ; is where their keys are set. They still count toward clashes; see
+            ; Conflicts().
+            if HK_IsHotstringId(id)
+                continue
             this.pending[id]  := HK_Key(id)
             this.saved[id]    := this.pending[id]
             ; Read once, here. The flag column asks "is this still the default?"
@@ -147,11 +156,14 @@ class HotkeysPanel {
         this.lv.OnEvent("ContextMenu", (ctrl, item, *) => this.RowMenu(item))
 
         this.btnSet     := g.Add("Button", "x" x " y" y " w96  h30", "Set key…")
+        ; Overloading: one action, another key. Set key replaces them all.
+        this.btnAdd     := g.Add("Button", "x" x " y" y " w96  h30", "Add key…")
         this.btnDefault := g.Add("Button", "x" x " y" y " w96  h30", "Default")
         this.btnDisable := g.Add("Button", "x" x " y" y " w96  h30", "Disable")
         this.btnResetAll:= g.Add("Button", "x" x " y" y " w104 h30", "Reset all")
         this.btnOpenIni := g.Add("Button", "x" x " y" y " w136 h30", "Open hotkeys.ini")
         this.btnSet.OnEvent("Click",      (*) => this.SetKeyForSelected())
+        this.btnAdd.OnEvent("Click",      (*) => this.SetKeyForSelected(true))
         this.btnDefault.OnEvent("Click",  (*) => this.ResetSelected())
         this.btnDisable.OnEvent("Click",  (*) => this.ClearSelected())
         this.btnResetAll.OnEvent("Click", (*) => this.ResetAll())
@@ -193,9 +205,9 @@ class HotkeysPanel {
         if this.rule
             this.rule.Move(x, y + 32, w, 2)
         this.lv.Move(x, lvY, w, Max(by - lvY - 12, 60))
-        for i, c in [this.btnSet, this.btnDefault, this.btnDisable,
+        for i, c in [this.btnSet, this.btnAdd, this.btnDefault, this.btnDisable,
                      this.btnResetAll, this.btnOpenIni]
-            c.Move(x + [0, 102, 204, 316, 428][i], by)
+            c.Move(x + [0, 102, 204, 306, 418, 530][i], by)
         if this.btnSave
             this.btnSave.Move(x + w - 98, by)
         this.txtStatus.Move(x, statusY, w)
@@ -238,6 +250,8 @@ class HotkeysPanel {
         this.lvIds := []
         lastSec := "", shown := 0
         for id in HK_ORDER {
+            if !this.Shown(id)
+                continue
             m      := HK_META[id]
             key    := this.pending[id]
             sec    := HK_Split(id).section
@@ -281,6 +295,16 @@ class HotkeysPanel {
         this.PaintCount(shown, clash)
     }
 
+    ; Is this id one the panel lists at all? Not a hotstring key (those are set in
+    ; the Hotstrings window), and not a model past the ones in use.
+    Shown(id) {
+        if !this.pending.Has(id)
+            return false
+        if RegExMatch(HK_Split(id).section, "^mass\.(\d+)$", &m)
+            return Integer(m[1]) <= this.models
+        return true
+    }
+
     ; One row of the registry, against the search box and the Show dropdown.
     Matches(id, m, key, secLbl, filter, view, clash) {
         if (view = 2 && !this.IsChanged(id))
@@ -317,9 +341,12 @@ class HotkeysPanel {
     ; typed in the search box would be a lie about the one thing it is there to
     ; warn you about. Only the leading number follows the filter, and it says so.
     PaintCount(shown, clash) {
-        total := HK_ORDER.Length
+        total := 0
         edits := 0, off := 0
         for id in HK_ORDER {
+            if !this.Shown(id)
+                continue
+            total++
             if (this.pending[id] != this.saved[id])
                 edits++
             if (this.pending[id] = "")
@@ -402,9 +429,22 @@ class HotkeysPanel {
     ; The list wants the warning glyph in front of the names; the core returns the
     ; names alone, so the page can draw the same fact its own way.
     Conflicts() {
+        ; The hotstring keys are not edited here but they ARE registered, so a key
+        ; given to an action here can still collide with one. Read fresh, not kept:
+        ; the Hotstrings window may have changed them while this one was open.
+        ; A model past the ones in use is not bound by the engine at all, so its
+        ; keys cannot collide with anything and are left out.
+        all := Map()
+        for id, k in this.pending
+            if this.Shown(id)
+                all[id] := k
+        for id in HK_ORDER
+            if HK_IsHotstringId(id)
+                all[id] := HK_Key(id)
         out := Map()
-        for id, names in HKP_Conflicts(this.pending)
-            out[id] := Chr(0x26A0) " " names
+        for id, names in HKP_Conflicts(all)
+            if this.pending.Has(id)
+                out[id] := Chr(0x26A0) " " names
         return out
     }
 
@@ -428,6 +468,16 @@ class HotkeysPanel {
             return
         m := Menu()
         m.Add("Set key…",         (*) => this.SetKeyForSelected())
+        m.Add("Add another key…", (*) => this.SetKeyForSelected(true))
+        ; One line per key of an overload, so a single key can go without
+        ; retyping the rest.
+        keys := HK_KeyList(this.pending[id])
+        if (keys.Length > 1) {
+            m.Add()
+            for k in keys
+                m.Add("Remove " HKP_Pretty(k), ObjBindMethod(this, "RemoveKey", id, k))
+        }
+        m.Add()
         m.Add("Reset to default", (*) => this.ResetSelected())
         m.Add("Disable",          (*) => this.ClearSelected())
         m.Add()
@@ -484,7 +534,9 @@ class HotkeysPanel {
         return {gui: ov, prompt: lblPrompt}
     }
 
-    SetKeyForSelected() {
+    ; add — true for "Add key…": the captured key joins the action's others
+    ; instead of replacing them.
+    SetKeyForSelected(add := false) {
         id := this.SelectedId()
         if (id = "") {
             this.Status("Select a hotkey first — the " HotkeysPanel.MARK_GROUP
@@ -506,11 +558,39 @@ class HotkeysPanel {
 
         if (k = "<cancel>")
             return
-        this.pending[id] := (k = "<clear>") ? "" : k
+        ; The Windows guard (HKP_SystemOwner): refused, not warned about.
+        if (k != "<clear>" && (why := HKP_SystemOwner(k)) != "") {
+            MsgBox(HKP_RefuseMsg(k, why), "Key taken", 0x30)
+            this.Status(HKP_Pretty(k) " refused — " why)
+            return
+        }
+        if (add && k != "<clear>") {
+            keys := HK_KeyList(this.pending[id])
+            for have in keys
+                if (StrLower(have) = StrLower(k)) {
+                    this.Status(HKP_Pretty(k) " is already one of its keys")
+                    return
+                }
+            keys.Push(k)
+            this.pending[id] := HK_KeyJoin(keys)
+        } else
+            this.pending[id] := (k = "<clear>") ? "" : k
         this.dirty := true
         this.Fill()
         this.Status(HK_META[id].label "   " Chr(0x2192) "   "
                   . HKP_KeyLabel(this.pending[id]) "      (not saved yet)")
+    }
+
+    ; Take one key off an overload, leaving the others.
+    RemoveKey(id, key, *) {
+        keys := []
+        for k in HK_KeyList(this.pending[id])
+            if (k != key)
+                keys.Push(k)
+        this.pending[id] := HK_KeyJoin(keys)
+        this.dirty := true
+        this.Fill()
+        this.Status(HK_META[id].label ": removed " HKP_Pretty(key) "      (not saved yet)")
     }
 
     ResetSelected() {
@@ -545,7 +625,7 @@ class HotkeysPanel {
     ResetAll() {
         if MsgBox("Reset every hotkey back to its default?", "Reset all", 0x24) != "Yes"
             return
-        for id in HK_ORDER {
+        for id, _ in this.pending {
             d := this.defaults[id]
             if (d != HK_UNSET)
                 this.pending[id] := d
@@ -560,8 +640,8 @@ class HotkeysPanel {
     ; second one. Safe to call when nothing changed — it writes nothing.
     Save() {
         n := HKP_SaveKeys(this.pending)
-        for id in HK_ORDER
-            this.saved[id] := this.pending[id]
+        for id, k in this.pending
+            this.saved[id] := k
         if (n = 0)
             return 0
         this.dirty := false
@@ -595,7 +675,7 @@ class HotkeysPanel {
     ; than in colour, because a static that is recoloured after it exists repaints
     ; black on a tab page — the failure THEME_ApplyTo describes.
     Hint() {
-        this.Status("Double-click a row to assign it, or right-click for the lot"
+        this.Status("Double-click a row to set its key, Add key for another, right-click for the lot"
                   . "      " HotkeysPanel.MARK_EDIT " unsaved"
                   . "      " HotkeysPanel.MARK_CUSTOM " not the default"
                   . "      " Chr(0x2014) " disabled")

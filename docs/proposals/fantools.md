@@ -1,4 +1,4 @@
-# FanTools — DEFERRED
+# FanTools — SUPERSEDED by [fan-memory.md](fan-memory.md)
 
 > **Status: not built, and not scheduled.** Marked *FOR LATER* in the original note, and it
 > is kept that way here. This file exists to record the one thing that must be settled

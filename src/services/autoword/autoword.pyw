@@ -206,10 +206,13 @@ def log(message: str) -> None:
 
 # ── window scope ──────────────────────────────────────────────────────────────
 class Scope:
-    """True when the foreground process is one we should suggest into."""
+    """True when the foreground process is one we should suggest into, or its
+    window title contains one of `titles` (TestFlow runs as pythonw.exe, and
+    letting every Python window in would be far too wide)."""
 
-    def __init__(self, processes: list[str]):
+    def __init__(self, processes: list[str], titles: list[str] = ()):
         self.processes = processes
+        self.titles = [t.lower() for t in titles if t]
         self.ok = not processes
         self._last_check = 0.0
         if sys.platform == "win32":
@@ -228,8 +231,21 @@ class Scope:
         if now - self._last_check < 0.25:
             return self.ok
         self._last_check = now
-        self.ok = self._foreground_name() in self.processes
+        self.ok = (self._foreground_name() in self.processes
+                   or (bool(self.titles) and any(t in self._foreground_title() for t in self.titles)))
         return self.ok
+
+    def _foreground_title(self) -> str:
+        try:
+            hwnd = self.u.GetForegroundWindow()
+            if not hwnd:
+                return ""
+            n = self.u.GetWindowTextLengthW(hwnd)
+            buf = ctypes.create_unicode_buffer(n + 1)
+            self.u.GetWindowTextW(hwnd, buf, n + 1)
+            return buf.value.lower()
+        except Exception:
+            return ""
 
     def _foreground_name(self) -> str:
         try:
@@ -365,9 +381,16 @@ def wrap_predictor(cfg: cfgmod.Config, pred: NgramPredictor):
     log(f"language model {path.name} loaded in {time.time() - t:.1f}s "
         f"(weight {cfg.lm_weight}, mode {cfg.predictor})")
     if cfg.predictor == "lm":
-        return lm.LmPredictor(pred, scorer, cfg.lm_weight)
-    SHADOW_LM_LOG.parent.mkdir(exist_ok=True)
-    return lm.ShadowPredictor(pred, scorer, cfg.lm_weight, SHADOW_LM_LOG, cfg.list_size)
+        out = lm.LmPredictor(pred, scorer, cfg.lm_weight)
+    else:
+        SHADOW_LM_LOG.parent.mkdir(exist_ok=True)
+        out = lm.ShadowPredictor(pred, scorer, cfg.lm_weight, SHADOW_LM_LOG, cfg.list_size)
+    out.log = log
+    if cfg.lm_context == "chat":
+        import chatctx
+        out.chat = chatctx.ChatContext()
+        log("context: the open chat, from the chat reader's OCR (Context = chat)")
+    return out
 
 
 def build_thesaurus(cfg: cfgmod.Config) -> Thesaurus:
@@ -470,7 +493,7 @@ def demo(cfg: cfgmod.Config, seconds: float) -> int:
 class Service:
     def __init__(self, cfg: cfgmod.Config):
         self.cfg = cfg
-        self.scope = Scope(cfg.processes)
+        self.scope = Scope(cfg.processes, cfg.titles)
         thesaurus = build_thesaurus(cfg)
         self.engine = Engine(
             predictor=wrap_predictor(cfg, build_predictor(cfg)),
@@ -484,8 +507,13 @@ class Service:
             auto_min_count=cfg.auto_seen,
             auto_only_fragments=cfg.auto_only_fragments,
             auto_never=set(cfg.auto_never),
+            prefer_content=cfg.prefer_content,
+            stop_words=set(cfg.stop_words),
+            stop_weight=cfg.stop_weight,
+            content_weight=cfg.content_weight,
         )
         self.renderer = renderers.build(cfg)
+        self.renderer.log = log
         self.controller = keyboard.Controller() if keyboard else None
         self._echo = ""        # letters we just typed for you, that you may
                                # already be halfway through typing yourself
@@ -636,6 +664,8 @@ class Service:
         if not suggestion:
             return False
         self.reworded += 1
+        self.renderer.col = self.engine.word_col
+
         self.renderer.show(suggestion.candidates, suggestion.active,
                            suggestion.reword)
         return True
@@ -659,6 +689,8 @@ class Service:
         self.cycled += 1
         # Not _emit(): this re-draws the suggestion already on screen with a new
         # highlight, it is not another suggestion shown.
+        self.renderer.col = self.engine.word_col
+
         self.renderer.show(suggestion.candidates, suggestion.active,
                            self.engine.context_text)
 
@@ -675,7 +707,9 @@ class Service:
         self.accepted += 1
         self._echo = ""
         self._type(remainder)
-        self.renderer.hide()
+        # The accept typed a space, so the next word may already have a list
+        # (MinChars = 0). Hiding here left the chooser gone until a keypress.
+        self._emit(self.engine.refresh())
 
     # -- typing on the user's behalf -------------------------------------------
     def _type(self, text: str) -> None:
@@ -753,9 +787,12 @@ class Service:
     def on_click(self, x, y, button, pressed, injected: bool = False) -> None:
         """A click moves the caret somewhere we cannot see. Drop the buffer."""
         if pressed and not injected:
+            if self.renderer.owns_click():
+                return                      # dragging the strip, not the caret
             with self._lock:
                 self._forget()
             self.renderer.hide()
+            self.renderer.note_click()      # Follow = click: this is the line
 
     def _forget(self) -> None:
         """Drop the buffer, and the echo with it.
@@ -778,6 +815,8 @@ class Service:
                 # pause that is really an Alt+Tab does not type it into the next
                 # window along.
                 self._auto_hwnd = foreground_window()
+            self.renderer.col = self.engine.word_col
+
             self.renderer.show(suggestion.candidates, suggestion.active,
                                self.engine.context_text)
         else:
@@ -824,7 +863,8 @@ class Service:
             f"accept={self.cfg.accept_key} "
             f"cycle={self.cfg.cycle_key if self.cycle_key else 'off'} "
             f"autocomplete={auto} reword={reword} "
-            f"scope={','.join(self.cfg.processes) or 'everywhere'}")
+            f"scope={','.join(self.cfg.processes) or 'everywhere'}"
+            f"{' +titles ' + ','.join(self.cfg.titles) if self.cfg.processes and self.cfg.titles else ''}")
         try:
             while not _stop.is_set():
                 self._due_auto()

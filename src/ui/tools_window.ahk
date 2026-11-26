@@ -1,8 +1,13 @@
 ﻿#Requires AutoHotkey v2.0
 #Include "../core/paths.ahk"
 ; ═══════════════════════════════════════════════════════════════════════════════
-;  tools_window.ahk — one row per background tool: is it up, switch it on or off.
+;  tools_window.ahk — switch a background tool on, off, or restart it.
 ; ───────────────────────────────────────────────────────────────────────────────
+;  The logic only (TOOLS_*). The window that calls it is ui\tools_settings.ahk,
+;  which grew out of this file's old one-row-per-tool window (2026-10-24) and
+;  now carries every tool's settings as well. What follows is that window's
+;  history, still true of the buttons.
+;
 ;  Replaces the "Pinger: ON / Pinger: OFF" button on the main window's bottom
 ;  strip, which was one background tool out of five getting a button because it
 ;  was the one people asked about most.
@@ -163,163 +168,5 @@ TOOLS_WaitDown(t) {
     }
 }
 
-; The count on the main window's Tools button — what is left of the old
-; "Pinger: ON" label, except it is read rather than remembered and it covers all
-; five instead of one — is RefreshToolsLabel in core/processes.ahk. It keeps its
-; own copy of this list because processes.ahk has to load without the UI files.
-;
-; The one open instance, or 0. A plain global rather than a static, because the
-; close handler is a nested closure that has to clear it — same reasoning as
-; SS_WIN in startup_scripts.ahk.
-global TOOLS_WIN := 0
-
-OpenToolsWindow(ownerHwnd := 0) {
-    global TOOLS_WIN
-    ; Already open: raise it rather than stacking a second copy, whose timer would
-    ; fight the first one's over the same rows.
-    if TOOLS_WIN {
-        try {
-            TOOLS_WIN.Show()
-            return
-        }
-        TOOLS_WIN := 0
-    }
-
-    tools := TOOLS_List()
-
-    ; palette — the Hotstrings and Startup scripts windows', so the three read as
-    ; one family
-    BG_     := "15141C"
-    TXT_    := "E6E4EE"
-    MUTED_  := "8E8AA6"
-    ACCENT_ := "B89CFF"
-
-    ROW_H := 34
-    winW  := 744
-    top   := 92
-    winH  := top + tools.Length * ROW_H + 66
-
-    tg := Gui("+AlwaysOnTop" (ownerHwnd ? " +Owner" ownerHwnd : ""), "Tools")
-    tg.BackColor := BG_
-    TOOLS_WIN := tg
-
-    tg.SetFont("s13 Bold c" ACCENT_, "Segoe UI")
-    tg.Add("Text", "x16 y12 w400", "Tools")
-    tg.SetFont("s9 Norm c" MUTED_, "Segoe UI")
-    tg.Add("Text", "x16 y40 w" (winW - 32),
-           "The background tools, and whether each one is running right now. "
-         . "These are the same switches as Settings " Chr(0x25B8) " Features.")
-    tg.Add("Text", "x16 y74 w" (winW - 32) " h1 0x10")
-
-    rows := []
-    y := top
-    for _, t in tools {
-        tg.SetFont("s10 c" TXT_, "Segoe UI")
-        tg.Add("Text", "x16 y" (y + 6) " w290", TOOLS_Label(t.id))
-        tg.SetFont("s9 c" MUTED_, "Segoe UI")
-        lblState := tg.Add("Text", "x312 y" (y + 7) " w100", "")
-        tg.SetFont("s9 c" TXT_, "Segoe UI")
-        ; Two buttons rather than one toggle, and each greys out when the tool is
-        ; already that way. A single button has to know the state to label itself,
-        ; which is the thing that went wrong with "Pinger: ON".
-        btnOn  := tg.Add("Button", "x420 y" (y + 2) " w96 h27", "On")
-        btnOff := tg.Add("Button", "x524 y" (y + 2) " w96 h27", "Off")
-        ; Restart last, so On and Off stay where the hands already expect them.
-        btnRestart := tg.Add("Button", "x628 y" (y + 2) " w100 h27", "Restart")
-        ; .Bind, not a closure: one function body means one set of locals, so a
-        ; closure over `t` would give every row the last tool in the list.
-        btnOn.OnEvent("Click",  ToolOn.Bind(t))
-        btnOff.OnEvent("Click", ToolOff.Bind(t))
-        btnRestart.OnEvent("Click", ToolRestart.Bind(t))
-        rows.Push({tool: t, lblState: lblState, btnOn: btnOn, btnOff: btnOff,
-                   btnRestart: btnRestart})
-        y += ROW_H
-    }
-
-    y += 10
-    tg.Add("Text", "x16 y" y " w" (winW - 32) " h1 0x10")
-    y += 12
-    tg.SetFont("s9 c" MUTED_, "Segoe UI")
-    lblMode := tg.Add("Text", "x16 y" (y + 6) " w" (winW - 140), "")
-    tg.SetFont("s9 c" TXT_, "Segoe UI")
-    btnClose := tg.Add("Button", "x" (winW - 106) " y" y " w90 h28", "Close")
-    btnClose.OnEvent("Click", Closed)
-
-    tg.OnEvent("Close",  Closed)
-    tg.OnEvent("Escape", Closed)
-
-    for attr in [20, 19]                ; DWMWA_USE_IMMERSIVE_DARK_MODE (20 new, 19 old)
-        try DllCall("dwmapi\DwmSetWindowAttribute", "ptr", tg.Hwnd, "int", attr,
-                    "int*", 1, "int", 4)
-
-    Refresh()
-    ; Every second, because the interesting cases all happen without a click here:
-    ; the watchdog restarting a tool, a detector exiting on a bad read, the pinger
-    ; being stopped from its own tray.
-    SetTimer(Refresh, 1000)
-    tg.Show("w" winW " h" winH)
-
-    ToolOn(t, *) {
-        TOOLS_Set(t, true)
-        Refresh()
-        try RefreshToolsLabel()
-    }
-    ToolOff(t, *) {
-        TOOLS_Set(t, false)
-        Refresh()
-        try RefreshToolsLabel()
-    }
-    ToolRestart(t, *) {
-        TOOLS_Restart(t)
-        Refresh()
-        try RefreshToolsLabel()
-    }
-
-    Refresh() {
-        ; The timer outlives a Destroy by up to a second. Touching a destroyed
-        ; control throws, and a throw inside a timer raises a dialog on top of
-        ; whatever the user moved on to.
-        try {
-            DetectHiddenWindows true
-            for _, r in rows {
-                on := TOOLS_On(r.tool.id)
-                up := SVC_Running(r.tool.id)
-                ; Three states, not two. "on but not running" is the one worth
-                ; seeing: it is what a missing Python or a crashed detector looks
-                ; like, and with a plain on/off it reads as working.
-                if up {
-                    r.lblState.SetFont("c9AE6A0")
-                    r.lblState.Value := "running"
-                } else if on {
-                    r.lblState.SetFont("cE0B978")
-                    r.lblState.Value := "on, not up"
-                } else {
-                    r.lblState.SetFont("c8E8AA6")
-                    r.lblState.Value := "off"
-                }
-                r.btnOn.Enabled  := !on || !up
-                r.btnOff.Enabled := on || up
-                ; Restart is stop-then-start, so it needs something to be there:
-                ; a tool that is off and down has nothing to restart, and On is
-                ; the button for that.
-                r.btnRestart.Enabled := on || up
-            }
-            ; Easy mode switches off every feature in the registry, so nothing
-            ; started from here would survive the next FEAT() check. Say so, rather
-            ; than let the buttons look broken.
-            lblMode.Value := MODE_IsEasy()
-                ? "MMA is in Easy mode, which keeps every tool off whatever these say."
-                : ""
-        } catch {
-            SetTimer(Refresh, 0)
-        }
-    }
-
-    Closed(*) {
-        global TOOLS_WIN
-        SetTimer(Refresh, 0)
-        TOOLS_WIN := 0
-        tg.Destroy()
-        try RefreshToolsLabel()
-    }
-}
+; The window itself — every tool's settings on one scrolling page, with
+; these On / Off / Restart buttons on each service — is ui\tools_settings.ahk.

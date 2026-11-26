@@ -68,7 +68,7 @@ Both read the same named event the process holds, so they stay honest if it dies
 
 By hand:
 
-    pinger_start.vbs           start silently (pythonw, no console)
+    runner.pyw --start pinger  start silently (MMA does this through the runner)
     python pinger.pyw --stop   ask it to exit
     python pinger.pyw --status is one running?
     python pinger.pyw --once --debug   one scan, printed

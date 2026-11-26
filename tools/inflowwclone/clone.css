@@ -1,0 +1,260 @@
+/*
+  Infloww clone — one faithful copy of Infloww's Messages window, shared by every
+  tool that needs to SHOW Infloww: the Shift Viewer (live capture + video
+  preview) now, TestFlow (feature testing, AI training lab) next.
+
+  Measured 2026-10-22 from the live window "Infloww Messages - 333" (3442x1379 at
+  display scale 1.37); every number here is that capture / 1.37 = CSS px. It
+  agrees with the older 1920x1032 reference (UI-ELEMENT-MAP.md) on everything
+  both show, and adds what the current version has: account pills with badges,
+  slanted fan tabs, the mass-send banner, status avatars, hover icons, the
+  Clear/Send composer, card chevrons, the Profile form, Insights/Sales/Notes.
+
+  PIXEL CONTRACT (MMA's screen readers depend on it; TestFlow will rely on it):
+    #444444  ONLY on the four lines round the message pane (.ic-vdiv, .ic-hdiv).
+             The header line sits at y=133 at 100%: the scale is read from it.
+    #262626  his bubble and his avatar (the reader clamps past the avatar).
+    #353535  her bubble and media frames. Never her avatar.
+    #666666  the 3x13 kebab beside her bubble, centred (x0 - 12, y1 - 19).
+    #ff7c71  the "not paid" pill; #3467ff his heart.
+  Nothing else inside #ic-pane may use those colours.
+*/
+@import url("fonts/inter.css");
+
+.ic, .ic * { box-sizing: border-box; }
+.ic [hidden] { display: none !important; }
+.ic { position: fixed; inset: 0; background: #151515; color: #d9d9d9; display: grid;
+  grid-template-rows: 48px 32px minmax(0, 1fr);
+  font: 14px/1.35 "Inter", "Segoe UI", system-ui, sans-serif; -webkit-font-smoothing: antialiased;
+  -webkit-user-select: none; user-select: none; overflow: hidden; }
+/* :where() = zero specificity, so every .ic-* rule below beats this reset. */
+:where(.ic) button { font: inherit; color: inherit; background: none; border: 0; padding: 0; cursor: pointer; }
+.ic svg { display: block; flex: none; }
+.ic .num { font-feature-settings: "tnum" 1, "zero" 1; }       /* Infloww's slashed-zero figures */
+/* A frameless host (TestFlow) draws Infloww's 1px window border; it puts the
+   header line on y=133, where the screen readers expect it. */
+.ic.framed { border: 1px solid #3a3a3a; }
+
+/* ── account strip, y 0..48 ───────────────────────────────────────────── */
+.ic-mstrip { background: #0d0d0d; position: relative; display: flex; align-items: flex-start; padding-left: 29px; gap: 0; }
+.ic-acct { height: 38px; margin-top: 8px; width: 151px; flex: none; border-radius: 8px; display: flex; align-items: center;
+  gap: 9px; padding: 0 8px 0 9px; cursor: pointer; position: relative; }   /* reference: y 9..46, pitch 150 */
+.ic-acct.on { background: #2b2c30; }
+.ic-acct .ico { width: 32px; height: 32px; border-radius: 6px; background: #020202; flex: none; }
+.ic-acct .nm { font-weight: 700; font-size: 13.5px; color: #eff4ff; max-width: 82px; white-space: nowrap;
+  overflow: hidden; text-overflow: ellipsis; }
+.ic-acct:not(.on) .nm { color: #d6d9df; }
+.ic-acct .badge { display: block; margin-top: 1px; min-width: 17px; width: max-content; height: 12px; padding: 0 5px;
+  border-radius: 6px; background: #ff7c71; color: #fff; font-size: 9px; line-height: 12px; font-weight: 700; text-align: center; }
+.ic-acct .x { width: 13px; height: 13px; border-radius: 50%; background: #9a9da4; color: #2b2c30; font-size: 9px;
+  line-height: 13px; text-align: center; font-weight: 700; margin-left: auto; }
+.ic-plus { color: #d6d9df; font-size: 22px; line-height: 1; padding: 0 8px; margin-top: 13px; }
+.ic-wctl { position: absolute; right: 0; top: 0; height: 48px; display: flex; }
+.ic-wctl button { width: 46px; height: 48px; color: #a8a8a8; display: grid; place-items: center; }
+.ic-wctl button:hover { background: #1d1d1d; }
+.ic-wctl button.close:hover { background: #c42b1c; color: #fff; }
+.ic-mark { position: absolute; right: 160px; top: 16px; font-size: 11px; color: #6b6b6b; letter-spacing: .06em; }
+
+/* ── fan tab strip, y 49..80: slanted tabs ────────────────────────────── */
+.ic-fstrip { background: #2b2c30; position: relative; display: flex; align-items: flex-end; padding-left: 3px; }
+.ic-ftab { height: 29px; width: 165px; margin-right: 5px; flex: none; position: relative; display: flex; align-items: center;
+  justify-content: center; gap: 7px; font-size: 12.5px; font-weight: 600; color: #fff; cursor: pointer;
+  clip-path: polygon(7px 0, calc(100% - 7px) 0, 100% 100%, 0 100%); background: #4d5159; }
+.ic-ftab.on { background: #151515; }
+.ic-ftab .x { position: absolute; right: 13px; width: 11px; height: 11px; border-radius: 50%; background: #9a9da4;
+  color: #2b2c30; font-size: 8px; line-height: 11px; text-align: center; }
+
+/* ── content ──────────────────────────────────────────────────────────── */
+.ic-content { display: grid; grid-template-columns: 401px 1px minmax(0, 1fr) 1px 280px; min-height: 0; }
+/* Framed, the 1px border shifts everything right by one: the left divider must
+   still land on x=401 (reference R_MESSAGES 401,135 + 1237x727). */
+.ic.framed .ic-content { grid-template-columns: 400px 1px minmax(0, 1fr) 1px 280px; }
+.ic-vdiv, .ic-hdiv { background: #444444; }
+
+/* left column */
+.ic-left { position: relative; min-height: 0; display: flex; flex-direction: column; overflow: hidden; }
+.ic-lhead { height: 54px; flex: none; display: flex; align-items: center; padding: 0 11px; }
+.ic-lhead .acc { font-weight: 700; font-size: 17px; color: #fff; flex: 1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.ic-lhead .icons { display: flex; gap: 20px; color: #e6e6e6; }
+.ic-lhead .icons button { display: grid; place-items: center; }
+.ic-search { flex: 1; margin-right: 12px; height: 30px; border-radius: 6px; border: 1px solid #3467ff; background: #1b1b1b;
+  color: #fff; padding: 0 9px; outline: none; font: inherit; -webkit-user-select: text; user-select: text; }
+.ic-banner { margin: 3px 9px 0; padding: 8px 9px; border-radius: 4px; background: #222222; font-size: 11px;
+  color: #d9d9d9; display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 2px 10px; flex: none; }
+.ic-banner .t { color: #e6e6e6; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.ic-banner .s { color: #9a9a9a; grid-column: 1; }
+.ic-banner .acts { grid-row: 1 / span 2; grid-column: 2; display: flex; gap: 10px; align-items: center; }
+.ic-banner .acts button { color: #3467ff; font-size: 11.5px; }
+.ic-lbtns { display: flex; gap: 30px; padding: 18px 9px 0; flex: none; }
+.ic-lbtn { width: 171px; height: 28px; border-radius: 3px; color: #fff; font-weight: 600; font-size: 12.5px;
+  display: flex; align-items: center; justify-content: center; gap: 6px; }
+.ic-lbtn.online { background: #3467ff; }
+.ic-lbtn.notif { background: #2ad4ac; }
+.ic-lsort { display: flex; align-items: center; padding: 9px 11px 0; height: 42px; flex: none; }
+.ic-inbox { width: 150px; height: 33px; border: 1px solid #3a3a3a; border-radius: 4px; color: #8c8c8c;
+  display: flex; align-items: center; gap: 8px; padding-left: 9px; font-size: 13px; }
+.ic-newest { margin-left: 47px; flex: 1; color: #d9d9d9; font-size: 13.5px; text-align: left; }
+.ic-lsort .ico2 { display: flex; gap: 14px; color: #bdbdbd; }
+.ic-pills { display: flex; gap: 6px; padding: 12px 11px 8px; flex: none; overflow: hidden; }
+.ic-pill { height: 28px; padding: 0 12px; border-radius: 14px; background: #262626; color: #d9d9d9; white-space: nowrap;
+  display: flex; align-items: center; position: relative; font-size: 13.5px; flex: none; }
+.ic-pill.on { background: #3467ff; color: #fff; }
+.ic-pill .cnt { position: absolute; right: -6px; top: -7px; background: #ff7c71; color: #fff; font-size: 9px;
+  border-radius: 7px; padding: 0 4px; line-height: 13px; font-weight: 700; }
+.ic-rows { overflow-y: auto; min-height: 0; flex: 1; }
+.ic-rows::-webkit-scrollbar, .ic-pane::-webkit-scrollbar, .ic-rbody::-webkit-scrollbar { width: 6px; }
+.ic-rows::-webkit-scrollbar-thumb, .ic-pane::-webkit-scrollbar-thumb, .ic-rbody::-webkit-scrollbar-thumb { background: #4a4a4a; border-radius: 3px; }
+.ic-row { height: 96px; position: relative; cursor: pointer; flex: none; }
+.ic-row:hover { background: #1b1b1b; }
+.ic-row.sel { background: #2a2a2a; }
+.ic-row .av { position: absolute; left: 19px; top: 16px; width: 40px; height: 40px; border-radius: 50%;
+  background: #666666; display: grid; place-items: center; color: #f0f0f0; font-weight: 600; font-size: 13px; }
+.ic-row .av.expired { background: #ff7c71; color: #fff; font-size: 20px; font-weight: 400; }
+.ic-row .dotOn { position: absolute; left: 50px; top: 47px; width: 10px; height: 10px; border-radius: 50%;
+  background: #2ad4ac; border: 2px solid #151515; }
+.ic-row .spend { position: absolute; left: 13px; top: 60px; min-width: 52px; text-align: center; font-size: 11px;
+  font-weight: 700; color: #f6a04d; background: #262626; border-radius: 3px; padding: 0 3px; line-height: 15px; }
+.ic-row .nm { position: absolute; left: 69px; top: 15px; right: 16px; white-space: nowrap; overflow: hidden;
+  text-overflow: ellipsis; font-size: 15px; font-weight: 600; color: #fff; }
+.ic-row .nm span { font-weight: 400; color: #8f8f8f; }
+.ic-row .marks { position: absolute; left: 69px; top: 38px; font-size: 11px; display: flex; gap: 6px; color: #ff7c71; }
+.ic-row .marks .w { color: #f6a04d; }
+.ic-row .pv { position: absolute; left: 69px; top: 57px; right: 92px; white-space: nowrap; overflow: hidden;
+  text-overflow: ellipsis; color: #9a9a9a; font-size: 14px; }
+.ic-row.unread .pv { color: #fff; }
+.ic-row .tm { position: absolute; right: 18px; top: 57px; color: #9a9a9a; font-size: 13.5px; }
+.ic-row.unread .tm { color: #fff; font-weight: 600; }
+.ic-row .dot { position: absolute; right: 10px; top: 63px; width: 8px; height: 8px; border-radius: 50%; background: #ff7c71; }
+.ic-row.unread .tm { right: 26px; }
+.ic-row .sep { position: absolute; left: 62px; right: 10px; bottom: 0; height: 1px; background: #2a2a2a; }
+.ic-row.sel .sep { display: none; }
+.ic-empty { color: #6b6b6b; text-align: center; padding: 40px 20px; }
+
+/* centre column */
+.ic-centre { display: grid; grid-template-rows: 52px 1px minmax(0, 1fr) 1px 168px;
+  grid-template-columns: minmax(0, 1fr); min-width: 0; min-height: 0; overflow: hidden; }
+.ic-chead { position: relative; min-width: 0; overflow: hidden; }
+.ic-chead .back { position: absolute; left: 19px; top: 16px; color: #e6e6e6; }
+.ic-chead .fname { position: absolute; left: 49px; top: 5px; font-size: 18px; font-weight: 600; color: #fff;
+  display: flex; align-items: center; gap: 7px; max-width: 60%; white-space: nowrap; }
+.ic-chead .fname b { font-weight: 600; overflow: hidden; text-overflow: ellipsis; }
+.ic-chead .stat { position: absolute; left: 49px; top: 30px; font-size: 10px; color: #9a9a9a; display: flex;
+  align-items: center; gap: 0; height: 16px; }
+.ic-chead .stat i { width: 5px; height: 5px; border-radius: 50%; background: #2ad4ac; display: block; margin-right: 6px; }
+.ic-chead .stat .sp { width: 1px; height: 13px; background: #3a3a3a; margin: 0 11px; }
+.ic-chead .stat .ti { display: flex; align-items: center; gap: 4px; color: #bdbdbd; }
+.ic-chead .newtab { position: absolute; right: 80px; top: 17px; color: #3b82f6; font-size: 11.5px; display: flex; gap: 5px; align-items: center; }
+.ic-chead .ricons { position: absolute; right: 13px; top: 16px; display: flex; gap: 16px; color: #e6e6e6; }
+.ic-chead .sub2 { position: absolute; right: 80px; top: 34px; font-size: 10px; color: #8a8a8a; }
+
+.ic-pane { overflow-y: auto; min-height: 0; padding: 14px 0 18px; }
+.ic-sec { text-align: center; margin: 14px 0 18px; }
+.ic-sec span { display: inline-block; font-size: 11.5px; color: #bdbdbd; background: #202020; border-radius: 10px; padding: 2px 10px; }
+.ic-sec.frag span { color: #f6a04d; background: #241d12; }
+.ic-sec.gap span { color: #8fb4ff; background: #161c28; }
+.ic-frag { border-left: 2px dashed #6b4a1c; margin: 0 6px 22px; padding-top: 2px; }
+
+.ic-msg { position: relative; display: flex; margin: 0 0 4px; }
+.ic-msg.end { margin-bottom: 20px; }
+.ic-msg.fan { padding-left: 17px; }
+.ic-msg.her { justify-content: flex-end; padding-right: 10px; }
+.ic-msg .col { display: flex; flex-direction: column; min-width: 0; max-width: 64%; }
+.ic-msg.fan .col { margin-left: 11px; align-items: flex-start; }
+.ic-msg.her .col { margin-right: 9px; align-items: flex-end; }
+.ic-fav { width: 34px; height: 34px; border-radius: 50%; background: #262626; color: #3b82f6; flex: none;
+  display: grid; place-items: center; font-size: 15px; align-self: flex-start; margin-top: 2px; }
+.ic-msg.fan:not(.first) .ic-fav { visibility: hidden; }
+/* Her avatar: an initial on a gradient. Not a contract colour, never #353535. */
+.ic-hav { width: 35px; height: 35px; border-radius: 50%; flex: none; align-self: flex-end; margin-bottom: 19px;
+  background: linear-gradient(135deg, #8a7f74, #3f3a40); color: #fff; font-weight: 600; font-size: 14px;
+  display: grid; place-items: center; }
+.ic-msg.her:not(.end) .ic-hav { visibility: hidden; }
+.ic-line { display: flex; align-items: center; gap: 9px; max-width: 100%; }
+.ic-msg.her .ic-line { flex-direction: row; }
+.ic-bub { position: relative; padding: 8px 10px; border-radius: 6px; font-size: 15.5px; line-height: 23px; color: #e6e6e6;
+  white-space: pre-wrap; overflow-wrap: anywhere; -webkit-user-select: text; user-select: text; min-width: 0; }
+.fan .ic-bub { background: #262626; }
+.her .ic-bub { background: #353535; }
+.ic-quote { border-left: 2px solid #5a5a5a; padding: 0 0 0 8px; margin-bottom: 5px; font-size: 13px; color: #a8a8a8; }
+/* Three solid 3x3 dots on a 5px pitch (contract): centre (x0 - 12, y1 - 19). */
+.ic-kebab { position: absolute; left: -14px; bottom: 23px; width: 3px; height: 3px; background: #666666;
+  box-shadow: 0 5px #666666, 0 10px #666666; }
+.ic-hico { display: flex; gap: 9px; color: #6e6e6e; flex: none; }
+.ic-msg.her .ic-hico { margin-right: 14px; }
+.ic-media { position: relative; width: 300px; max-width: 100%; height: 170px; border-radius: 4px; background: #353535;
+  padding: 5px; }
+.fan .ic-media { background: #262626; }
+.ic-media .img { width: 100%; height: 100%; border-radius: 3px; display: grid; place-items: center; text-align: center;
+  background: linear-gradient(135deg, #4b3d3a, #232026 70%); color: #d6cccc; font-size: 12px; padding: 10px; }
+.ic-media.pic { height: auto; }
+.ic-media.pic .img { display: block; height: auto; max-height: 340px; object-fit: contain; padding: 0; background: #1b1b1b; }
+.ic-media.unopened { outline: 3px solid #ff7c71; outline-offset: -3px; }
+.ic-media.opened { outline: 3px solid #2bd4ac; outline-offset: -3px; }
+.ic-meta { font-size: 11.5px; color: #9a9a9a; margin-top: 5px; display: flex; gap: 5px; align-items: center; white-space: nowrap; }
+.ic-meta .by { color: #3b82f6; }
+.ic-meta .tick { color: #9a9a9a; display: inline-flex; }
+.ic-meta .pill { color: #fff; padding: 0 5px; border-radius: 2px; font-weight: 600; background: #ff7c71; }
+.ic-meta .pill.paid { background: #2bd4ac; color: #052a21; }
+.ic-meta .pill.unk { background: #6a6a6a; }
+.ic-meta .heart { width: 12px; height: 11px; background: #3467ff; display: inline-block;
+  clip-path: path("M6 11 L0.8 5.6 A3.1 3.1 0 0 1 6 1.6 A3.1 3.1 0 0 1 11.2 5.6 Z"); }
+.ic-meta .ann { color: #e9b453; }
+.ic-meta .ai { color: #3b82f6; font-weight: 600; }
+.ic-meta .no { color: #6b6b6b; font-style: italic; }
+.ic-msg[title] { cursor: help; }
+.ic-msg[data-ids] { cursor: pointer; }
+/* Her "typing…": plain text, NEVER a bubble — a #353535 fill reads as a message. */
+.ic-typing { text-align: right; color: #8a8a8a; font-size: 13px; font-style: italic; padding: 4px 56px 8px; }
+.ic-chead .stat.typing, .ic-chead .stat.typing > span:nth-child(2) { color: #2ad4ac; }
+
+/* composer */
+.ic-composer { display: grid; grid-template-rows: 44px 1px minmax(0, 1fr); min-width: 0; overflow: hidden; }
+.ic-crow { display: flex; align-items: center; padding-left: 15px; position: relative; min-width: 0; overflow: hidden; }
+.ic-crow .elist { display: flex; gap: 12px; overflow: hidden; min-width: 0; margin-right: 150px; color: #bdbdbd; }
+.ic-crow .e { font-family: "Segoe UI Emoji", "Segoe UI Symbol", sans-serif; font-size: 16px; line-height: 1; }
+.ic-crow .scripts { position: absolute; right: 47px; top: 9px; height: 26px; padding: 0 9px; border-radius: 3px;
+  background: #1c2747; color: #3b82f6; font-size: 13px; display: flex; align-items: center; gap: 5px; }
+.ic-crow .alarm { position: absolute; right: 15px; top: 12px; color: #d9d9d9; }
+.ic-cline { background: #2e2e2e; }
+.ic-cbox { position: relative; }
+.ic-input { -webkit-user-select: text; user-select: text; position: absolute; left: 15px; right: 20px; top: 10px; height: 60px; resize: none; border: 0; outline: 0;
+  background: transparent; color: #e6e6e6; font: 15px/22px "Inter", "Segoe UI", sans-serif; }
+.ic-input::placeholder { color: #8c8c8c; }
+.ic-ctools { position: absolute; left: 17px; bottom: 16px; display: flex; gap: 20px; color: #bdbdbd; }
+.ic-cbtns { position: absolute; right: 16px; bottom: 15px; display: flex; gap: 16px; }
+.ic-clear { height: 31px; padding: 0 18px; border-radius: 16px; border: 1px solid #4a4a4a; color: #e6e6e6; }
+.ic-send { height: 31px; padding: 0 19px; border-radius: 16px; background: #3467ff; color: #fff; font-weight: 600; }
+.ic-send:disabled, .ic-clear:disabled { opacity: .45; cursor: default; }
+
+/* right column */
+.ic-right { position: relative; min-height: 0; display: grid; grid-template-rows: 52px minmax(0, 1fr) 66px; }
+.ic-rtitle { display: flex; align-items: center; justify-content: space-between; padding: 0 12px; font-weight: 600; color: #fff; font-size: 14.5px; }
+.ic-rtitle button { font-size: 12px; padding: 4px 10px; border-radius: 6px; background: #22303c; color: #b9c7d4; font-weight: 500; }
+.ic-rtitle button:hover { background: #2c3e4e; }
+.ic-rbody { overflow-y: auto; padding: 0 10px 10px; min-height: 0; }
+.ic-card { background: #232323; border-radius: 11px; padding: 10px 11px 8px; margin-bottom: 12px; font-size: 12px; }
+.ic-card h4 { margin: 0 0 9px; font-size: 13.5px; color: #fff; font-weight: 600; display: flex; align-items: center; gap: 8px; }
+.ic-card h4 .grip { color: #bdbdbd; letter-spacing: -1px; font-size: 13px; }
+.ic-card h4 .chev { margin-left: auto; color: #d9d9d9; }
+.ic-card .kv { display: flex; justify-content: space-between; align-items: flex-start; gap: 10px; margin: 0 0 9px; color: #c9c9c9; }
+.ic-card .kv b { color: #fff; font-weight: 600; text-align: right; }
+.ic-card .kv .sub { display: block; color: #9a9a9a; font-weight: 400; font-size: 11.5px; }
+.ic-card .two { display: grid; grid-template-columns: 1fr 1fr; padding-bottom: 10px; margin-bottom: 10px; border-bottom: 1px solid #333; }
+.ic-card .two > div + div { border-left: 1px solid #3a3a3a; padding-left: 10px; }
+.ic-card .two .k { color: #c9c9c9; }
+.ic-card .two .v { font-size: 19px; font-weight: 700; color: #fff; margin-top: 2px; }
+.ic-card .two .v small { font-size: 11px; font-weight: 600; }
+.ic-card .two .s { color: #9a9a9a; font-size: 11px; }
+.ic-badge { display: inline-flex; gap: 3px; align-items: center; background: #3fa34d; color: #fff; border-radius: 9px; padding: 0 6px; font-size: 11px; }
+.ic-badge.warn { background: #c8892b; } .ic-badge.bad { background: #c94a4a; }
+.ic-field { display: inline-flex; align-items: center; gap: 6px; background: #2b2b2b; border-radius: 4px; padding: 3px 8px; color: #d9d9d9; font-weight: 500; }
+.ic-card .raw { white-space: pre-wrap; color: #c9c9c9; font-size: 12px; -webkit-user-select: text; user-select: text; }
+.ic-card .note { color: #8a8a8a; font-size: 11px; margin-top: 4px; }
+.ic-card .tl > div { display: flex; justify-content: space-between; gap: 8px; padding: 3px 0; border-bottom: 1px solid #2d2d2d; }
+.ic-card .tl .t { color: #8a8a8a; }
+.ic-card .tl .up { color: #2bd4ac; font-weight: 600; }
+.ic-card.extra { border: 1px dashed #3a3a3a; background: #1c1c1c; }
+.ic-rnav { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; padding: 4px 8px 6px; border-top: 1px solid #2a2a2a; }
+.ic-rnav button { border-radius: 8px; display: flex; flex-direction: column; align-items: center; justify-content: center;
+  gap: 2px; font-size: 11.5px; color: #8a8a8a; }
+.ic-rnav button.on { background: #262626; color: #fff; font-weight: 600; }

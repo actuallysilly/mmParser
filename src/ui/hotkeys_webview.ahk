@@ -317,6 +317,12 @@ HWV_DoCapture(id) {
 
     if (k = "<cancel>")
         return
+    ; The Windows guard (HKP_SystemOwner): refused, not warned about.
+    if (k != "<clear>" && (why := HKP_SystemOwner(k)) != "") {
+        HWV_Toast(HKP_Pretty(k) " is taken — " why)
+        MsgBox(HKP_RefuseMsg(k, why), "Key taken", 0x30)
+        return
+    }
     HWV_Pending[id] := (k = "<clear>") ? "" : k
     HWV_Sync()
     HWV_Toast(HK_META[id].label "  →  " HKP_KeyLabel(HWV_Pending[id])
@@ -405,6 +411,9 @@ HWV_Sync() {
             "owner",    m.owner,
             "key",      key,
             "tokens",   (key = "") ? [] : HKP_KeyTokens(key),
+            ; One token list per key of an overload ("F1 | ^F1"), so the page
+            ; draws each key as its own keycaps rather than one garbled cap.
+            "groups",   HWV_KeyGroups(key),
             "pretty",   HKP_KeyLabel(key),
             ; unsaved beats custom: a row you have just edited says so, even when
             ; what you edited it to happens to also be the default.
@@ -463,4 +472,12 @@ HWV_OnSize(gObj, minMax, w, h) {
     if (minMax = -1 || !IsObject(wvc))
         return
     try wvc.Bounds := [0, 0, w, h]
+}
+
+; Each key of an action, as keycap tokens — see "groups" above.
+HWV_KeyGroups(key) {
+    out := []
+    for k in HK_KeyList(key)
+        out.Push(HKP_KeyTokens(k))
+    return out
 }

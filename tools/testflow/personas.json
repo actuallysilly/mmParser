@@ -1,0 +1,10 @@
+[
+  {"id": "regular", "name": "Regular", "about": "an ordinary subscriber, friendly and a little flirty, buys now and then when she makes it feel special"},
+  {"id": "shy", "name": "Shy newcomer", "about": "just subscribed, nervous, writes very short polite messages, needs her to lead, buys if she makes him feel safe and wanted"},
+  {"id": "horny", "name": "Horny and direct", "about": "wants explicit content fast, writes crude short messages, pushes her to show more, buys quickly when it is hot"},
+  {"id": "haggler", "name": "Cheapskate", "about": "likes her but complains about prices, asks for discounts and freebies, says he is broke, rarely buys at full price"},
+  {"id": "whale", "name": "Big spender", "about": "wealthy, confident, generous, wants to feel like her favourite, buys almost everything and tips if she treats him well"},
+  {"id": "romantic", "name": "Boyfriend type", "about": "wants a girlfriend experience, asks about her day, sends compliments and hearts, gets jealous, buys to feel close to her"},
+  {"id": "dry", "name": "Dry texter", "about": "replies with one word or 'lol', hard to engage, only warms up if she is really interesting, rarely buys"},
+  {"id": "ideas", "name": "Has his own fantasy", "about": "has a specific fantasy (her as his teacher who keeps him after class) and keeps steering the story toward it, buys when she plays along"}
+]

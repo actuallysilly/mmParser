@@ -333,7 +333,7 @@ detection, cursor. Future automations import from it rather than re-deriving pri
 `set_dpi_aware` / `grab`; it could import them from here.)
 
 ```
-automation_listen.vbs                         # background listener, no console
+runner.pyw --start automation                 # background listener, no console
 python automation.py --stop                   # ... and end it
 python automation.py --status                 # ... is it up?
 
@@ -345,7 +345,7 @@ python automation.py --hop                    # live: hop the cursor over each k
 
 ### Running as a background listener
 
-`automation_listen.vbs` starts it under **pythonw.exe**, so there is no console — it sits in
+The runner (`src/services/runner/runner.pyw`) starts it under **pythonw.exe**, so there is no console — it sits in
 the background like the resident AHK scripts. A `.cmd` would flash a console for a moment
 even with `start`; wscript doesn't.
 

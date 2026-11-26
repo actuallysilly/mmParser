@@ -206,11 +206,10 @@ violet and bold in the tab strip, so the tab you are typing into is the one that
 <b>Right</b> is the workflow. <b>Bottom</b> is every other window: Settings, Hotstrings, Tools,
 Variants.</p>
 
-<p><b>Tools</b> is the background tools — unread pinger, stats overlay, both model detectors,
-the automation listener, the activity tracker and the typelog recorder — each with its live
-state and an On/Off. It was <b>Pinger: ON/OFF</b>, which was one of those getting a button
-because it was the one people asked about; the rest were a tab and a Save away in Settings.
-The button's own label counts what is running, so <b>Tools (2)</b> means two are up.</p>
+<p><b>Tools</b> opens the Tools window: every tool's settings on one page that scrolls,
+with a list on the left that jumps to a tool. Each background service there has its live state
+and <b>On</b> / <b>Off</b> / <b>Restart</b>. The button's own label counts what is running, so
+<b>Tools (2)</b> means two are up. Settings has a <b>Tools…</b> button too.</p>
 
 <p>The strip used to also carry <b>Open with Code</b>, <b>How to Use</b>, <b>Add Hotkey</b>,
 <b>New Script</b> and one ◻ toggle per message script. They have moved to where you are
@@ -325,7 +324,7 @@ buttons 1–12.</p>
     <td><kbd>F1</kbd> <kbd>F2</kbd> <kbd>F3</kbd></td>
     <td><kbd>F9</kbd> <kbd>F10</kbd> <kbd>F11</kbd></td>
     <td><kbd>F6</kbd> <kbd>F7</kbd> <kbd>!F7</kbd></td></tr>
-<tr><td>f1–f3 second key</td>
+<tr><td>f1–f3, also on</td>
     <td><kbd>Ins</kbd> <kbd>Home</kbd> <kbd>PgUp</kbd></td><td>—</td><td>—</td></tr>
 <tr><td>ppv / ppv f-ups</td>
     <td><kbd>F4</kbd> <kbd>F5</kbd></td>
@@ -996,34 +995,39 @@ follow-up rather than the next restart.</p>
 <!-- ═══════════════════════════════════════════════════════════════════════ -->
 <h2 id="settings">Settings — eight tabs</h2>
 
-<p>Every setting has exactly one control in one place. Where a tab shows state another tab owns,
-it's greyed and points at the owner.</p>
+<p>Settings holds what MMA itself needs. Every tool's own settings are in the
+<a href="#tools">Tools window</a>. Every setting has exactly one control in one place; where a
+tab shows state another tab owns, it points at the owner.</p>
 
 <table>
 <thead><tr><th>Tab</th><th>Holds</th></tr></thead>
 <tbody>
-<tr><td><b>General</b></td><td>Wait time — the pause between the parts of one send. Saving it
-  rewrites <code>core\utils.ahk</code>, so the scripts restart.</td></tr>
+<tr><td><b>General</b></td><td>Wait time — the pause between the parts of one send. Changing it
+  restarts the message scripts and the mass engine.</td></tr>
 <tr><td><b>Models</b></td><td>Model count, names, per-model platform, and the whole of
-  <a href="#whichmodel">use a single hotkey for all masses</a>: the Enabled switch, Manual vs
-  Automatic, the per-site strategy, both orders, and the live detector readout.</td></tr>
-<tr><td><b>Sending</b></td><td>Open-new-tab after FU2/FU3/PPV · wallet check before FU3 ·
-  double-MM (session only, not saved) · Default FU3 text · Next-follow-up region and OCR
-  settings.</td></tr>
+  <a href="#whichmodel">use a single hotkey for all masses</a>: the Enabled switch, how each site
+  decides (manual, by name, by position), both orders, and <b>Which model is on screen</b> — one
+  plain line each for Infloww and Fansly, and one for where the shared keys will send.</td></tr>
+<tr><td><b>Sending</b></td><td>Open-new-tab after FU2/FU3/PPV · wallet check before FU3 · the
+  alt-FU picker · Default FU3 text · <b>Auto detect next follow up (single button mode)</b>: its
+  chat region and OCR settings.</td></tr>
 <tr><td><b>Features</b></td><td>Easy/Advanced and every feature switch. <a href="#modes">Below.</a></td></tr>
-<tr><td><b>Scripts</b></td><td>Which file Add Hotkey targets · visible scripts · run-on-startup ·
-  watchdog · read-only service status · Wipe TEMP.ahk · Check update.</td></tr>
-<tr><td><b>Hotkeys</b></td><td>Every action, its key, and where it is live, grouped under the
-  feature that owns it. Double-click a row (or right-click it) and press the key. Search by
-  feature, action or key; <b>Show</b> narrows to what you have changed, what clashes, or what is
-  unassigned. A row is marked &#9679; when you have edited it and not saved yet, &#9675; when it
-  is saved but is not the default, and its key reads &mdash; when it is switched off. The
-  <b>Clashes with</b> column is trustworthy, so silence means you're fine.</td></tr>
-<tr><td><b>GUI</b></td><td>Theme · follow-up picker size · legacy Load/Save UI. Changing the
-  theme or the Load/Save layout <b>restarts MMA</b> — both decide how the main window is BUILT,
-  not just how it looks.</td></tr>
-<tr><td><b>Debug</b></td><td>Logging switches, probes, self-tests, diagnostic report, and a
-  <b>Desktop shortcut</b> button. <a href="#debug">Below.</a></td></tr>
+<tr><td><b>Scripts</b></td><td>Which file Add Hotkey targets · hotstring key expiry ·
+  run-on-startup · watchdog · Wipe TEMP.ahk · Check update.</td></tr>
+<tr><td><b>Hotkeys</b></td><td>One row per action. An action can have <b>several keys</b>:
+  <b>Set key…</b> replaces them, <b>Add key…</b> adds another, and right-click removes one. In
+  <code>hotkeys.ini</code> they are one line, <code>fu1 = F1 | ^F1 | XButton2</code> — the
+  spaces round the <code>|</code> matter. Search by feature, action or key; <b>Show</b> narrows to
+  what you have changed, what clashes, or what is unassigned. &#9679; = edited, not saved;
+  &#9675; = saved but not the default; &mdash; = switched off. Hotstring keys are not here —
+  they are set in the Hotstrings window — and model sections past your model count are hidden.
+  </td></tr>
+<tr><td><b>GUI</b></td><td>Theme · follow-up picker size · which windows are WebView or Classic ·
+  legacy Load/Save UI · the corner picture. Changing the theme or the Load/Save layout
+  <b>restarts MMA</b>.</td></tr>
+<tr><td><b>Debug</b></td><td>The log (on/off, pop-ups, log everything; make a report, open,
+  clear) and <b>Run all tests</b>. <b>Advanced…</b> has the probes, the Fansly rail readout, log
+  markers, what is running and the raw settings files. <a href="#debug">Below.</a></td></tr>
 </tbody>
 </table>
 
@@ -1031,8 +1035,18 @@ it's greyed and points at the owner.</p>
 <p>The mass engine and <code>sequences.ahk</code> are deliberately <b>not</b> in the
 run-on-startup list. Both own hotkeys, and a box you can untick is a box that gets unticked —
 which is exactly how "every mass key went dead" and "the Discord import broke again" both
-happened. They start unconditionally; their real switches are in Features.</p>
+happened. They start unconditionally.</p>
 </div>
+
+<h3 id="tools">The Tools window</h3>
+<p>Every tool that is not MMA itself, one section each, on one page that scrolls; the list on
+the left jumps to a section and follows as you scroll. A section has the tool's state — with
+<b>On</b> / <b>Off</b> / <b>Restart</b> for a background service — a line on what it does, and
+its settings, including the ones that used to live only in <code>mass_gui.cfg</code> or a
+service's own ini (detector geometry, stats overlay colours, the click wall, the local AI model,
+the Discord channel-name box, …). Reply timers, Autoword and the mass archive switch moved here
+from Settings. Most services read their settings when they start, so after <b>Save</b> press
+that tool's <b>Restart</b>.</p>
 
 <h3 id="modes">Easy / Advanced</h3>
 <p><b>Easy</b> is MMA as of v1.4.0 — paste, parse, tabs, script toggles, basic settings.
@@ -1043,13 +1057,16 @@ never start. A hidden feature that still runs can still surprise you. Your indiv
 are remembered; flip back and every box is where you left it.</p>
 </div>
 <p>Features by section — <b>Sending:</b> branches · editable f-ups / wallet check ·
-default FU3 · next follow-up · open in new tab · double-MM · FuSingle grid · mouse f-ups ·
-click wall.
+default FU3 · auto detect next follow up · open in new tab · mouse-button follow-ups · ask which
+model on the PPV keys · click wall.
+<b>Model detection:</b> Infloww detector · Fansly detector.
+<b>Chat reading and AI:</b> chat reader · shift recorder and its three extras · purchase sound ·
+typelog · autoword · fix grammar fast mode.
+<b>Screen helpers:</b> stats overlay · reply timers · automation · unread pinger.
 <b>Library:</b> archive · hotstrings manager · fast-parse autosave.
-<b>Tools:</b> actions menu · quick actions · recorder · auto-capitalize · sequences &amp; Discord
-import · OCR hotstring.
-<b>Background:</b> model detector · Fansly detector · stats overlay · reply timers · automation ·
-pinger · activity tracker · typelog · auto-start &amp; watchdog · startup update check.</p>
+<b>Tools:</b> actions menu · quick actions · recorder · auto-capitalize · OCR hotstring · tab
+bars · branch builder · chat simulator · hotstring shortcuts.
+<b>System:</b> auto-start &amp; watchdog · activity tracker · startup update check.</p>
 
 <!-- ═══════════════════════════════════════════════════════════════════════ -->
 <h2 id="hotstrings">Hotstrings</h2>

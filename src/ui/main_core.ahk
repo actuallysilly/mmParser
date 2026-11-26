@@ -688,6 +688,11 @@ OpenAddHotkey(prefill := "", *) {
             ClearKey()
             return
         }
+        ; The Windows guard (HKP_SystemOwner): refused, not warned about.
+        if ((why := HKP_SystemOwner(k)) != "") {
+            MsgBox(HKP_RefuseMsg(k, why), "Key taken", 0x30)
+            return
+        }
         owner := HK_KeyOwner(k)
         if (owner != "") {
             MsgBox(HKP_KeyLabel(k) " is already used by:`n`n    " owner
@@ -742,9 +747,15 @@ OpenAddHotkey(prefill := "", *) {
             MsgBox "Enter a hotkey or hotstring.",, 0x10
             return
         }
-        if RegExMatch(hk, "^[\^!+#]")
+        if RegExMatch(hk, "^[\^!+#]") {
+            ; A hotkey typed as text skips the capture, so the Windows guard has
+            ; to be asked here too.
+            if ((why := HKP_SystemOwner(hk)) != "") {
+                MsgBox(HKP_RefuseMsg(hk, why), "Key taken", 0x30)
+                return
+            }
             trigger := hk "::"
-        else
+        } else
             trigger := (rdHSWild.Value ? ":*:" : "::") hk "::"
 
         ; ── the recorded key, re-checked at the last moment ───────────────────
@@ -1081,18 +1092,6 @@ OcrGrab() {
     OpenAddHotkey(text)
 }
 
-; ─── Mouse control ────────────────────────────────────────────────────────────
-
-_doubleMM := false
-
-ToggleDoubleMM() {
-    global _doubleMM
-    _doubleMM := !_doubleMM
-    HK_Broadcast(MMA_MSG_DOUBLE_MM)
-    ToolTip("Double MM: " (_doubleMM ? "ON" : "OFF"))
-    SetTimer(() => ToolTip(), -1500)
-}
-
 _BroadcastWallet(val) {
     global walletCheckFu3
     walletCheckFu3 := val
@@ -1170,14 +1169,12 @@ CORE_Arm() {
     ; which reads exactly like the setting did not save.
     OnMessage(MMA_MSG_SETTINGS_CHANGED, CORE_SettingsChangedFromMsg)
 
-    ; Keys live in hotkeys.ini under [gui]. "mouseControl" is the shell's own
-    ; context, so gui.toggleDoubleMM only fires while Mouse control is on.
-    HK_Context("mouseControl", CORE_MouseControlOn)
+    ; Keys live in hotkeys.ini under [gui].
     HK_Bind("gui.addHotkeyGrab",  AddHotkeyGrab)
     HK_Bind("gui.ocrGrab",        OcrGrab)
     HK_Bind("gui.branchBuilder",  OpenBranchBuilder)
     HK_Bind("gui.chatSim",        OpenChatSim)
-    HK_Bind("gui.toggleDoubleMM", ToggleDoubleMM)
+    HK_Bind("gui.help",           CORE_OpenHelp)
 }
 
 ; ── the activity chart ────────────────────────────────────────────────────────
@@ -1284,6 +1281,27 @@ CORE_OpenSettingsPreferred() {
     }
 }
 
+;  Settings ▸ Help, straight from a key: the list of what every key does.
+;  An already-open WebView Settings is brought forward rather than restarted —
+;  it is #SingleInstance Force, and a restart would throw away unsaved edits.
+CORE_OpenHelp(*) {
+    if (MMA_ShellFor("settings") = "legacy") {
+        OpenSettings()
+        try SW_TAB.Value := SW_HELP_TAB
+        return
+    }
+    if WinExist("MMA Settings ahk_class AutoHotkeyGUI") {
+        WinActivate("MMA Settings ahk_class AutoHotkeyGUI")
+        return
+    }
+    LOG_Try("gui.help", "Run settings_webview.ahk section=Help",
+            () => Run(A_AhkPath ' "' MMA_SRC_SETTINGS_WV '" section=Help'), &started)
+    if !started {
+        OpenSettings()
+        try SW_TAB.Value := SW_HELP_TAB
+    }
+}
+
 ; Another process saved Settings. Re-read what this window shows.
 ;
 ; Only the three things a save can change WITHOUT a restart, which is exactly the
@@ -1301,7 +1319,39 @@ CORE_SettingsChangedFromMsg(wParam, lParam, msg, hwnd) {
     LOG_Try("gui.settings", "repaint the model names", () => UpdateModelButtons())
     LOG_Try("gui.settings", "repaint the theme",       () => ApplyWindowTheme())
     LOG_Try("gui.settings", "re-lay out the window",   () => RelayoutNow())
+    LOG_Try("gui.settings", "apply autoword's model",  () => CORE_AutowordModelCheck())
     return 1
+}
+
+; ── Autoword's settings ──────────────────────────────────────────────────────
+;  Settings ▸ Autoword writes userdata\autoword.ini, and autoword reads that
+;  once, at startup. So after either Settings window saves, this compares the
+;  file with what it was and, when it moved and autoword is running, restarts
+;  it through the Tools window's restart — the one that waits for the old
+;  instance to be gone first. The whole file rather than a list of keys: a key
+;  missing from the list is a setting that silently does nothing until the next
+;  restart, which is what MinChars did.
+;
+;  Here and not in Settings because the WebView Settings is its own process and
+;  deliberately cannot start or stop anything (see settings_webview.ahk's top);
+;  it tells this window it saved, and this window owns the services.
+#Include "../core/ini_utf8.ahk"
+global CORE_AW_SIG := CORE_AutowordModelSig()
+
+CORE_AutowordModelSig() {
+    try return FileRead(MMA_USERDATA "\autoword.ini", "UTF-8")
+    return ""
+}
+
+CORE_AutowordModelCheck() {
+    global CORE_AW_SIG
+    sig := CORE_AutowordModelSig()
+    if (sig == CORE_AW_SIG)
+        return
+    LOGI("gui.settings", "autoword.ini changed")
+    CORE_AW_SIG := sig
+    if SVC_Running("autoword")
+        TOOLS_Restart({id: "autoword"})
 }
 
 ; The Win32 Settings, asked for by the WebView Settings window (another process).
@@ -1312,15 +1362,6 @@ CORE_OpenSettingsFromMsg(wParam, lParam, msg, hwnd) {
     LOGI("gui.settings", "classic Settings requested by the WebView Settings window")
     OpenSettings()
     return 1
-}
-
-; A named function rather than the `(*) => mouseControl` lambda this replaces.
-; A lambda written inside CORE_Arm captures by the rules that already cost this
-; tree a bug (a `() =>` cannot see a for-loop's variables), and a hotkey context
-; that quietly reads the wrong thing disables a key with no error anywhere.
-CORE_MouseControlOn(*) {
-    global mouseControl
-    return mouseControl
 }
 
 ; ─── Telling a shell that something changed ───────────────────────────────────
@@ -1369,8 +1410,17 @@ CORE_Changed() {
 
 CheckUnmappedModel() {
     global _askedNames, _unmapGui
-    if (IsObject(_unmapGui) && WinExist("ahk_id " _unmapGui.Hwnd))
-        return                                   ; already asking
+    ; A prompt you closed (Later / Esc / X / an answer) is a DESTROYED Gui that the
+    ; variable still holds, and reading .Hwnd off it throws "Gui has no window".
+    ; That threw on every check (41x in AHK_engine.log, 2026-11-16..24) and so
+    ; also stopped MMA from ever asking about the next unknown model.
+    if IsObject(_unmapGui) {
+        try {
+            if WinExist("ahk_id " _unmapGui.Hwnd)
+                return                           ; already asking
+        }
+        _unmapGui := 0
+    }
     ; Only name mode has names to ask about. Positional reads an index, manual
     ; reads your keypress — in both, a prompt about an OCR'd string would be
     ; asking you to map something nothing will ever look up.
@@ -1505,6 +1555,10 @@ CORE_BootWindowTasks() {
     global autoRestart, _askedNames, _unmapGui
 
     SetTimer(RefreshToolsLabel, -800)   ; after python has claimed the events
+
+    ; Starts OBS when the Infloww Messages window appears — see core/processes.ahk.
+    SetTimer(OBS_AutoRecordTick, 10000)
+    SetTimer(OBS_AutoRecordTick, -1500)
 
     if autoRestart
         SetTimer(WatchdogTick, 5000)

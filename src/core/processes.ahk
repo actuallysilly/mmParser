@@ -11,6 +11,8 @@
 ; pulled in the feature registry first is one refactor away from failing to
 ; load, and the include is free.
 #Include "modes.ahk"
+; The Python services are started and stopped through the runner.
+#Include "runner.ahk"
 ; ═══════════════════════════════════════════════════════════════════════════════
 ;  processes.ahk — starting, stopping and watching everything MMA runs.
 ; ───────────────────────────────────────────────────────────────────────────────
@@ -19,10 +21,11 @@
 ;    • AHK scripts (the engine, sequences.ahk, content\general.ahk, the account
 ;      files, and the AHK services) — found and closed by window title,
 ;      ahk_class AutoHotkey, because a script's main window IS its full path.
-;    • Python (automation, pinger, typelog, autoword) — no AHK window to find,
-;      so each signs its presence with a NAMED EVENT. Opening the event answers
-;      "is it up?" in one DllCall; setting it means "please exit". That is why
-;      these cannot ride on startupScripts or be closed by KillAllScripts.
+;    • Python (automation, pinger, typelog, autoword, chatReader) — started by
+;      the runner (core\runner.ahk), no AHK window to find, so each signs its
+;      presence with a NAMED EVENT. Opening the event answers "is it up?" in one
+;      DllCall. That is why these cannot ride on startupScripts or be closed by
+;      KillAllScripts.
 ;
 ;  The optional ones are declared once in the SERVICE REGISTRY below and are
 ;  never named individually anywhere else. The engine and sequences.ahk are the
@@ -108,6 +111,9 @@ KillAllScripts() {
     ; forgotten from — and being forgotten HERE means it survives "close all" and
     ; goes on running after MMA is gone.
     SVC_StopPython()
+    ; ...and the runner itself, which finishes stopping them (event, wait, kill)
+    ; and exits. GUI tools the user opened (TestFlow, Shift Viewer) stay open.
+    RUN_Quit()
     myPID := ProcessExist()
     DetectHiddenWindows true
     closed := 0
@@ -195,47 +201,13 @@ LaunchStartupScripts() {
 }
 
 ; ── is there a Python to run the Python children with? ───────────────────────
-; Both Python children start through a .vbs, and a .vbs has nowhere to report a
-; failure except its own error dialog. The listener starts automatically at
-; STARTUP and defaults to ON, so on a machine with no Python that dialog used to
-; greet you on EVERY launch. The .vbs files now quit quietly when they cannot
-; find an interpreter; this stops us even spawning them, and lets the Settings
-; toggles say something useful instead of appearing to do nothing.
-;
-; Scans PATH directly rather than shelling out to `where`, which would flash a
-; console window every startup.
+; The listener starts automatically at STARTUP and defaults to ON, so on a
+; machine with no Python this stops us even trying, and lets the Settings toggles
+; say something useful instead of appearing to do nothing. The search itself
+; (PATH, skipping the zero-byte Store stub, no `where`) is RUN_PythonExe in
+; core\runner.ahk, which logs what it found once per process.
 PythonAvailable() {
-    static cached := ""
-    if cached != ""
-        return cached = "1"
-
-    found := false
-    for _, dir in StrSplit(EnvGet("PATH"), ";") {
-        dir := Trim(dir, " `t`"")
-        if dir = ""
-            continue
-        for _, exe in ["pythonw.exe", "python.exe"] {
-            path := RTrim(dir, "\") "\" exe
-            ; A zero-byte hit is the Microsoft Store's App Execution Alias — a
-            ; reparse-point stub that opens the Store instead of running Python.
-            ; Treating it as an interpreter is how you get the Store popping up
-            ; instead of the listener starting.
-            if FileExist(path) && FileGetSize(path) > 0 {
-                found := true
-                LOGI("proc.python", "interpreter found: " path)
-                break 2
-            }
-        }
-    }
-    cached := found ? "1" : "0"
-    ; Not an error — plenty of installs have no Python and do not want one — but
-    ; it silently disables two whole features, so it is written down once per
-    ; process rather than left to be inferred from their absence.
-    if !found
-        LOGW("proc.python", "no python.exe or pythonw.exe on PATH (zero-byte Store"
-                          . " aliases ignored) — the automation listener and the"
-                          . " unread pinger cannot start")
-    return found
+    return RUN_PythonExe() != ""
 }
 
 ; ═══════════════════════════════════════════════════════════════════════════════
@@ -270,8 +242,9 @@ PythonAvailable() {
 ;          key and the on/off switch all still come from FEAT_META, so a service
 ;          is a feature that happens to be a process.
 ;  kind  — "ahk"    : an AHK script, found and closed by its window title.
-;          "python" : a .vbs launcher, found and closed by a named event.
-;  path  — the .ahk file, or the .vbs that starts the Python.
+;          "python" : started by the runner, found by a named event.
+;  path  — the .ahk file, or the Python script (the runner's tool of the same
+;          id, see TOOLS in src\services\runner\runner.pyw).
 ;  tag   — the log tag, unchanged from when each of these was its own function.
 ;  noun  — what to call it in a log line: "the stats overlay".
 ;  extra — optional, and only where a service genuinely differs:
@@ -334,6 +307,10 @@ SVC_Def("statsOverlay", "ahk", MMA_SRC "\screen\stats_overlay.ahk",
 SVC_Def("replyBox", "ahk", MMA_SRC "\screen\reply_box.ahk",
         "proc.replybox", "the reply timers")
 
+; The countdown timer. Owns gui.timer (window) and gui.timerToggle (no window).
+SVC_Def("timer", "ahk", MMA_SRC "\timer\timer.ahk",
+        "proc.timer", "the timer")
+
 ; Counts keystrokes, clicks and active seconds into userdata\activity\, and owns
 ; the gui.activity key that opens the chart. Stopping it is a real stop, not a
 ; pause: the minute in progress is flushed by its OnExit and nothing is recorded
@@ -349,11 +326,12 @@ SVC_Def("activity", "ahk", MMA_SRC "\activity\tracker.ahk",
 ;  `--status` (which would spawn a whole Python every watchdog tick, every five
 ;  seconds), and setting it means "please exit".
 ;
-;  All four start through a .vbs so there is no console window, and each is
+;  All of them are started, restarted after a crash and stopped by the runner
+;  (core\runner.ahk), which starts each with no console window. Each is also
 ;  single-instance on its own (a named mutex), so a double-launch is harmless —
 ;  the second copy just exits.
 
-SVC_Def("automation", "python", MMA_SRC "\services\automation\automation_listen.vbs",
+SVC_Def("automation", "python", MMA_SRC "\services\automation\automation.py",
         "proc.automation", "the automation listener",
         {event: "Global\MMA.automation.listener.stop",
          needKey: "automation.unsendLast",
@@ -362,22 +340,28 @@ SVC_Def("automation", "python", MMA_SRC "\services\automation\automation_listen.
                  . "[automation] hotkeys ({key} and friends) are the only thing "
                  . "that needs it."})
 
-SVC_Def("pinger", "python", MMA_SRC "\services\pinger\pinger_start.vbs",
+SVC_Def("pinger", "python", MMA_SRC "\services\pinger\pinger.pyw",
         "proc.pinger", "the pinger",
         {event: "Global\MMA.pinger.stop",
          needText: "The unread pinger needs Python, which isn't installed.`n`n"
                  . "Run install.bat to set it up."})
 
-SVC_Def("typelog", "python", MMA_SRC "\services\typelog\typelog_start.vbs",
+SVC_Def("typelog", "python", MMA_SRC "\services\typelog\typelog.pyw",
         "proc.typelog", "the typelog recorder",
         {event: "Global\MMA.typelog.stop",
          needText: "The typelog recorder needs Python, which isn't installed.`n`n"
                  . "Run install.bat to set it up."})
 
-SVC_Def("autoword", "python", MMA_SRC "\services\autoword\autoword_start.vbs",
+SVC_Def("autoword", "python", MMA_SRC "\services\autoword\autoword.pyw",
         "proc.autoword", "the autoword suggester",
         {event: "Global\MMA.autoword.stop",
          needText: "Autoword needs Python, which isn't installed.`n`n"
+                 . "Run install.bat to set it up."})
+
+SVC_Def("chatReader", "python", MMA_SRC "\services\llm\chatreader.pyw",
+        "proc.chatreader", "the chat reader",
+        {event: "Global\MMA.chatreader.stop",
+         needText: "The chat reader needs Python, which isn't installed.`n`n"
                  . "Run install.bat to set it up."})
 
 ; ─── The extra teardown two services need ─────────────────────────────────────
@@ -477,16 +461,16 @@ SVC_Launch(id, announce := false) {
         }
         return
     }
-    ; A missing file is the whole failure, and for a .vbs it is a SILENT one: a
-    ; .vbs has nowhere to report anything, so without this the function returns
-    ; having done nothing and looks exactly like success.
+    ; A missing file is the whole failure, and for a Python tool it is a SILENT
+    ; one: it would only show up in the runner's log, so without this the function
+    ; returns having done nothing and looks exactly like success.
     if !FileExist(s.path) {
         LOGE(s.tag, s.noun " cannot start — the file does not exist", s.path)
         return
     }
     LOGI(s.tag, "starting " s.noun)
     if (s.kind = "python")
-        LOG_Try(s.tag, "run " SVC_BaseName(s.path), SVC_RunVbs.Bind(s.path))
+        LOG_Try(s.tag, "runner start " id, SVC_RunPython.Bind(id, s.tag))
     else
         LOG_Try(s.tag, "Run " SVC_BaseName(s.path), SVC_RunAhk.Bind(s.path))
 }
@@ -496,9 +480,15 @@ SVC_Launch(id, announce := false) {
 SVC_RunAhk(path) {
     Run(path)
 }
-SVC_RunVbs(path) {
-    global SCRIPT_DIR
-    Run('wscript.exe "' path '"', SCRIPT_DIR, "Hide")
+; The runner answers "ok running", "ok pending (backoff)" while it is waiting to
+; restart a crashed one, or "err ..."; no answer at all means no runner.
+SVC_RunPython(id, tag) {
+    reply := RUN_Start(id)
+    if (reply = "")
+        throw Error("the runner did not answer (see debuglogs\runner.log)")
+    if (SubStr(reply, 1, 3) = "err")
+        throw Error("the runner said: " reply)
+    LOGV(tag, "runner: " reply)
 }
 
 SVC_BaseName(path) {
@@ -506,14 +496,20 @@ SVC_BaseName(path) {
     return fname
 }
 
-; Stop it. For python that is a REQUEST — it has no console to Ctrl+C and no AHK
-; window for KillAllScripts to find, so setting its event is the only way to ask.
+; Stop it. For python that goes through the runner, which sets the tool's stop
+; event, waits, then kills it, and stops restarting it. With no runner up (one
+; started by hand, or a copy left from before the runner), setting the event
+; ourselves is the only way to ask.
 SVC_Stop(id) {
     if !SVC_META.Has(id)
         return
     s := SVC_META[id]
     if (s.kind = "python") {
-        h := SVC_OpenEvent(id)
+        h := 0
+        if RUN_Stop(id)
+            LOGI(s.tag, "asked the runner to stop " s.noun)
+        else
+            h := SVC_OpenEvent(id)
         if h {
             LOGI(s.tag, "asking " s.noun " to exit (setting its stop event)")
             DllCall("SetEvent", "Ptr", h)
@@ -755,4 +751,55 @@ WatchdogTick() {
     SVC_LaunchEnabled()
 
     RefreshToolsLabel()
+}
+
+; ─── Shift recording (OBS) ───────────────────────────────────────────────────
+;  [Settings] AutoRecordShift (Settings ▸ General). When an "Infloww Messages - X"
+;  window appears, start OBS on its "Shifts" profile, already recording — the
+;  same command as the desktop "Record Shift" shortcut. Asked for 2026-10-30:
+;  "data has to be harvested whenever I'm on shift".
+;
+;  Once per Infloww window, not "whenever OBS is not running": closing OBS
+;  mid-shift is a choice, and a 10-second timer that reopened it would fight it.
+;  A NEW Infloww window (the next shift, or Infloww restarted) launches it again.
+;  If OBS is already up — recording, or open on your own profile — it is left alone.
+;  The OBS source needs the exact window title (see the OBS notes in the docs),
+;  which is why this waits for the Messages window instead of firing at boot.
+global OBS_EXE := "D:\Software\Productivity\obs-studio\bin\64bit\obs64.exe"
+global OBS_SHIFT_HWND := 0
+
+OBS_AutoRecordTick() {
+    global OBS_SHIFT_HWND
+    if (Trim(IniRead(MMA_CFG, "Settings", "AutoRecordShift", "1")) != "1")
+        return
+    _win := 0
+    for _h in WinGetList("ahk_exe Infloww.exe")
+        if InStr(WinGetTitle(_h), "Infloww Messages - ") = 1 {
+            _win := _h
+            break
+        }
+    if !_win {
+        OBS_SHIFT_HWND := 0                 ; shift over: re-arm for the next one
+        return
+    }
+    if (_win = OBS_SHIFT_HWND)
+        return
+    OBS_SHIFT_HWND := _win
+    if ProcessExist("obs64.exe") {
+        LOGI("proc.obs", "Infloww Messages is up; OBS is already running, leaving it")
+        return
+    }
+    _obsExe := Trim(IniRead(MMA_CFG, "ShiftRecording", "ObsExe", OBS_EXE))
+    if !FileExist(_obsExe) {
+        LOGW("proc.obs", "cannot auto-record the shift: OBS not found at " _obsExe)
+        return
+    }
+    SplitPath(_obsExe, , &_obsDir)
+    try {
+        Run('"' _obsExe '" --profile "Shifts" --collection "Shifts" --startrecording'
+          . ' --minimize-to-tray --disable-shutdown-check', _obsDir)
+        LOGI("proc.obs", "Infloww Messages is up; started OBS recording the shift")
+    } catch as e {
+        LOGW("proc.obs", "could not start OBS: " e.Message)
+    }
 }

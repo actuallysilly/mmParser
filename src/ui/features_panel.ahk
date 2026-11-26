@@ -53,17 +53,14 @@ class FeaturesPanel {
         this.rbAdv  := hostGui.Add("Radio", "x" x " y" (y + 46) " w" (w - 8)
                                           . (isEasy ? "" : " Checked"),
                                    "Advanced — everything, each switchable on its own.")
-        hostGui.SetFont("s8")
-        hostGui.Add("Text", "x" (x + 18) " y" (y + 68) " w" (w - 26) " cGray",
-                    "Easy does not just hide these — their hotkeys never register and"
-                  . " their background scripts never start.")
-        hostGui.SetFont("s9")
 
         ; ── the feature list, flowed into two balanced columns ────────────────
         ; Which section lands in which column is worked out from the row counts
         ; rather than written down, so adding a FEAT_Def cannot leave one column
-        ; twice the height of the other.
-        top   := y + 96
+        ; twice the height of the other. A section is never split, so keep them
+        ; small: one 17-row "Background" section once ran off the bottom of the
+        ; tab, under the Save bar, where nothing in it could be seen or ticked.
+        top   := y + 76
         colW  := (w - FeaturesPanel.GAP * 2) // 2
         colX  := [x, x + colW + FeaturesPanel.GAP * 2]
         colY  := [top, top]

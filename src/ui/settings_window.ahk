@@ -2,6 +2,7 @@
 #Include "hotkeys_panel.ahk"
 #Include "features_panel.ahk"
 #Include "debug_panel.ahk"
+#Include "help_panel.ahk"
 ; SETTINGS_Fields / SETTINGS_Int — the field table both Settings front ends are
 ; built from, so a setting is described once.
 #Include "settings_core.ahk"
@@ -68,6 +69,7 @@ global SW_MARGIN  := 8
 global SW_BAR_H   := 48       ; the Save/Close strip along the bottom
 global SW_INSET_X := 14       ; tab page inset, left and right
 global SW_INSET_Y := 34       ; below the tab strip itself
+global SW_HELP_TAB := 9       ; Settings ▸ Help, opened directly by the gui.help key
 
 OpenSettings(*) {
     global model1Name, model2Name, model3Name, modelCount, CFG_FILE, g
@@ -100,8 +102,8 @@ OpenSettings(*) {
                         . " w" (SW_W - SW_MARGIN * 2)
                         . " h" (SW_H - SW_BAR_H - SW_MARGIN * 2)
                         . (_sgBg != "" ? " Background" _sgBg : ""),
-                  ["General", "Models", "Sending", "Features", "Scripts",
-                   "Hotkeys", "GUI", "Debug"])
+                  ["General", "Models", "Sending", "Features",
+                   "Scripts", "Hotkeys", "GUI", "Debug", "Help"])
     ; Exported so a tab can be opened directly — `tab` itself is a local, and the
     ; only way in from outside was Ctrl+Tab, which needs the focus to be inside the
     ; control and silently does nothing when it is not. Setting .Value switches the
@@ -134,135 +136,14 @@ OpenSettings(*) {
     y += 30
     sg.SetFont("s8")
     sg.Add("Text", "x" CX " y" y " w" CW " cGray",
-           "[Settings] WaitTime in mass_gui.cfg. The message scripts and the mass"
-         . " engine read it once, at load, so they restart when you change it."
-         . " Too low and Infloww misses keystrokes; too high and every send"
-         . " drags. (It was a literal inside core\utils.ahk until this release — the"
-         . " one setting saving which rewrote a source file.)")
+           "Too low and Infloww misses keystrokes; too high and every send drags."
+         . " Changing it restarts the message scripts and the mass engine.")
     sg.SetFont("s9")
     y += 56
 
-    ; ── Reply timers ──────────────────────────────────────────────────────────
-    ;  The thresholds and colours for screen/reply_box.ahk. They are HERE rather
-    ;  than on a window of their own for the reason the Features rework exists: a
-    ;  second window writing mass_gui.cfg is a second window that can disagree
-    ;  with this one. General is the tab with the room, and a wait time in minutes
-    ;  belongs next to a wait time in milliseconds.
-    ;
-    ;  Nothing in this block restarts anything. reply_box.ahk re-reads its cfg on
-    ;  every full pass, so a colour or a threshold is live within PollMs — which
-    ;  is why the note below can promise "a few seconds" rather than "on restart".
-    sg.Add("Text", "x" CX " y" y " w" CW " h1 0x10")
-    y += 12
-    sg.SetFont("s9 Bold")
-    sg.Add("Text", "x" CX " y" y " w" CW, "Reply timers")
-    sg.SetFont("s9 Norm")
-    y += 22
-    sg.SetFont("s8")
-    sg.Add("Text", "x" CX " y" y " w" CW " cGray",
-           "Puts a coloured border round any conversation in the Infloww list that"
-         . " is UNREAD and has been waiting longer than one of the times below."
-         . " Replying clears the row's unread dot, so the box goes on its own —"
-         . " nothing has to be dismissed.")
-    sg.SetFont("s9")
-    y += 34
-
-    ; ── where the list is ─────────────────────────────────────────────────────
-    ;  A rectangle on your screen, at your window size, on your monitor. There is
-    ;  no default worth shipping, so an empty Region is a first-class state that
-    ;  says so out loud instead of painting boxes over whatever is at 0,0.
-    btnRbCal := sg.Add("Button", "x" CX " y" y " w150 h28", "Calibrate the list…")
-    lblRbCal := sg.Add("Text", "x" (CX + 160) " y" (y + 6) " w" (CW - 160), "")
-    btnRbCal.OnEvent("Click", CalibrateReplyList)
-    y += 32
-    ; The second measurement, and the one that decides whether a box covers the
-    ; whole row or two-thirds of it. It is a separate button rather than part of
-    ; the first because it asks for a different drag — one conversation, not the
-    ; list — and because the list rarely changes while the row height changes with
-    ; every zoom level.
-    btnRbRow := sg.Add("Button", "x" CX " y" y " w150 h28", "Calibrate a row…")
-    lblRbRow := sg.Add("Text", "x" (CX + 160) " y" (y + 6) " w" (CW - 160), "")
-    btnRbRow.OnEvent("Click", CalibrateReplyRow)
-    y += 36
-
-    ; ── the tiers ─────────────────────────────────────────────────────────────
-    ;  Five rows for four defaults, so adding one is filling in a blank rather
-    ;  than editing the cfg by hand. A row with no minutes is not a tier — that is
-    ;  how you delete one, and it is what the note says.
-    ;
-    ;  The swatch is a Progress bar, not a coloured Button. Windows draws buttons
-    ;  itself and ignores a background colour, which this window's own GUI tab
-    ;  says out loud; a Progress with a Background option is the one control that
-    ;  will simply be a rectangle of a given colour.
-    sg.SetFont("s8")
-    sg.Add("Text", "x" CX " y" y " w120", "After (minutes)")
-    sg.Add("Text", "x" (CX + 84) " y" y " w120", "Colour")
-    sg.SetFont("s9")
-    y += 18
-
-    edRbMins := [], swRbCol := [], _rbCols := []
-    Loop 5 {
-        _i   := A_Index
-        _raw := Trim(IniRead(CFG_FILE, "ReplyBox", "Tier" _i, ""))
-        _t   := (_raw != "") ? RB_ParseTier(_raw) : 0
-        _rbCols.Push(_t ? _t.col : "")
-        edRbMins.Push(sg.Add("Edit", "x" CX " y" y " w52 Number",
-                             _t ? _t.mins : ""))
-        swRbCol.Push(sg.Add("Progress", "x" (CX + 60) " y" (y + 3) " w52 h18"
-                                      . " Background" (_t ? _t.col : "808080"), 0))
-        ; .Bind, not a closure over _i: one function body means one set of locals,
-        ; so a closure would hand every row the last index in the loop. The same
-        ; trap tools_window.ahk documents on its per-row buttons.
-        _btn := sg.Add("Button", "x" (CX + 120) " y" y " w86 h24", "Colour…")
-        _btn.OnEvent("Click", PickTierColour.Bind(_i))
-        sg.SetFont("s8")
-        sg.Add("Text", "x" (CX + 214) " y" (y + 5) " w" (CW - 214) " cGray",
-               _i = 1 ? "the quiet band below this gets no box at all" : "")
-        sg.SetFont("s9")
-        y += 28
-    }
-    y += 6
-
-    sg.Add("Text", "x" CX " y" (y + 3) " w96", "Row height:")
-    edRbRowH := sg.Add("Edit", "x" (CX + 100) " y" y " w52 Number",
-                       _IniInt(CFG_FILE, "ReplyBox", "RowH", 105))
-    sg.Add("Text", "x" (CX + 166) " y" (y + 3) " w72", "Above dot:")
-    ; -1 is the "nobody has measured this" sentinel, and showing it as a number
-    ; you could edit invites someone to type -1 back and wonder why the box moved.
-    ; Blank means the same thing and reads as what it is.
-    _rbOffCur := _IniInt(CFG_FILE, "ReplyBox", "RowOffsetY", -1)
-    edRbOff := sg.Add("Edit", "x" (CX + 240) " y" y " w52 Number",
-                      _rbOffCur < 0 ? "" : _rbOffCur)
-    sg.Add("Text", "x" (CX + 306) " y" (y + 3) " w52", "Border:")
-    edRbBorder := sg.Add("Edit", "x" (CX + 362) " y" y " w52 Number",
-                         _IniInt(CFG_FILE, "ReplyBox", "BorderW", 4))
-    y += 30
-
-    chkRbCapture := sg.Add("Checkbox", "x" CX " y" y " w" CW
-                         . (_IniInt(CFG_FILE, "ReplyBox", "ExcludeFromCapture", 1)
-                               ? " Checked" : ""),
-                           "Keep the boxes out of screenshots")
-    sg.SetFont("s8")
-    lblRbFeat := sg.Add("Text", "x" (CX + 300) " y" (y + 2) " w" (CW - 300), "")
-    sg.SetFont("s9")
-    y += 26
-
-    sg.SetFont("s8")
-    sg.Add("Text", "x" CX " y" y " w" CW " cGray",
-           "All in pixels. Row height is how tall one conversation is; 'above dot'"
-         . " is how far the top of the box sits above the unread dot — the dot is"
-         . " NOT in the middle of its row, so leaving this blank (halfway) draws"
-         . " every box slightly high. Both are set for you by 'Calibrate a row…',"
-         . " which is easier than measuring. Clear a tier's minutes to delete it."
-         . " Saving applies within a few seconds; nothing restarts."
-         . "  •  The screenshot box is on by default so MMA's own scan reads"
-         . " Infloww and not its own borders — the cost is that the frames are"
-         . " invisible to any screen capture. Untick it when you need a picture of"
-         . " them, and avoid tier colours close to the unread coral while it is"
-         . " off.")
-    sg.SetFont("s9")
-
-    PaintReplyBoxState()
+    ; Reply timers lived here. They are a tool, not something MMA itself needs,
+    ; so they are in the Tools window now (ui\tools_settings.ahk) — General holds
+    ; only what you have asked to be on it.
 
     ; ═══════════════════════════════════════════════════════════════════════════
     ;  Tab 2 — Models: who they are, and which one MMA thinks is on screen.
@@ -534,34 +415,31 @@ OpenSettings(*) {
         _rd.OnEvent("Click", (*) => _SyncModelCtrls())
     _SyncModelCtrls()
 
-    ; ── the live readout ──────────────────────────────────────────────────────
-    ; Everything above is a setting you cannot check by looking at it, which is why
-    ; the detector stayed wrong for so long without saying so: it answered "model 1"
-    ; with total confidence and nothing on screen disagreed. This line is the
-    ; disagreement. It shows the lit tab's x, which TAB INDEX that works out to, and
-    ; which model the order above maps that index to.
-    ;
-    ; Read it in that order when something is off. "no lit tab" is a colour or
-    ; region problem and no amount of reordering helps. A wrong tab NUMBER is
-    ; TabOrigin/TabPitch. A right tab number pointing at the wrong model is the
-    ; order — fix it in the dropdowns above, or by pointing at it with the keys.
-    sg.Add("Text", "x" CX " y" y " w130", "Detector sees:")
-    lblDetLive := sg.Add("Text", "x" (CX + 136) " y" y " w" (CW - 136), "")
+    ; ── the live readout: which model is on screen, in plain words ───────────
+    ; One line per site and one for what the shared keys will actually do. It
+    ; replaced "Detector sees: tab1:26 tab2:0 tab3:15 | no tab lit | → no answer |
+    ; keys → 1", which was raw pixel counts, Infloww only, and readable only by
+    ; whoever wrote it. The pixel counts still go to the log at Verbose.
+    sg.SetFont("s9 Bold")
+    sg.Add("Text", "x" CX " y" y " w" CW, "Which model is on screen")
+    sg.SetFont("s9 Norm")
     y += 22
+    sg.Add("Text", "x" (CX + 18) " y" y " w110", "Infloww:")
+    lblDetOf := sg.Add("Text", "x" (CX + 136) " y" y " w" (CW - 136), "")
+    y += 22
+    sg.Add("Text", "x" (CX + 18) " y" y " w110", "Fansly:")
+    lblDetFan := sg.Add("Text", "x" (CX + 136) " y" y " w" (CW - 136), "")
+    y += 22
+    sg.Add("Text", "x" (CX + 18) " y" y " w110", "Shared keys send to:")
+    lblDetKeys := sg.Add("Text", "x" (CX + 136) " y" y " w" (CW - 136), "")
+    y += 26
     sg.SetFont("s8")
-    sg.Add("Text", "x" CX " y" y " w" CW " cGray",
-           "Set either order by pointing: click a model's tab in Infloww — or its"
-         . " card on the Fansly rail — and press that model's key ("
-         . HK_Key("mass.select.m1") " / " HK_Key("mass.select.m2") "). The key"
-         . " knows which window is in front and teaches that one. High beep = set,"
-         . " low beep = refused, tooltip says why.")
-    y += 30
+    sg.Add("Text", "x" (CX + 18) " y" y " w" (CW - 18) " cGray",
+           "To fix a wrong order: click the model's tab (or Fansly card) and press that"
+         . " model's key (" HK_Key("mass.select.m1") ", " HK_Key("mass.select.m2")
+         . " …).")
     sg.SetFont("s9")
-
-    ; Two lines' worth of height: the "not running" wording is a sentence, and a
-    ; Text control given one line's height simply clips the rest.
-    lblDetector := sg.Add("Text", "x" CX " y" y " w" CW " h30", "")
-    y += 34
+    y += 30
 
     btnResetModels := sg.Add("Button", "x" CX " y" y " w130 h26", "Reset model fields")
     btnResetModels.OnEvent("Click", (*) => ResetModelFields())
@@ -572,6 +450,8 @@ OpenSettings(*) {
     tab.UseTab(3)
     y := CY
 
+    ; No grey explanations on this tab — Silly asked for the options alone
+    ; (2026-10-24). What each one does is in docs\guide.html.
     sg.Add("Text", "x" CX " y" (y + 2) " w130", "Open new tab after:")
     chkTabFu2 := sg.Add("Checkbox", "x" (CX + 136) " y" y " w52", "FU2")
     chkTabFu3 := sg.Add("Checkbox", "x" (CX + 192) " y" y " w52", "FU3")
@@ -584,50 +464,17 @@ OpenSettings(*) {
     chkWallet := sg.Add("Checkbox", "x" CX " y" y " w" CW, "Wallet check before FU3")
     chkWallet.Value := walletCheckFu3
     chkWallet.OnEvent("Click", (*) => _BroadcastWallet(chkWallet.Value ? 1 : 0))
-    y += 24
-
-    ; "Prompt for Alt-FUs using ctrl+hotkey" was here. It chose which of two keys
-    ; offered the alternatives — and there is one key now, so there is nothing left
-    ; to choose. The follow-up key stages every alt and every branch; TAB walks
-    ; them, Enter sends the marked one, Esc cancels. A follow-up with no
-    ; alternatives sends straight out and never stages.
-    sg.SetFont("s8")
-    sg.Add("Text", "x" CX " y" y " w" CW " cGray",
-           "Every branch of a follow-up is one list on the follow-up key: TAB moves"
-         . " through them, Shift+TAB goes back, Enter sends, Esc cancels. Branches"
-         . " are written `::name text` in a paste and edited in Variants. Switch the"
-         . " whole thing off under Features.")
-    sg.SetFont("s9")
-    y += 30
+    y += 26
 
     ; The fallback for the picker window, and the reason it is phrased as an
     ; opt-OUT: the window is the fix, not the option. Ticking this goes back to
-    ; previewing the variants inside the chat box, which is where they used to go —
-    ; and where, if Infloww swallows the Ctrl+A that clears them, ENTER SENDS ALL
-    ; OF THEM to the fan as one message. That is the bug the window removes, so the
-    ; box is here as a way out if the window misbehaves, not as a preference.
+    ; previewing the variants inside the chat box, where — if Infloww swallows the
+    ; Ctrl+A that clears them — ENTER SENDS ALL OF THEM to the fan as one message.
     chkAltNoGui := sg.Add("Checkbox", "x" CX " y" y " w" CW,
                           "Don't use a GUI for alt FUs (preview in the chat box"
                         . " instead)")
     chkAltNoGui.Value := IniRead(CFG_FILE, "Settings", "AltStageNoGui", "0") = "1"
-    y += 22
-    sg.SetFont("s8")
-    sg.Add("Text", "x" CX " y" y " w" CW " cGray",
-           "The chat-box preview can send every variant at once if Infloww ignores"
-         . " the keystroke that clears it. Leave this unticked unless the picker"
-         . " window itself gives you trouble.  Applies to the next follow-up key —"
-         . " no restart.")
-    sg.SetFont("s9")
     y += 34
-
-    ; Not a saved setting: _doubleMM is session state, and the checkbox applies the
-    ; moment it is clicked. It sits here rather than in Features because Features
-    ; holds whether double-MM EXISTS, and this is whether it is on right now.
-    chkDMM := sg.Add("Checkbox", "x" CX " y" y " w" CW,
-                     "Double MM is on for this session (applies immediately, not saved)")
-    chkDMM.Value := _doubleMM
-    chkDMM.OnEvent("Click", (*) => (ToggleDoubleMM(), chkDMM.Value := _doubleMM))
-    y += 30
 
     sg.Add("Text", "x" CX " y" y " w" CW " h1 0x10")
     y += 12
@@ -635,11 +482,8 @@ OpenSettings(*) {
     sg.Add("Text", "x" CX " y" y " w150", "Default FU3")
     sg.SetFont("s9 Norm")
     ; The SWITCH stays in Features — that tab is the only place a feature key is
-    ; offered as a setting (see ui/features_panel.ahk's header). But with no sign of
-    ; it here, the field was
-    ; indistinguishable from broken: you type a fallback, press Save, press f3 on
-    ; a mass with no f3, and nothing goes out with nothing on screen to say why.
-    ; So the state is echoed read-only, next to the thing it governs.
+    ; offered as a setting. The state is echoed here read-only, because with no
+    ; sign of it the field is indistinguishable from broken.
     _defFu3On := FEAT("defaultFu3")
     sg.SetFont("s8")
     _lblDefFu3 := sg.Add("Text", "x" (CX + 150) " y" (y + 4) " w" (CW - 150),
@@ -657,45 +501,29 @@ OpenSettings(*) {
     ; fallback and then switching it on is the normal order to do this in.
     edDefFu3 := sg.Add("Edit", "x" CX " y" y " w" CW " h56 Multi WantReturn",
                        _DecodeMultiline(IniRead(CFG_FILE, "Settings", "DefaultFu3", "")))
-    y += 62
-    sg.SetFont("s8")
-    sg.Add("Text", "x" CX " y" y " w" CW " cGray",
-           "Leave blank for the old behaviour: an f3 key on a mass with no f3 does"
-         . " nothing.")
-    sg.SetFont("s9")
-    y += 30
+    y += 70
 
     sg.Add("Text", "x" CX " y" y " w" CW " h1 0x10")
     y += 12
     sg.SetFont("s9 Bold")
-    sg.Add("Text", "x" CX " y" y " w230", "Next follow-up  (" HK_Key("mass.active.nextFu") ")")
+    sg.Add("Text", "x" CX " y" y " w400", "Auto detect next follow up (single button mode)"
+                                         . "  (" HK_Key("mass.active.nextFu") ")")
     sg.SetFont("s9 Norm")
-    ; Same read-only echo as Default FU3 above, and for the same reason: every
-    ; number in this section is inert while the feature is off, and tuning an OCR
-    ; region that is never read is the worst way to spend an afternoon.
     _nextFuOn := FEAT("nextFu")
     sg.SetFont("s8")
-    _lblNextFu := sg.Add("Text", "x" (CX + 230) " y" (y + 4) " w" (CW - 230),
+    _lblNextFu := sg.Add("Text", "x" (CX + 400) " y" (y + 4) " w" (CW - 400),
                          _nextFuOn
                             ? Chr(0x25CF) " On — switch it off under Features"
                             : Chr(0x25CB) " Off — the key does nothing."
                             . " Switch it on under Features.")
     _lblNextFu.SetFont(_nextFuOn ? "cGreen" : "cGray")
     sg.SetFont("s9")
-    y += 22
-    sg.SetFont("s8")
-    sg.Add("Text", "x" CX " y" y " w" CW " cGray",
-           "One key for the whole f1 → f2 → f3 walk. It OCRs the conversation, finds"
-         . " the last follow-up already sent in it, and sends the one after — so it"
-         . " is right per chat and per model, with nothing to remember.")
     y += 30
-    sg.SetFont("s9")
 
     ; The pane it reads, in SCREEN coordinates. Defaults are automation.py's
-    ; R_MESSAGES, the same measured rectangle its unsend flow reads, so the two
-    ; agree about where the messages are. Wrong region is the failure everybody
-    ; hits first, and it cannot announce itself — it just never finds a follow-up
-    ; and always sends f1 — so the numbers belong somewhere you can see them.
+    ; R_MESSAGES, the same measured rectangle its unsend flow reads. Wrong region is
+    ; the failure everybody hits first, and it cannot announce itself — it just
+    ; never finds a follow-up and always sends f1.
     sg.Add("Text", "x" CX " y" (y + 3) " w130", "Chat region (screen):")
     _nfuLbl := ["x", "y", "w", "h"]
     _nfuKey := ["RegionX", "RegionY", "RegionW", "RegionH"]
@@ -713,29 +541,19 @@ OpenSettings(*) {
     sg.Add("Text", "x" CX " y" (y + 3) " w130", "OCR scale:")
     edNfu["Scale"] := sg.Add("Edit", "x" (CX + 136) " y" y " w54",
                              _IniInt(CFG_FILE, "NextFu", "Scale", 1))
-    sg.Add("Text", "x" (CX + 202) " y" (y + 3) " w80", "Match on:")
-    edNfu["NeedleLen"] := sg.Add("Edit", "x" (CX + 268) " y" y " w54",
+    y += 30
+    ; A follow-up shorter than the minimum is ignored rather than matched — "hey"
+    ; is in half the conversation.
+    sg.Add("Text", "x" CX " y" (y + 3) " w130", "Match on (chars):")
+    edNfu["NeedleLen"] := sg.Add("Edit", "x" (CX + 136) " y" y " w54",
                                  _IniInt(CFG_FILE, "NextFu", "NeedleLen", 24))
-    sg.SetFont("s8")
-    sg.Add("Text", "x" (CX + 328) " y" (y + 4) " w60 cGray", "chars, at")
-    sg.SetFont("s9")
-    edNfu["MinNeedle"] := sg.Add("Edit", "x" (CX + 386) " y" y " w54",
+    sg.Add("Text", "x" (CX + 202) " y" (y + 3) " w70", "minimum:")
+    edNfu["MinNeedle"] := sg.Add("Edit", "x" (CX + 268) " y" y " w54",
                                  _IniInt(CFG_FILE, "NextFu", "MinNeedle", 12))
-    sg.SetFont("s8")
-    sg.Add("Text", "x" (CX + 446) " y" (y + 4) " w" (CW - 446) " cGray",
-           "minimum. A follow-up shorter than the minimum is ignored rather than"
-         . " matched — `"hey`" is in half the conversation.")
-    sg.SetFont("s9")
     y += 34
 
     btnNfuTest := sg.Add("Button", "x" CX " y" y " w130 h26", "Test what it reads")
     btnNfuTest.OnEvent("Click", (*) => RunNextFuProbe())
-    sg.SetFont("s8")
-    sg.Add("Text", "x" (CX + 140) " y" (y + 5) " w" (CW - 140) " cGray",
-           "Opens the probe: switch to a chat that already has a follow-up in it,"
-         . " press Ctrl+Alt+F10, and it reports what it read and which group it"
-         . " would pick. Ctrl+Alt+F12 closes it.")
-    sg.SetFont("s9")
 
     ; ═══════════════════════════════════════════════════════════════════════════
     ;  Tab 4 — Features: the one place a feature is switched on or off.
@@ -828,35 +646,12 @@ OpenSettings(*) {
     chkAutoRestart := sg.Add("Checkbox", "x" CX " y" y " w" CW,
                              "Auto-restart these if they die (watchdog, checks every 5s)")
     chkAutoRestart.Value := autoRestart
-    y += 32
-
-    sg.Add("Text", "x" CX " y" y " w" CW " h1 0x10")
-    y += 12
-    sg.SetFont("s9 Bold")
-    sg.Add("Text", "x" CX " y" y " w" CW, "Background services")
-    sg.SetFont("s9 Norm")
-    y += 20
-    sg.SetFont("s8")
-    sg.Add("Text", "x" CX " y" y " w" CW " cGray",
-           "Read-only. These are switched on and off in Features — that tab owns"
-         . " them, so they cannot disagree with it here.")
-    sg.SetFont("s9")
-    y += 24
-
-    ; id -> label, in the order they are painted. Kept as a list so the status
-    ; painter below is one loop rather than four near-identical blocks — the shape
-    ; the old window had, where adding the stats overlay meant adding a fifth copy.
-    svcRows := [["automation",    "Automation listener (serves the [automation] hotkeys)"],
-                ["pinger",        "Unread pinger (beeps when an Infloww tab goes unread)"],
-                ["modelDetector", "Model detector (reads which model's tab is in front)"],
-                ["statsOverlay",  "Stats overlay (toggle: " HK_Key("gui.toggleStats") ")"]]
-    svcLbls := Map()
-    for _, _row in svcRows {
-        sg.Add("Text", "x" CX " y" y " w" (CW - 120), _row[2])
-        svcLbls[_row[1]] := sg.Add("Text", "x" (CX + CW - 110) " y" y " w110", "")
-        y += 22
-    }
-    y += 14
+    y += 26
+    ; [Settings] "AutoRecordShift" — OBS_AutoRecordTick in core\processes.ahk.
+    chkAutoRecord := sg.Add("Checkbox", "x" CX " y" y " w" CW,
+                            "Record every shift with OBS (starts when Infloww Messages opens)")
+    chkAutoRecord.Value := Trim(IniRead(CFG_FILE, "Settings", "AutoRecordShift", "1")) = "1"
+    y += 40
 
     btnWipe := sg.Add("Button", "x" CX " y" y " w110 h28", "Wipe TEMP.ahk")
     btnWipe.OnEvent("Click", (*) => (StopSettingsTimers(), sg.Destroy(), WipeTemp()))
@@ -1062,36 +857,6 @@ OpenSettings(*) {
          . " of you; on gives the per-model grid. Restarts MMA.")
     sg.SetFont("s9")
 
-    ; ── right column: the archive's on/off switch ─────────────────────────────
-    ; It was a tick box on the main window's button row, beside Parse — read once
-    ; per parse, so it was a per-parse decision about something nobody decides per
-    ; parse. Here it is a preference, and the row it vacated now holds the button
-    ; that opens the archive.
-    sg.SetFont("s9 Bold")
-    sg.Add("Text", "x" _colR " y" y " w" _colW, "Mass archive")
-    sg.SetFont("s9 Norm")
-    chkArchiveParse := sg.Add("Checkbox", "x" _colR " y" (y + 24) " w" _colW
-                            . (_IniInt(CFG_FILE, "Settings", "ArchiveOnParse", 1)
-                                  ? " Checked" : ""),
-                              "Archive every mass you Parse")
-    sg.SetFont("s8")
-    sg.Add("Text", "x" (_colR + 18) " y" (y + 46) " w" (_colW - 18) " cGray",
-           "On (default): pressing Parse also appends the pasted mass to the"
-         . " archive, which is what the 'Archive…' button on the main window"
-         . " browses. A mass already archived TODAY is skipped rather than stored"
-         . " twice — re-parsing after fixing a line does not grow the archive, and"
-         . " nothing asks you about it. Takes effect on the next Parse; no reload."
-         . (FEAT("archive") ? ""
-                            : "   The Archive feature itself is switched OFF under"
-                            . " Features, so nothing is archived either way."))
-    sg.SetFont("s9")
-    ; 132 while the left column ended at the Legacy Load/Save box and one grey
-    ; paragraph. It now carries two more radio pairs (Settings window, Hotkey
-    ; editor) and a longer paragraph, and a Text control given a width auto-sizes
-    ; DOWNWARDS — so the old figure put the corner-picture section on top of it.
-    ; Nothing errors when that happens; the controls simply draw over each other.
-    y := _rowTop + 232
-
     ; ── the picture in the main window's corner ───────────────────────────────
     ;  Both settings apply LIVE — see CREDIT_Refresh in credit.ahk. Nothing here
     ;  changes which controls the main window builds, so nothing here reloads MMA.
@@ -1100,13 +865,15 @@ OpenSettings(*) {
     ;  one, the file you picked. A bare name is stored for anything inside that
     ;  folder and a full path for anything outside it, so moving the install does
     ;  not break the choice — see CREDIT_PickedPath.
-    sg.Add("Text", "x" CX " y" y " w" CW " h1 0x10")
-    y += 10
+    ;
+    ;  The RIGHT column, beside Main window — the Mass archive switch that sat
+    ;  here is on the archive's own page in the Tools window now.
+    y := _rowTop
     sg.SetFont("s9 Bold")
-    sg.Add("Text", "x" CX " y" y " w" CW, "Corner picture")
+    sg.Add("Text", "x" _colR " y" y " w" _colW, "Corner picture")
     sg.SetFont("s9 Norm")
     y += 22
-    chkCredit := sg.Add("Checkbox", "x" CX " y" (y + 4) " w190"
+    chkCredit := sg.Add("Checkbox", "x" _colR " y" y " w190"
                       . (_IniInt(CFG_FILE, "Settings", "CreditPicture", 1)
                             ? " Checked" : ""),
                         "Show her in the corner")
@@ -1123,18 +890,19 @@ OpenSettings(*) {
     ; choice.
     if (_credCur != "" && (InStr(_credCur, "\") || InStr(_credCur, ":")))
         _credItems.Push(_credCur)
-    ddlCredit := sg.Add("DropDownList", "x" (CX + 200) " y" y " w400", _credItems)
+    y += 26
+    ddlCredit := sg.Add("DropDownList", "x" _colR " y" y " w" (_colW - 110), _credItems)
     _credPick := 1
     for _i, _it in _credItems
         if (_credCur != "" && _it = _credCur)
             _credPick := _i
     ddlCredit.Choose(_credPick)
-    btnCredBrowse := sg.Add("Button", "x" (CX + 610) " y" (y - 2) " w100 h26",
+    btnCredBrowse := sg.Add("Button", "x" (_colR + _colW - 100) " y" (y - 2) " w100 h26",
                             "Browse" Chr(0x2026))
     btnCredBrowse.OnEvent("Click", BrowseCredit)
     y += 32
     sg.SetFont("s8")
-    sg.Add("Text", "x" CX " y" y " w" (CW - 8) " cGray",
+    sg.Add("Text", "x" _colR " y" y " w" _colW " cGray",
            "Any GIF or PNG. An animated GIF plays; a still image just sits there."
          . " She is scaled to whatever space the buttons above her leave — a bigger"
          . " window gives her more — and she is never drawn over a control. Both"
@@ -1147,6 +915,12 @@ OpenSettings(*) {
     tab.UseTab(8)
     DebugPanel(sg, CX, CY, CW, CH)
 
+    ; ═══════════════════════════════════════════════════════════════════════════
+    ;  Tab 9 — Help: what every key does, searchable (ui\help_panel.ahk).
+    ; ═══════════════════════════════════════════════════════════════════════════
+    tab.UseTab(9)
+    helpView := HelpPanel(sg, CX, CY, CW, CH)   ; NOT "helpPanel": AHK names are case-blind, so a local helpPanel shadowed the HelpPanel() function
+
     tab.UseTab()
 
     ; ── the bottom strip, outside the tabs ────────────────────────────────────
@@ -1157,7 +931,11 @@ OpenSettings(*) {
     btnSave.OnEvent("Click", SaveCfg)
     btnClose := sg.Add("Button", "x" (SW_MARGIN + 108) " y" _by " w90 h30", "Close")
     btnClose.OnEvent("Click", (*) => CloseSettings())
-    lblSaved := sg.Add("Text", "x" (SW_MARGIN + 210) " y" (_by + 8) " w" (SW_W - 230), "")
+    ; Every tool's own settings are in the Tools window (ui\tools_settings.ahk).
+    btnSwTools := sg.Add("Button", "x" (SW_W - SW_MARGIN - 110) " y" _by " w110 h30",
+                       "Tools" Chr(0x2026))
+    btnSwTools.OnEvent("Click", (*) => OpenToolsWindow(g.Hwnd))
+    lblSaved := sg.Add("Text", "x" (SW_MARGIN + 210) " y" (_by + 8) " w" (SW_W - 350), "")
 
     ; Colour the controls, now that all eight tabs' worth of them exist. Nothing to
     ; do on a light theme; on dark this is what stops the labels being black text
@@ -1182,9 +960,7 @@ OpenSettings(*) {
     _swHwnd := sg.Hwnd
 
     PaintDetectorLive()
-    PaintServiceStatus()
     SetTimer(PaintDetectorLive, 400)
-    SetTimer(PaintServiceStatus, 1500)
 
     ; Title bar only — the empty control list is deliberate. This window's client
     ; area is light, and DarkMode_Explorer on a control inside a light window gives
@@ -1206,10 +982,13 @@ OpenSettings(*) {
             tab.Move(SW_MARGIN, SW_MARGIN, w - SW_MARGIN * 2, h - SW_BAR_H - SW_MARGIN * 2)
             hkPanel.Layout(CX, CY, w - SW_MARGIN * 2 - SW_INSET_X * 2,
                            h - SW_BAR_H - SW_MARGIN - CY)
+            helpView.Layout(CX, CY, w - SW_MARGIN * 2 - SW_INSET_X * 2,
+                             h - SW_BAR_H - SW_MARGIN - CY)
             _y2 := h - SW_BAR_H + 8
             btnSave.Move(SW_MARGIN, _y2)
             btnClose.Move(SW_MARGIN + 108, _y2)
-            lblSaved.Move(SW_MARGIN + 210, _y2 + 8, w - 230)
+            btnSwTools.Move(w - SW_MARGIN - 110, _y2)
+            lblSaved.Move(SW_MARGIN + 210, _y2 + 8, w - 350)
         }
     }
 
@@ -1237,302 +1016,27 @@ OpenSettings(*) {
         ddlCredit.Choose(_credItems.Length)
     }
 
-    ; ── Reply timers: calibrate, colour, and what the state line says ─────────
-
-    ; Drag a box round the conversation list and store it in the Infloww window's
-    ; CLIENT coordinates.
-    ;
-    ; Client, not screen, and that is the whole reason this is a button rather
-    ; than four numbers you type: move or maximise Infloww and a screen rectangle
-    ; is pointing at the desktop, while a client one comes with the window. Same
-    ; call tab_marks.ahk makes about where a bar lives.
-    ;
-    ; The Settings window HIDES itself for the drag. It is a 980px window sitting
-    ; over the thing you have been asked to draw a box around — without this you
-    ; would be calibrating against MMA's own General tab, which is exactly what
-    ; the first version let you do.
-    CalibrateReplyList(*) {
-        _win := Trim(IniRead(CFG_FILE, "ReplyBox", "WinMatch", "Infloww Messages"))
-        if !WinExist(_win) {
-            MsgBox("No window matching '" _win "' is open.`n`nOpen Infloww"
-                 . " Messages first — the region is stored relative to that"
-                 . " window, so it has to be there to measure against.",
-                   "Reply timers", 0x30)
-            return
-        }
-        sg.Hide()
-        ; The overlay is drawn by the same code the OCR grab uses, so it inherits
-        ; Escape, right-click and the 20-second give-up that stop a forgotten
-        ; sheet locking the desktop. Sleep first: hiding a window is a request to
-        ; the compositor, and grabbing before it has gone captures this window.
-        Sleep 250
-        _rect := OcrSelectRegion()
-        sg.Show()
-        if !_rect {
-            LOGI("ui.replybox", "list calibration cancelled — the region is"
-                              . " unchanged")
-            return
-        }
-        _ccx := 0, _ccy := 0
-        try WinGetClientPos(&_ccx, &_ccy, , , _win)
-        catch as e {
-            MsgBox("Could not read where '" _win "' is on screen, so the box you"
-                 . " drew cannot be stored against it.`n`n" e.Message,
-                   "Reply timers", 0x10)
-            return
-        }
-        _cx := _rect.x - _ccx, _cy := _rect.y - _ccy
-        ; A box drawn outside the window would store a negative offset that reads
-        ; as valid and then grabs whatever is left of Infloww. Refuse it here,
-        ; where there is somebody to tell.
-        if (_cx < 0 || _cy < 0) {
-            MsgBox("That box starts outside the '" _win "' window, so it cannot be"
-                 . " stored relative to it.`n`nDraw the box inside the Infloww"
-                 . " window, around the list of conversations.",
-                   "Reply timers", 0x30)
-            return
-        }
-        _reg := _cx "," _cy "," _rect.w "," _rect.h
-        ; Written NOW rather than at Save, unlike everything else on this tab. The
-        ; drag is the measurement — there is no control holding it to re-read on
-        ; Save, and asking someone to press Save to keep a box they just drew is
-        ; how a calibration gets lost. It also means the region lives in exactly
-        ; one place, the cfg, which is what PaintReplyBoxState reads back.
-        try IniWrite(_reg, CFG_FILE, "ReplyBox", "Region")
-        LOGI("ui.replybox", "list region calibrated to " _reg
-                          . " (client coords of '" _win "')")
-        PaintReplyBoxState()
-    }
-
-    ; Drag a box round ONE conversation, and take both numbers off it.
-    ;
-    ; This exists because the two things the overlay needs about a row cannot be
-    ; guessed from the list region: how TALL a row is, and where in it the unread
-    ; dot sits. The first varies with zoom and DPI. The second is not "the middle"
-    ; — on Infloww the dot shares a line with the timestamp, below the fan's name,
-    ; so assuming halfway draws every box high by the difference.
-    ;
-    ; Both fall out of one drag. The height is the box you drew; the offset is
-    ; where the dot turned out to be inside it, found with RBS_DotNearestCentre —
-    ; the SAME scan screen/reply_box.ahk uses, which is the entire reason
-    ; reply_scan.ahk is a separate file. A calibrator with its own copy would
-    ; report an offset measured against its own idea of the dot, and the service
-    ; would then draw against a different one.
-    ;
-    ; It writes to the CONTROLS, not to the cfg, unlike the list calibration
-    ; above. These two are ordinary numbers with edit boxes sitting right there,
-    ; so the measurement should land where you can see it, sanity-check it and
-    ; still back out by closing without saving. The region has no such control —
-    ; that is why it is the one that writes immediately.
-    CalibrateReplyRow(*) {
-        _win := Trim(IniRead(CFG_FILE, "ReplyBox", "WinMatch", "Infloww Messages"))
-        if !WinExist(_win) {
-            MsgBox("No window matching '" _win "' is open.`n`nOpen Infloww"
-                 . " Messages first.", "Reply timers", 0x30)
-            return
-        }
-        sg.Hide()
-        Sleep 250
-        _rect := OcrSelectRegion()
-        sg.Show()
-        if !_rect {
-            LOGI("ui.replybox", "row calibration cancelled")
-            return
-        }
-        ; Grab a little wider than the box drawn, so the dot band is inside it
-        ; even when the drag stopped short of the list's right edge. The dot is
-        ; ~20px in from that edge and nobody drags to the pixel.
-        _d    := RBS_Defaults()
-        _band := _IniInt(CFG_FILE, "ReplyBox", "DotBandW", _d.band)
-        _gw   := Max(_rect.w, _band + 8)
-        _img  := PILL_Grab(_rect.x + _rect.w - _gw, _rect.y, _gw, _rect.h)
-        _dot  := _img ? RBS_DotNearestCentre(_img, _RbDotOpts(_d)) : 0
-        if !_dot {
-            MsgBox("No unread dot was found inside that box.`n`nThe row height is"
-                 . " measured from the box, but the second number — where the dot"
-                 . " sits inside the row — has to be read off a real one. Draw the"
-                 . " box round a conversation that IS unread (one with the little"
-                 . " orange dot on the right), and include that dot.",
-                   "Reply timers", 0x30)
-            return
-        }
-        _h   := _rect.h
-        _off := _dot.cy - _rect.y
-        edRbRowH.Value := _h
-        edRbOff.Value  := _off
-        LOGI("ui.replybox", "row calibrated: height " _h "px, dot " _off "px below"
-                          . " the top — press Save to keep it")
-        PaintReplyBoxState()
-    }
-
-    ; The dot-scan options as the overlay reads them, defaulted from RBS_Defaults
-    ; so this window and the service cannot fall back to different numbers.
-    _RbDotOpts(d) {
-        _hex := RB_CleanHex(IniRead(CFG_FILE, "ReplyBox", "DotColor", "FF7C71"))
-        _col := 0xFF7C71
-        if (_hex != "")
-            try _col := Integer("0x" _hex)
-        return {color: _col,
-                tol:   Max(0, _IniInt(CFG_FILE, "ReplyBox", "DotTol",   d.tol)),
-                band:  Max(8, _IniInt(CFG_FILE, "ReplyBox", "DotBandW", d.band)),
-                step:  Max(1, Min(4, _IniInt(CFG_FILE, "ReplyBox", "DotStep", d.step))),
-                minPx: Max(1, _IniInt(CFG_FILE, "ReplyBox", "DotMinPx", d.minPx)),
-                maxPx: Max(1, _IniInt(CFG_FILE, "ReplyBox", "DotMaxPx", d.maxPx)),
-                maxH:  Max(2, _IniInt(CFG_FILE, "ReplyBox", "DotMaxH",  d.maxH)),
-                gap:   Max(1, _IniInt(CFG_FILE, "ReplyBox", "DotGap",   d.gap))}
-    }
-
-    ; The system colour dialog for one tier, from core/theme.ahk — the same one
-    ; the tab bars use. Cancelling leaves the swatch alone.
-    PickTierColour(idx, *) {
-        if (idx > _rbCols.Length)
-            return
-        _start := (_rbCols[idx] != "") ? _rbCols[idx] : "FFD24A"
-        _picked := THEME_ChooseColour(_start, "FFD24A")
-        if (_picked = "")
-            return
-        _rbCols[idx] := _picked
-        ; Opt() rather than rebuilding the control: a Progress takes its colour
-        ; from an option string it will accept at any time.
-        try swRbCol[idx].Opt("Background" _picked)
-        try WinRedraw(sg)
-    }
-
-    ; The one line that says whether this feature can do anything at all, and the
-    ; note beside the border width saying whether it is switched on.
-    ;
-    ; Two SEPARATE facts, deliberately. "Calibrated but the feature is off" and
-    ; "on but never calibrated" are both states people reach, and a single
-    ; combined message would have to guess which one you are in.
-    ; The region is re-READ from the cfg rather than kept in a variable up in the
-    ; build. CalibrateReplyList already writes it there the moment the box is
-    ; drawn, so the cfg is the single copy — and a nested function assigning to an
-    ; enclosing local is the one closure behaviour in AHK v2 that is worth not
-    ; relying on.
-    PaintReplyBoxState() {
-        try {
-            _cur := Trim(IniRead(CFG_FILE, "ReplyBox", "Region", ""))
-            if (_cur = "") {
-                lblRbCal.SetFont("cRed")
-                lblRbCal.Value := "Not calibrated — nothing is painted until you"
-                                . " draw a box round the conversation list."
-            } else {
-                _p := StrSplit(_cur, ",")
-                lblRbCal.SetFont("cGreen")
-                lblRbCal.Value := "Region set: " (_p.Length >= 3 ? _p[3] : "?") "x"
-                                . (_p.Length >= 4 ? _p[4] : "?") " at "
-                                . (_p.Length >= 1 ? _p[1] : "?") ","
-                                . (_p.Length >= 2 ? _p[2] : "?")
-                                . " inside the Infloww window."
-            }
-            ; Read off the CONTROLS, not the cfg — CalibrateReplyRow writes there
-            ; and Save is what commits, so this has to describe what you are
-            ; looking at rather than what is still on disk.
-            _rh  := Trim(edRbRowH.Value)
-            _rof := Trim(edRbOff.Value)
-            if (_rof = "") {
-                lblRbRow.SetFont("cGray")
-                lblRbRow.Value := "Row " (_rh = "" ? "?" : _rh) "px, dot assumed"
-                                . " halfway — boxes will sit slightly high."
-            } else {
-                lblRbRow.SetFont("cGreen")
-                lblRbRow.Value := "Row " _rh "px, dot " _rof "px below the top."
-            }
-            ; FEAT_Raw, not FEAT: the Features tab may be about to turn this on in
-            ; the same Save, and FEAT answers false for everything in Easy mode,
-            ; which would make this line read "off" for a reason it does not name.
-            lblRbFeat.SetFont(FEAT_Raw("replyBox") ? "cGreen" : "cGray")
-            lblRbFeat.Value := FEAT_Raw("replyBox")
-                ? Chr(0x25CF) " Reply timers are ON."
-                : Chr(0x25CB) " OFF — switch on under Features."
-        }
-    }
-
     ; ── the live detector readout ─────────────────────────────────────────────
-    ; Scans the strip ITSELF, and deliberately does NOT require Infloww to be the
-    ; active window — because reading this line means MMA is the active window, so a
-    ; focus-gated readout could only ever say "nothing on screen". That is exactly
-    ; what the first version did, which made the one diagnostic useless.
-    ;
-    ; Safe to skip the gate here precisely because it only DISPLAYS. The resolver
-    ; keeps the gate, since it acts on the answer.
+    ; Reads the screen ITSELF and deliberately ignores which window is in front:
+    ; reading this line means MMA is the active window, so a focus-gated readout
+    ; could only ever say "nothing on screen". It only DISPLAYS; the resolver keeps
+    ; the gate, since it acts on the answer. The last line asks the resolver
+    ; itself, so it is never a second opinion.
     PaintDetectorLive() {
         if !SW_Alive(_swHwnd) {
             SetTimer(PaintDetectorLive, 0)
             return
         }
-        ; Belt as well as braces: the window can be destroyed BETWEEN the check
-        ; above and the control write below, and a throw on a timer thread is a
-        ; dialog every 400ms rather than one.
+        ; A throw on a timer thread is a dialog every 400ms rather than one.
         try {
-            ; The same cheap slot sampling the hotkeys use, NOT a full band sweep —
-            ; a sweep is ~1000 GDI GetPixel calls and would make this 400ms timer
-            ; stutter the whole window. It also means what you read here is
-            ; literally what the keys will decide, not a second opinion.
-            cfg  := DetectorCfg()
-            t    := TabLitIndex(cfg)
-            slot := (t.index >= 1) ? TabModel(t.index) : 0
-
-            px := ""
-            for _i, _c in t.counts
-                px .= (px = "" ? "" : "  ") "tab" _i ":" _c
-
-            ; Two different facts, and conflating them is what made this line read
-            ; as a contradiction ("tab 2 → Rama (Infloww not in front)"):
-            ;
-            ;   what the STRIP shows  — this readout ignores focus deliberately, or
-            ;                           you could never read it: looking at Settings
-            ;                           means Infloww is not focused.
-            ;   what the KEYS will do — asked of the resolver itself, so it accounts
-            ;                           for the focus gate AND the mixed-platform
-            ;                           fallback. Nothing here re-derives that; a
-            ;                           second opinion is how a readout starts
-            ;                           disagreeing with reality.
+            lblDetOf.Value  := SW_DetInfloww()
+            lblDetFan.Value := SW_DetFansly()
             st := ActiveModelStatus()
-            lblDetLive.Value := px
-                              . "   |   " (t.index < 1 ? "no tab lit" : "tab " t.index)
-                              . "   |   " (slot ? "→ " ModelLabel(slot) : "→ no answer")
-                              . "   |   keys → "
-                              . (st.no
-                                 ? ModelLabel(st.no)
-                                     (DetectorWindowUp(cfg) ? "" : "  (manual)")
-                                 : "nothing"
-                                     (DetectorWindowUp(cfg) ? "" : "  — Infloww not focused"))
+            lblDetKeys.Value := st.no ? ModelLabel(st.no)
+                              : "nothing — " (st.HasProp("why") && st.why != ""
+                                              ? st.why : "no model is known for this screen")
         } catch {
             SetTimer(PaintDetectorLive, 0)
-        }
-    }
-
-    ; Reads the live PROCESSES, not the settings — they disagree whenever something
-    ; was toggled from the main window, or died on its own. That disagreement is the
-    ; only reason this readout is worth having.
-    PaintServiceStatus() {
-        if !SW_Alive(_swHwnd) {
-            SetTimer(PaintServiceStatus, 0)
-            return
-        }
-        try {
-            ; Asked per label rather than built as a Map of all five up front:
-            ; svcLbls holds whichever services this tab drew, and the old Map was a
-            ; second hand-kept list that had to contain every one of them or throw
-            ; a key error on a service somebody added to the tab.
-            for _id, _lbl in svcLbls {
-                _up := SVC_Running(_id)
-                _lbl.SetFont(_up ? "cGreen" : "cGray")
-                _lbl.Text := _up ? "● running" : "○ not running"
-            }
-            ; The detector's light lives on the Models tab too, beside the settings
-            ; that decide what it reads — that is where you are standing when it is
-            ; wrong.
-            _det := SVC_Running("modelDetector")
-            lblDetector.SetFont(_det ? "cGreen" : "cGray")
-            lblDetector.Text := _det
-                ? "● Model detector is running."
-                : "○ Model detector is not running — switch it on in Features, or"
-                . " set the strategy above to Manual and pick the model in the"
-                . " window."
-        } catch {
-            SetTimer(PaintServiceStatus, 0)
         }
     }
 
@@ -1660,7 +1164,6 @@ OpenSettings(*) {
     ; Save and Wipe TEMP do not fire.
     StopSettingsTimers(*) {
         SetTimer(PaintDetectorLive, 0)
-        SetTimer(PaintServiceStatus, 0)
     }
 
     CloseSettings(*) {
@@ -1716,55 +1219,6 @@ OpenSettings(*) {
         if waitChanged
             IniWrite(waitTime, CFG_FILE, "Settings", "WaitTime")
         UpdateModelButtons()
-
-        ; ── the reply-timer tiers ─────────────────────────────────────────────
-        ; Rewritten whole, because deleting a tier is a RENUMBER: clearing row 2's
-        ; minutes has to leave Tier1, Tier2, Tier3 contiguous, or RB_Tiers stops
-        ; at the gap and silently drops every tier below it. So the surviving rows
-        ; are collected first and written back from 1, and the rest of the range
-        ; is deleted rather than left behind.
-        ;
-        ; The Region is NOT written here — CalibrateReplyList writes it when the
-        ; box is drawn. See the comment there for why.
-        _kept := []
-        for _i, _ed in edRbMins {
-            _m := Trim(_ed.Value)
-            if (_m = "" || !RegExMatch(_m, "^\d+$"))
-                continue                          ; blank row = no tier
-            _c := (_i <= _rbCols.Length) ? _rbCols[_i] : ""
-            if (_c = "")
-                continue                          ; never had a colour picked
-            _kept.Push({mins: Integer(_m), col: _c})
-        }
-        RB_SortTiers(_kept)
-        for _i, _t in _kept
-            IniWrite(_t.mins "," _t.col, CFG_FILE, "ReplyBox", "Tier" _i)
-        ; Clear the tail. The five rows on the tab are the ceiling for what this
-        ; window can write, but a hand-edited cfg may hold more, so the delete
-        ; runs past them — cheap, and it is what makes "clear a row to delete the
-        ; tier" true rather than nearly true.
-        _i := _kept.Length + 1
-        while (_i <= 32) {
-            try IniDelete(CFG_FILE, "ReplyBox", "Tier" _i)
-            _i++
-        }
-        ; Clamped to the same bounds RB_Cfg enforces, so a typed 0 is corrected
-        ; here — where it is visible on the next open — rather than silently in
-        ; the overlay, where the box would just look wrong.
-        _rbH := Max(8, SW_Num(edRbRowH, 104, 8))
-        IniWrite(_rbH, CFG_FILE, "ReplyBox", "RowH")
-        IniWrite(Max(1, Min(24, SW_Num(edRbBorder, 4, 1))),
-                 CFG_FILE, "ReplyBox", "BorderW")
-        ; Blank means "nobody has measured this", which the overlay stores as -1
-        ; and reads as "assume halfway". Clamped to the row so a hand-typed 900
-        ; cannot hang the box entirely above the dot it was drawn for.
-        _rbOffTxt := Trim(edRbOff.Value)
-        IniWrite(_rbOffTxt = "" ? -1 : Max(0, Min(_rbH, SW_Num(edRbOff, 0, 0))),
-                 CFG_FILE, "ReplyBox", "RowOffsetY")
-        IniWrite(chkRbCapture.Value ? 1 : 0,
-                 CFG_FILE, "ReplyBox", "ExcludeFromCapture")
-        LOGI("ui.replybox", _kept.Length " reply-timer tier(s) saved; row " _rbH
-                          . "px, offset " (_rbOffTxt = "" ? "auto" : _rbOffTxt))
 
         ; ── the shared keys ───────────────────────────────────────────────────
         ; All four of these are read per keypress, so they apply to the next key
@@ -1864,10 +1318,6 @@ OpenSettings(*) {
         IniWrite(rdHkWeb.Value ? "webview" : "legacy",
                  CFG_FILE, "Settings", "HotkeysShell")
 
-        ; No reload and no global to keep in step: ParseCurrent reads this key at
-        ; the moment it parses, so the next Parse already obeys it.
-        IniWrite(chkArchiveParse.Value ? 1 : 0, CFG_FILE, "Settings", "ArchiveOnParse")
-
         ; ── the corner picture ────────────────────────────────────────────────
         ; Written, then applied in place: CREDIT_Refresh reloads the file and
         ; RelayoutNow puts her back at whatever size now fits. Item 1 of the list
@@ -1903,6 +1353,7 @@ OpenSettings(*) {
         autoRestart := chkAutoRestart.Value ? 1 : 0
         IniWrite(autoRestart, CFG_FILE, "Settings", "AutoRestart")
         SetTimer(WatchdogTick, autoRestart ? 5000 : 0)
+        IniWrite(chkAutoRecord.Value ? 1 : 0, CFG_FILE, "Settings", "AutoRecordShift")
         LaunchStartupScripts()
 
         ; ── Hotkeys ───────────────────────────────────────────────────────────
@@ -1925,6 +1376,7 @@ OpenSettings(*) {
         if (_shellChg) {
             StopSettingsTimers()
             sg.Destroy()
+            CORE_AutowordModelCheck()       ; window gone first: see the end of Save
             KillAllScripts()
             Run '"' A_AhkPath '" "' MMA_ROOT '\MMA.ahk"'
             ExitApp
@@ -1937,6 +1389,7 @@ OpenSettings(*) {
             modelCount := newCount
             StopSettingsTimers()
             sg.Destroy()
+            CORE_AutowordModelCheck()       ; window gone first: see the end of Save
             Reload
             return
         }
@@ -1949,6 +1402,14 @@ OpenSettings(*) {
         lblSaved.SetFont("cGreen")
         lblSaved.Text := _msg
         SetTimer(ClearSavedMsg, -4000)
+
+        ; Restart autoword if its ini changed — and only now, with nothing of this
+        ; Save left to run. The restart waits up to a second for the old autoword
+        ; to exit, and that wait lets clicks through: Save, then Close at once,
+        ; destroyed the window under the rest of Save, one error dialog per
+        ; remaining line (twice: 2026-10-13 and 10-15). A SetTimer(-1) was not a
+        ; fix — a timer interrupts a running thread, so it ran mid-Save anyway.
+        CORE_AutowordModelCheck()
     }
 
     ClearSavedMsg() {
@@ -1986,6 +1447,72 @@ SW_Alive(hwnd) {
     return DllCall("IsWindow", "Ptr", hwnd, "Int")
 }
 
+; ── the Models readout, one site per function ───────────────────────────────
+;  What each site's detector sees, in words. From the SAVED settings: the
+;  readout describes what MMA is doing now, not what Save is about to make it do.
+
+; Does any model work on this site? "infloww" or "fansly".
+SW_SiteHasModels(site) {
+    global MASS_MODELS
+    Loop MASS_MODELS
+        if (ModelPlatform(A_Index) = site)
+            return true
+    return false
+}
+
+SW_DetInfloww() {
+    if !SW_SiteHasModels("infloww")
+        return "not used — no model is set to Infloww"
+    if !SharedKeysOn()
+        return "not read — the shared keys are off"
+    mode := ModelMatchMode()
+    if (mode = "manual")
+        return "you pick (manual) — now " ModelLabel(ManualModelNo())
+    cfg := DetectorCfg()
+    if (cfg.win != "" && !WinExist(cfg.win))
+        return "the Infloww Messages window is not open"
+    if (mode = "position") {
+        ; The same cheap slot sampling the keys use, not a full sweep, so what
+        ; this says is literally what the keys will decide.
+        t := TabLitIndex(cfg)
+        if (t.index < 1)
+            return "no tab looks selected"
+        slot := TabModel(t.index)
+        return "tab " t.index " is selected → "
+             . (slot ? ModelLabel(slot) : "no model is set for that tab")
+    }
+    if !SVC_Running("modelDetector")
+        return "the detector is not running — switch it on in Features"
+    name := Trim(ReadActiveModel())
+    return (name = "") ? "no name read off the selected tab" : "reads '" name "'"
+}
+
+; Fansly's live scan needs its own window in front, which it never is while you
+; read this — so this reports what the Fansly service last wrote instead.
+SW_DetFansly() {
+    if !SW_SiteHasModels("fansly")
+        return "not used — no model is set to Fansly"
+    if !SharedKeysOn()
+        return "not read — the shared keys are off"
+    mode := FanslyMatchMode()
+    if (mode = "manual")
+        return "you pick (manual) — now " ModelLabel(ManualModelNo())
+    if !FEAT("fanslyDetector")
+        return "the detector is off — switch it on in Features"
+    if !SVC_Running("fanslyDetector")
+        return "the detector is not running"
+    row := ReadFanslyIndex()
+    if (row < 1)
+        return "no card looks selected (last seen while Fansly was in front)"
+    if (mode = "position") {
+        n := FanslyPosSlot(row)
+        return "card " row " is selected → "
+             . (n ? ModelLabel(n) : "no model is set for that card")
+    }
+    name := ReadFanslyName()
+    return "card " row " is selected, reads '" name "'"
+}
+
 ; What a numeric field means when it holds something that is not a number.
 ;
 ; Integer("") and Integer("12px") both THROW, and every one of these is a plain
@@ -1997,6 +1524,105 @@ SW_Num(ctrl, fallback, min := 0) {
         return Max(min, Integer(Trim(ctrl.Value)))
     catch
         return fallback
+}
+
+; A dropdown built from a field-table "choice" row: its labels, the saved value
+; selected. Optional caption to its left, `capW` wide.
+SW_ChoiceDDL(g, x, y, caption, capW, w, fld) {
+    if (caption != "")
+        g.Add("Text", "x" x " y" (y + 3) " w" capW, caption)
+    cur := SETTINGS_Read(fld, CFG_FILE)
+    labels := [], pick := 0
+    for i, o in fld.opts {
+        labels.Push(o[2])
+        if (o[1] = cur)
+            pick := i
+    }
+    return g.Add("DropDownList", "x" (x + capW) " y" y " w" w " Choose" pick, labels)
+}
+
+; Write a SW_ChoiceDDL back, only when it changed. Nothing picked = leave it.
+SW_ChoiceSave(ddl, fld) {
+    if !ddl.Value
+        return
+    v := fld.opts[ddl.Value][1]
+    if (v != SETTINGS_Read(fld, CFG_FILE))
+        SETTINGS_Write(fld, v, CFG_FILE)
+}
+
+; A whole tab drawn from the field table: every row of `sect`, under its group
+; headings, as label | control | grey help. For a section whose rows need nothing
+; the table cannot say, so adding a row to the table adds it here too, the way it
+; already does on the WebView page. Returns what SW_FieldPageSave needs.
+;
+; With `tool` set, draws that tool's rows instead of a section's (the Tools
+; window, ui\tools_settings.ahk). A row in section "Tools" carries its tool's
+; name as its group, for the WebView page; here the tool's own title is already
+; above it, so that group is not drawn again. `yEnd` gets the y below the last row.
+SW_FieldPage(g, sect, x, y, w, tool := "", &yEnd := 0) {
+    static LABEL_W := 170, CTRL_W := 260, ROW_H := 32
+    helpX := x + LABEL_W + CTRL_W + 16
+    rows := [], grp := "", first := true
+    for fld in SETTINGS_Fields() {
+        if (fld.iniSect = "")
+            continue
+        if (tool != "" ? fld.tool != tool : fld.sect != sect)
+            continue
+        if (fld.grp != grp || first) {
+            grp := fld.grp, first := false
+            if (grp != "" && !(tool != "" && fld.sect = "Tools")) {
+                if (rows.Length)
+                    y += 8
+                g.SetFont("s9 Bold")
+                g.Add("Text", "x" x " y" y " w" w, grp)
+                g.SetFont("s9 Norm")
+                y += 24
+            }
+        }
+        g.Add("Text", "x" (x + 10) " y" (y + 3) " w" (LABEL_W - 10), fld.label)
+        cx := x + LABEL_W
+        switch fld.type {
+            case "choice":
+                ctrl := SW_ChoiceDDL(g, cx, y, "", 0, CTRL_W, fld)
+            case "bool":
+                ctrl := g.Add("Checkbox", "x" cx " y" (y + 3)
+                            . (SETTINGS_Read(fld, CFG_FILE) = "1" ? " Checked" : ""))
+            default:
+                ctrl := g.Add("Edit", "x" cx " y" y " h22 w" (fld.type = "int" ? 60 : CTRL_W),
+                              SETTINGS_Read(fld, CFG_FILE))
+        }
+        if (fld.help != "") {
+            g.SetFont("s8")
+            g.Add("Text", "x" helpX " y" (y + 1) " h" (ROW_H - 2) " w" (x + w - helpX)
+                        . " cGray", fld.help)
+            g.SetFont("s9")
+        }
+        rows.Push({fld: fld, ctrl: ctrl})
+        y += ROW_H
+    }
+    yEnd := y
+    return rows
+}
+
+; Write back what SW_FieldPage drew, only what changed. A number box holding
+; something that is not a whole number is left alone rather than saved.
+SW_FieldPageSave(rows) {
+    for r in rows {
+        fld := r.fld
+        switch fld.type {
+            case "choice":
+                SW_ChoiceSave(r.ctrl, fld)
+                continue
+            case "bool":
+                v := r.ctrl.Value ? "1" : "0"
+            default:
+                v := Trim(r.ctrl.Value)
+                if (fld.type = "int" && !IsInteger(v))
+                    continue
+        }
+        if (v != SETTINGS_Read(fld, CFG_FILE))
+            SETTINGS_Write(fld, v, CFG_FILE)
+    }
 }
 
 ; The probe is a tool, not a feature: it binds Ctrl+Alt+F10, reports, and exits. Run it

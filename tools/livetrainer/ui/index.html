@@ -1,0 +1,180 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>MMA Live Trainer</title>
+<style>
+  /* Infloww's own colours (transcript.py / UI-ELEMENT-MAP.md). */
+  :root { --pane:#1b1b1b; --fan:#262626; --her:#353535; --ink:#d9d9d9; --dim:#8a8a8a;
+          --div:#444444; --blue:#3467ff; --green:#2ad4ac; --warn:#e0a03a; --bad:#e05555; }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; background: var(--pane); color: var(--ink);
+               font: 13px/1.4 "Segoe UI", system-ui, sans-serif; }
+  body { display: grid; grid-template-rows: auto 1px minmax(0,1fr) 1px auto; }
+  .hdiv { background: var(--div); }
+
+  header { padding: 10px 16px 9px; }
+  .fanname { font-size: 18px; font-weight: 600; color: #fff; }
+  .meta { color: var(--dim); font-size: 11px; margin-top: 2px; display: flex; gap: 10px; flex-wrap: wrap; align-items: center; }
+  .meta .dot { width: 6px; height: 6px; border-radius: 50%; background: var(--green); display: inline-block; margin-right: 4px; }
+  .meta .dot.off { background: var(--warn); }
+  select { background: #262626; color: var(--ink); border: 1px solid var(--div); border-radius: 4px; font: inherit; font-size: 11px; padding: 1px 4px; }
+
+  #pane { overflow-y: auto; padding: 14px 12px 18px; }
+  #pane::-webkit-scrollbar { width: 6px; }
+  #pane::-webkit-scrollbar-thumb { background: #666; border-radius: 3px; }
+  .row { display: flex; margin: 3px 0; }
+  .row.fan { justify-content: flex-start; }
+  .row.her { justify-content: flex-end; }
+  .b { max-width: 78%; padding: 8px 12px; border-radius: 10px; white-space: pre-wrap; word-wrap: break-word; }
+  .fan .b { background: var(--fan); }
+  .her .b { background: var(--her); }
+  .media { color: var(--dim); font-style: italic; }
+  .empty { color: var(--dim); text-align: center; margin-top: 40%; }
+
+  /* The AI's draft: her side, but plainly NOT a sent message. */
+  .draft { margin: 8px 0 12px auto; max-width: 86%; border: 1px dashed #5a6bff; border-radius: 10px;
+           padding: 8px 10px; background: #1f2233; }
+  .draft.old { opacity: .55; }
+  .draft .lab { font-size: 10px; color: #8f9bff; text-transform: uppercase; letter-spacing: .05em;
+                display: flex; justify-content: space-between; gap: 8px; }
+  .draft .txt { white-space: pre-wrap; margin: 4px 0 6px; color: #fff; }
+  .draft .err { color: var(--bad); margin: 4px 0 6px; }
+  .draft .flags { color: var(--bad); font-size: 11px; margin: -2px 0 6px; }
+  .draft .actual { font-size: 12px; color: var(--dim); border-top: 1px solid #333a55; padding-top: 5px; margin-top: 4px; white-space: pre-wrap; }
+  .draft .actual b { color: var(--green); font-weight: 600; }
+  .scores { display: flex; gap: 3px; flex-wrap: wrap; margin-top: 4px; }
+  .scores button { width: 26px; height: 24px; border: 1px solid #3a3f5c; background: #262a3d; color: var(--ink);
+                   border-radius: 4px; cursor: pointer; font: inherit; font-size: 12px; padding: 0; }
+  .scores button:hover { border-color: #8f9bff; }
+  .scores button.on { background: var(--blue); border-color: var(--blue); color: #fff; }
+  .note { width: 100%; margin-top: 5px; background: #262a3d; border: 1px solid #3a3f5c; color: var(--ink);
+          border-radius: 4px; padding: 4px 6px; font: inherit; font-size: 12px; }
+  .saved { color: var(--green); font-size: 10px; }
+  .thinking { margin: 8px 0 12px auto; max-width: 86%; color: #8f9bff; font-style: italic; text-align: right; }
+
+  footer { padding: 8px 12px; display: flex; gap: 8px; align-items: center; }
+  footer button { background: #262626; color: var(--ink); border: 1px solid var(--div); border-radius: 5px;
+                  padding: 5px 10px; cursor: pointer; font: inherit; font-size: 12px; }
+  footer button:hover { border-color: #777; }
+  footer .status { color: var(--dim); font-size: 11px; margin-left: auto; text-align: right; }
+</style>
+</head>
+<body>
+<header>
+  <div class="fanname" id="fan">—</div>
+  <div class="meta">
+    <span id="light"><span class="dot off"></span><span id="status">starting…</span></span>
+    <span id="acct"></span>
+    <span>He has bought: <select id="tier"></select></span>
+    <span id="model"></span>
+  </div>
+</header>
+<div class="hdiv"></div>
+<div id="pane"><div class="empty">Waiting for the chat reader…</div></div>
+<div class="hdiv"></div>
+<footer>
+  <button id="draftNow" title="Draft a reply to the chat as it is now">Draft now</button>
+  <button id="reset" title="Forget this fan's saved chat and take the screen as it is">Reset to screen</button>
+  <span class="status" id="foot"></span>
+</footer>
+
+<script>
+let ver = -1, S = null, tiersFilled = false;
+const notes = {};          // typed-but-unsaved notes, so a re-render keeps them
+const $ = id => document.getElementById(id);
+const esc = s => (s || "").replace(/[&<>"]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"})[c]);
+
+function api() { return window.pywebview && window.pywebview.api; }
+
+async function poll() {
+  try {
+    if (api()) {
+      const st = await api().state(ver);
+      if (st) { S = st; ver = st.version; render(); }
+    }
+  } catch (e) { $("foot").textContent = "error: " + e; }
+  setTimeout(poll, 400);
+}
+
+function render() {
+  // Never re-render under a note being typed: it would drop the caret.
+  const a = document.activeElement;
+  if (a && a.classList.contains("note")) { setTimeout(render, 500); return; }
+
+  $("fan").textContent = S.fan || "—";
+  $("acct").textContent = S.account && S.account !== "?" ? S.account.split(":").slice(2).join(":") || S.account : "";
+  $("model").textContent = "model: " + S.model;
+  $("status").textContent = S.status;
+  $("light").querySelector(".dot").className = "dot" + (S.status === "following" ? "" : " off");
+  if (!tiersFilled && S.tiers) {
+    $("tier").innerHTML = S.tiers.map((t, i) => `<option value="${i}">${esc(t)}</option>`).join("");
+    tiersFilled = true;
+  }
+  $("tier").value = S.tier;
+  $("tier").disabled = !S.fan;
+
+  const pane = $("pane");
+  const atBottom = pane.scrollHeight - pane.scrollTop - pane.clientHeight < 40;
+  if (!S.turns.length) {
+    pane.innerHTML = `<div class="empty">${S.fan ? "No messages read yet." : "Open a conversation in Infloww."}</div>`;
+    return;
+  }
+  const byTurn = {};
+  for (const d of S.drafts) (byTurn[d.at_turn] = byTurn[d.at_turn] || []).push(d);
+  let h = "";
+  S.turns.forEach((t, i) => {
+    const who = t.who === "fan" ? "fan" : "her";
+    h += `<div class="row ${who}"><div class="b">${t.text ? esc(t.text) : '<span class="media">[media]</span>'}</div></div>`;
+    for (const d of byTurn[i + 1] || []) h += draftCard(d);
+    if (S.pending.includes(i + 1)) h += `<div class="thinking">AI is drafting…</div>`;
+  });
+  if (S.due && !S.pending.length) h += `<div class="thinking">waiting for him to finish typing…</div>`;
+  pane.innerHTML = h;
+  if (atBottom) pane.scrollTop = pane.scrollHeight;
+
+  const graded = S.drafts.filter(d => d.score).length;
+  $("foot").textContent = `${S.turns.length} messages · ${S.drafts.length} drafts · ${graded} graded`;
+}
+
+function draftCard(d) {
+  const old = d.superseded && !d.actual;
+  let body = d.error ? `<div class="err">${esc(d.error)}</div>` : `<div class="txt">${esc(d.text)}</div>`;
+  let btns = "";
+  for (let n = 1; n <= 10; n++)
+    btns += `<button class="${d.score === n ? "on" : ""}" onclick="grade('${d.id}',${n})">${n}</button>`;
+  const note = d.id in notes ? notes[d.id] : (d.note || "");
+  return `<div class="draft${old ? " old" : ""}">
+    <div class="lab"><span>AI draft${d.step ? " · " + esc(d.step) : ""}${old ? " · he wrote again" : ""}</span>
+      <span>${(d.ms / 1000).toFixed(1)}s ${d.score ? '<span class="saved">· graded ' + d.score + '</span>' : ""}</span></div>
+    ${body}
+    ${d.flags && d.flags.length ? `<div class="flags">⚠ every redraw broke a rule: ${esc(d.flags.join(", "))}</div>` : ""}
+    ${d.actual ? `<div class="actual"><b>You sent:</b> ${esc(d.actual)}</div>` : ""}
+    ${d.error ? "" : `<div class="scores">${btns}</div>
+    <input class="note" placeholder="what was wrong? (Enter saves)" value="${esc(note)}"
+      oninput="notes['${d.id}']=this.value" onkeydown="if(event.key==='Enter'){this.blur()}"
+      onblur="saveNote('${d.id}')">`}
+  </div>`;
+}
+
+function grade(id, n) {
+  const d = S.drafts.find(x => x.id === id);
+  api().grade(id, n, id in notes ? notes[id] : (d && d.note) || "");
+}
+function saveNote(id) {
+  if (!(id in notes)) return;
+  const d = S.drafts.find(x => x.id === id);
+  api().grade(id, d ? d.score : null, notes[id]);
+  delete notes[id];
+}
+
+$("tier").onchange = e => api().set_tier(+e.target.value);
+$("draftNow").onclick = () => api().draft_now();
+$("reset").onclick = () => { if (confirm("Forget this fan's saved chat and take what is on screen now?")) api().reset_history(); };
+let started = false;
+const start = () => { if (!started) { started = true; poll(); } };
+window.addEventListener("pywebviewready", start);
+setTimeout(start, 1500);   // pywebviewready can fire before this script runs
+</script>
+</body>
+</html>

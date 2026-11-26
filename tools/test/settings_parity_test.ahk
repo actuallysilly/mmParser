@@ -137,6 +137,13 @@ try {
 Ck("the Win32 settings window is readable", StrLen(w32) > 1000,
    "read " StrLen(w32) " bytes from " w32path)
 
+; The Tools window draws every row tagged with a `tool` generically, under that
+; tool's section — so for those the question is whether the section exists.
+twpath := MMA_SRC "\ui\tools_settings.ahk"
+tw := ""
+try tw := FileRead(twpath, "UTF-8")
+Ck("the Tools window is readable", StrLen(tw) > 1000, "read " StrLen(tw) " bytes from " twpath)
+
 ; ── every table row has a home in the Win32 window ────────────────────────────
 ;  No value provider is passed, so the table answers from the saved cfg. That is
 ;  what this test wants: the shape of the window as it ships, not as it looks
@@ -163,6 +170,13 @@ for _, fld in fields {
         ; are worth stopping for.
         Ck("row '" fld.id "' has a cfg home", false,
            "no iniKey, and it is not in the VIRTUAL list at the top of this file")
+        continue
+    }
+    if (fld.tool != "") {
+        checked++
+        Ck("Tools window has a section for '" fld.tool "' ([" fld.iniSect "] " fld.iniKey ")",
+           InStr(tw, 'id: "' fld.tool '"') > 0,
+           "the row is tagged for a tool that TW_Sections() in tools_settings.ahk does not list")
         continue
     }
     checked++

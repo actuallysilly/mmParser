@@ -51,7 +51,11 @@ global MMA_DEBUGLOGS := MMA_ROOT "\debuglogs"
 ; All of these live in userdata\, which is gitignored except for the .default
 ; that seeds hotkeys.ini. See ARCHITECTURE.md §5.
 global MMA_CFG         := MMA_USERDATA "\mass_gui.cfg"
-global MMA_HK_INI      := MMA_USERDATA "\hotkeys.ini"
+; MMA_HK_INI in the environment points a process at another hotkeys file. Tests
+; only: every script that binds a key migrates and merges this file at load, so
+; a test run against the real one rewrites the ini a running MMA is using.
+global MMA_HK_INI      := (EnvGet("MMA_HK_INI") != "") ? EnvGet("MMA_HK_INI")
+                                                      : MMA_USERDATA "\hotkeys.ini"
 global MMA_HK_DEFAULT  := MMA_USERDATA "\hotkeys.default.ini"
 global MMA_OVERLOADS   := MMA_USERDATA "\hotstring_overloads.ini"
 ; Which hotstrings you use, and which you pinned — the quick menu's whole

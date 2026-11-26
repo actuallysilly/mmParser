@@ -45,22 +45,24 @@ BoundKey(id) {
     return _HK_BOUND.Has(id) ? _HK_BOUND[id].key : "«not bound»"
 }
 
-; ── the reported bug: the mouse buttons must no longer belong to model 1 ──────
-Ck("mass.1.mFu1 gone",  BoundKey("mass.1.mFu1"),  "«not bound»")
-Ck("mass.1.mFu2 gone",  BoundKey("mass.1.mFu2"),  "«not bound»")
-Ck("mass.1.mFu3 gone",  BoundKey("mass.1.mFu3"),  "«not bound»")
-; ...and must be bound under the SHARED set instead — but only when mouse control
-; is actually switched on. These three used to assert literal keys unconditionally,
-; which made the whole suite fail in Easy mode: Easy switches every feature off, so
-; the mFu keys correctly do not register and the test called that a regression.
-; That is the same "assert the invariant, not the user's key" point the loop below
-; is written around, so they are asserted the same way.
-for _, id in ["mass.active.mFu1", "mass.active.mFu2", "mass.active.mFu3"] {
-    if !FEAT_HotkeyAllowed(id) {
-        Ck("mouse control off, so " id " is unbound", BoundKey(id), "«not bound»")
+; ── overloads: one action, every key in its value ────────────────────────────
+;  The old mouse/second/third-key ids are gone; their keys live in the base
+;  action's value now (fu1 = F13 | XButton2). So no such id may be bound, and
+;  every key of an overload must be — except a mouse key while Mouse-button
+;  follow-ups is off, which is skipped on its own.
+for _, id in ["mass.1.mFu1", "mass.active.mFu1", "mass.active.altFu1",
+              "mass.1.fu1short", "mass.1.b1Ppv", "mass.active.mPpv"]
+    Ck(id " is not an id any more", BoundKey(id), "«not bound»")
+Ck("HK_KeyList splits an overload", HK_KeyJoin(HK_KeyList("F1 | ^F1 |  XButton2 ")), "F1 | ^F1 | XButton2")
+Ck("...and leaves one key alone",   HK_KeyList("^|").Length, 1)
+for _, id in ["mass.active.fu1", "mass.active.fu2", "mass.active.fu3"] {
+    if !_HK_BOUND.Has(id)
         continue
-    }
-    Ck("shared " id, BoundKey(id), HK_Key(id))
+    want := []
+    for k in HK_KeyList(HK_Key(id))
+        if (FEAT("mouseControl") || !HK_IsMouseKey(k))
+            want.Push(k)
+    Ck("every key of " id " is live", HK_KeyJoin(_HK_BOUND[id].keys), HK_KeyJoin(want))
 }
 
 ; Every declared mass key must be registered with EXACTLY what the ini says.
@@ -229,7 +231,6 @@ Ck("and the selection is back in charge", MASS_CUR_MODEL, 2)
 ; ── select must not be treated as a send by the anti-fumble gate ─────────────
 Ck("select is not a send", _HK_IsSend("mass.select.m2"), 0)
 Ck("shared fu IS a send",  _HK_IsSend("mass.active.fu1"), 1)
-Ck("mouse fu IS a send",   _HK_IsSend("mass.active.mFu1"), 1)
 
 ; ── restore ──────────────────────────────────────────────────────────────────
 ; SelectModel FIRST, while ModelMatch is still "manual" — it cannot teach a

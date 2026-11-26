@@ -1,4 +1,6 @@
 #Requires AutoHotkey v2.0
+; tool: targets open through the Python runner.
+#Include "../core/runner.ahk"
 ; ═══════════════════════════════════════════════════════════════════════════════
 ;  shortcuts.ahk — type a trigger, run an MMA action.
 ; ───────────────────────────────────────────────────────────────────────────────
@@ -50,12 +52,17 @@
 ;   <action id>        an id from HK_ORDER — anything the Actions menu lists
 ;   run:<path>         launch a script or program; relative paths are from the
 ;                      MMA folder, so `run:tools\fansly_probe.ahk` works
+;   tool:<name>        open a Python tool through the runner (`tool:lore`);
+;                      the names are TOOLS in src\services\runner\runner.pyw.
+;                      A .pyw cannot go through run:, since it has no file
+;                      association on this machine.
 ;
 ; `run:` exists because not everything MMA can start IS an action. The probes in
 ; tools\ are separate processes with no registry id — launching one is exactly the
 ; "I need this now, mid-shift" job this file is for, and the alternative was
 ; opening Settings ▸ Debug to press a button.
 global SC_RUN_PREFIX := "run:"
+global SC_TOOL_PREFIX := "tool:"
 
 ; Read the file, register every trigger. Called once at startup.
 ;
@@ -137,9 +144,10 @@ SHORTCUTS_Lines() {
 ; you rename an action, this file still says the old one — and the alternative to
 ; catching it now is a trigger that swallows your keystrokes and does nothing.
 SHORTCUTS_Register(trigger, target) {
-    global SC_RUN_PREFIX
+    global SC_RUN_PREFIX, SC_TOOL_PREFIX
 
-    if (SubStr(target, 1, StrLen(SC_RUN_PREFIX)) != SC_RUN_PREFIX) {
+    if (SubStr(target, 1, StrLen(SC_RUN_PREFIX)) != SC_RUN_PREFIX
+        && SubStr(target, 1, StrLen(SC_TOOL_PREFIX)) != SC_TOOL_PREFIX) {
         if !HK_META.Has(target) {
             LOGE("shortcut.read", "'" trigger "' names the action '" target "',"
                                 . " which is not in the registry — nothing is"
@@ -174,9 +182,21 @@ SHORTCUTS_Fire(target) {
 }
 
 _SC_Run(target) {
-    global SC_RUN_PREFIX, MMA_ROOT
+    global SC_RUN_PREFIX, SC_TOOL_PREFIX, MMA_ROOT
     if (SubStr(target, 1, StrLen(SC_RUN_PREFIX)) = SC_RUN_PREFIX) {
         _SC_Launch(Trim(SubStr(target, StrLen(SC_RUN_PREFIX) + 1)))
+        return
+    }
+    if (SubStr(target, 1, StrLen(SC_TOOL_PREFIX)) = SC_TOOL_PREFIX) {
+        tool := Trim(SubStr(target, StrLen(SC_TOOL_PREFIX) + 1))
+        LOGI("shortcut.fire", "trigger → open tool " tool)
+        try ok := RUN_Open(tool)
+        catch as e {
+            LOGE("shortcut.fire", "could not open tool " tool, LOG_Err(e))
+            ok := true
+        }
+        if !ok
+            LOGE("shortcut.fire", "tool:" tool " — no Python found, nothing started")
         return
     }
 
@@ -253,6 +273,9 @@ SHORTCUTS_Seed() {
 ;
 ;  Or  run:<path>  to launch a file. Relative paths are from the MMA
 ;  folder, so the probes in tools\ work as written.
+;
+;  Or  tool:<name>  to open a Python tool: tool:lore, tool:testflow,
+;  tool:shiftview, tool:livetrainer, tool:arena, tool:chatview.
 ;
 ;  Triggers fire the INSTANT they are typed, with no space or Enter after
 ;  - so nothing extra lands in a fan's chat, and so a SHORT trigger will

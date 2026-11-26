@@ -53,20 +53,6 @@
     snd("how about you open a bundle and or I can just move on to someone more serious")
 }
 
-; @added 2026-08-03 13:50
-:*:...testpromax::
-{
-    snd("Portable monitor reality:")
-    snd("Almost all are 1080p, sometimes 1440p on higher-end ones — fewer QHD options than")
-    snd("standard desktop monitors")
-    snd("USB-C single-cable (power + video) is the standard — check your laptop/PC has a USB-C")
-    snd("port that supports DP Alt Mode + power delivery, or you need a separate power brick")
-    snd("Thin, —1-2kg, built-in kickstand instead of VESA mount on most — this conflicts with")
-    snd("your arm plan. Portable monitors usually don't have VESA holes, or need an adapter")
-    snd("case/stand to add them.")
-    snd("IPS is common at this size, so that part still holds")
-}
-
 ; @added 2026-08-08 02:34
 :*:_88mppv::
 {
@@ -169,4 +155,105 @@
     snd("Touching the worst spot")
     snd("The spot thats the most sensitive")
     snd("I wont last long...")
+}
+
+; @added 2026-09-03 05:24
+:*:...ty2::
+{
+    snd("Now imagine if you walked in on me laying on my tummy, completely naked...")
+    snd("Be completely honest with me... You would walk up, grab my cheeks, and just spread them wide right?")
+    snd("And it would take you less than a minute to be deep inside of me")
+}
+
+; @added 2026-09-09 03:04
+:*:__fu2_99::{
+    Sendt("I just know you would not be able to resist me even for a second", 2000)
+    Sendt("Your cock would get so hard and take full control of your actions", 2000)
+    Sendt("You would demand that I show you so much more and kiss you passionately", 2000)
+    Sendt("Our tongues intertwining as we feel each others warm lips melting together", 2000)
+}
+
+; @added 2026-09-09 04:55
+:*:__FANSLYGGWP::
+{
+    Sendt("ur wasting my time and denying urself", 2000)
+    Sendt("its just cringe for both of us", 2000)
+    Sendt("its making u sad too", 2000)
+    Sendt("i know u have imagined it", 2000)
+    Sendt("what if u were a baller", 2000)
+    Sendt("what if u had my full attention", 2000)
+    Sendt("what if i was really into it", 2000)
+    Sendt("imagine making me laugh", 2000)
+    Sendt("imagine making me think dirty thoughs", 2000)
+    Sendt("u imagined it all", 2000)
+    Sendt("ignored every bundle", 2000)
+    Sendt("just to repeat the cycle again tomorrow", 2000)
+    Sendt("i will ask u one final time before i give up on you", 2000)
+    Sendt("will you change your destiny", 2000)
+}
+
+; @added 2026-10-01 03:01
+:*:..povmppv::{
+    snd("It seems like you're curious about experiencing me in multiple POVs and having me all to yourself")
+    snd("So lock your doors, because today you'll be receiving my most explicit content and you'll have it ALL just to yourself")
+}
+
+; @added 2026-10-01 03:41
+:*:..ppv2ign::
+{
+    snd("You forgot to open that")
+    snd("Are you really going to miss out on nipples?")
+}
+
+; @added 2026-10-02 03:21
+:*:..jar1::
+{
+    snd("You've received the Fairy Jar! Once you fill it It'll reward you with a 6+ minute solo tape!")
+    snd("I hope you're ready to play the most intense stripping and cumming game of your life")
+}
+
+; @added 2026-10-03 03:17
+:*:..genuine::
+{
+    snd("So okay this is a little event that will give you a chance to see everything")
+    snd("Ready to go to wonderland?")
+}
+
+; @added 2026-10-04 03:10
+:*:..bump99999::
+{
+    snd("You finally decided to play with me")
+    snd("Which pov are you most excited for?")
+}
+
+; @added 2026-10-09 06:52
+:*:temptemp::
+{
+    snd("I bet your cock is so ready to be drained")
+    snd("I'm going to take my knickers off for you now")
+    snd("I know you're quite eager for nakedness")
+    snd("And wetness...")
+}
+
+; @added 2026-10-10 05:07
+:*:..rem1::
+{
+    snd("You have my full attention now so go ahead and slowly tease the tip of your cock as we go on a little journey")
+    snd("I know u cant say no to that when I've got my boobies out for you")
+}
+
+; @added 2026-10-10 05:08
+:*:..rem2::
+{
+    snd("You will be forever haunted by the colour and texture of my tight, delicate little slit...")
+    snd("And just so you know, I'm not wearing panties so my cunt is unshielded but IGNORE IT, don't you dare think about my cunt, 0k?")
+}
+
+; @added 2026-10-13 03:00
+:*:..cunt3::
+{
+    snd("Oh gosh you must be drooling over my kitty at this point")
+    snd("Which is very sweet")
+    snd("I want you obsessing over it")
+    snd("And I'll spread it to make it truly feel unavoidable")
 }

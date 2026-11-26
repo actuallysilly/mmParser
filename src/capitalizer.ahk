@@ -27,8 +27,7 @@ CapEnter() {
 }
 
 HK_Bind("cap.enterCap",   CapEnter)
-HK_Bind("cap.enterPass1", CapEnterPass)
-HK_Bind("cap.enterPass2", CapEnterPass)
+HK_Bind("cap.enterPass",  CapEnterPass)
 
 ; Detect ". " "! " "? " sequences — B0 = no backspace/replacement
 :B0:. ::SetCapNext()

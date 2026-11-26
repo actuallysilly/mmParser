@@ -23,7 +23,7 @@ and conflict-checks them, but no HK_Bind claims them: this listener owns them, s
 has to be running for them to fire. Edits apply live, no restart.
 
 Run:
-  automation_listen.vbs                         # background listener, no console
+  runner.pyw --start automation                 # background listener, no console
   python automation.py --stop                   # ... and end it
   python automation.py --status                 # ... is it up?
 
@@ -155,71 +155,7 @@ MENU_PANEL_FILL = 0.6                  # a slab column is >=this fraction of its
 # whatever the countdown says.
 UNSEND_FROM_RIGHT = 30
 
-# --- notifications > purchases -----------------------------------------------
-# The Notifications flyout, opened by the teal button in the left sidebar. It is
-# anchored to that button, so its box is fixed. NOTE: this lives in the MESSAGES
-# app. Infloww Home has a bell too, but it opens an unrelated (empty) System
-# Notifications page — with a "Clear all" beside it. Wrong app, and a costly misclick.
-NOTIF_BTN = (293, 165)
-NOTIF_PANEL = (219, 182, 781, 885)     # measured: bg #262626, page #141414 either side
-NOTIF_TAB_Y = 245
-NOTIF_TABS = {"subscriptions": 287, "tips": 391, "purchases": 485, "onlyfans": 594}
-NOTIF_LIST_X = (285, 760)              # inside the panel: clear of avatars AND scrollbar
-NOTIF_LIST_TOP = 265                   # below the tab row; content scrolls under this
-
-# Where the cursor waits while we capture. The wheel only goes to the window under the
-# pointer, so scrolling must park it over the list — but LEAVING it there hovers a card
-# in every single frame, and the hover restyle corrupts what OCR reads. "Open in new tab"
-# (user's pick) is far from the panel and inert on hover.
-NOTIF_PARK = (1508, 107)
-NOTIF_UNHOVER_S = 0.25                 # let the hover restyle fade before capturing
-
-# Scrollbar thumb: #666666, x 771..778, contiguous. Measured y 272..489 (218px) on
-# Purchases, 272..452 on Subscriptions — i.e. it reports scroll progress directly.
-SCROLLBAR_X = (771, 779)
-SCROLLBAR_RGB = 0x66
-SCROLLBAR_TOL = 18
-SCROLLBAR_MIN_COLS = 4
-
-# "Is the panel open" is decided by the header band, NOT by the tab pill. The chat
-# list's own blue "Unread" pill sits at cx=250 in the same row, only 37px from the
-# Subscriptions tab at 287 — a plausible tolerance reads it as "panel open, on
-# Subscriptions" when the panel is shut. The header band has no such neighbour:
-# measured 0.95 #262626 when open vs 0.04/0.24 when closed.
-NOTIF_HEADER_BAND = (230, 190, 760, 226)
-NOTIF_OPEN_FILL = 0.70
-NOTIF_PILL_MIN_H = 14                  # a pill is a tall block, not a stray glyph pixel
-NOTIF_PILL_MIN_W = 50                  # measured 94 (Purchases) / 113 (Subscriptions)
-NOTIF_PILL_SNAP = 30                   # ... and this rejects the Unread pill at 37px
-
-# Cards are delimited by a 1px #444444 rule. So is the border of the "Quick reply" box
-# that UNANSWERED cards carry, which would otherwise split one card into three. They
-# separate cleanly by width: measured 444-475px for a real divider, 334-337px for the
-# reply box. Nothing lands between, so the threshold has ~100px of margin either side.
-DIVIDER_RGB = (0x44, 0x44, 0x44)
-DIVIDER_TOL = 6
-DIVIDER_MIN_W = 400
-
-# Card height is NOT fixed: 162px answered, 184px when the text wraps to two lines or an
-# unanswered card carries a Quick reply box. Hence dividers rather than a grid.
-#
-# Scrolling deliberately has no px-per-notch constant. We never compute where a card
-# WENT — each pass re-reads whatever is on screen and dedups by content, so the only
-# requirement is that one step moves less than a panel-height (~620px of list). Three
-# notches is ~300px at Chromium's default 100px/notch, leaving 2x margin; and if the
-# app ever changes that, consecutive passes sharing no card at all is detectable, which
-# is reported rather than silently skipping a sale.
-SCROLL_NOTCHES = 3
-SCROLL_SETTLE_S = 0.9
-SCROLL_MAX_STEPS = 400                 # hard cap; ~1200 notches is far past any real list
-
-# "No new cards" ALONE is a bad end-of-list test: it is also what a lazy-load fetch in
-# flight looks like, so a short fuse quits early on a list that had more to give. The
-# thumb tells the two apart — it keeps moving (or shrinks as items load) while there is
-# more, and freezes only at the true bottom. Both must stall, repeatedly, with a pause
-# between to let a fetch land.
-SCROLL_IDLE_STEPS = 4
-LAZY_LOAD_WAIT_S = 1.5
+# Notifications > Purchases: see sales_tally.py.
 WHEEL_DELTA = 120
 MOUSEEVENTF_WHEEL = 0x0800
 
@@ -246,7 +182,7 @@ VK_ESCAPE = 0x1B
 # That is not hypothetical. `parent.parent` was right while this lived one level
 # down; after the restructure it points at src/services/, so this read
 # src/services/hotkeys.ini (absent) and wrote src/services/error_log.txt (a
-# second, orphaned log). Every [automation] key — hopKebabs, unsendLast,
+# second, orphaned log). Every [automation] key — unsendLast,
 # countSales — was silently dead.
 #
 #   src/services/automation/automation.py  ->  parents[3] is the repo root
@@ -436,8 +372,12 @@ def _scan_kebabs(mask, sub) -> list[tuple[int, int]]:
     return out
 
 
-def find_model_bubbles(rgb: np.ndarray, region=R_MESSAGES) -> list[tuple[int, int, int, int]]:
+def find_model_bubbles(rgb: np.ndarray, region=R_MESSAGES,
+                       xmax: int | None = None) -> list[tuple[int, int, int, int]]:
     """Model message bubbles (#353535 fill), as window-relative (x0, y0, x1, y1).
+
+    `xmax` overrides MODEL_BUBBLE_XMAX for a window not at REF_W x REF_H — the
+    transcript reader derives it from the pane it finds (llm/transcript.py).
 
     NOT one per model message: a media+caption message shows up as two bands (the
     media container and the caption), and a standalone media message has no flat fill
@@ -446,7 +386,8 @@ def find_model_bubbles(rgb: np.ndarray, region=R_MESSAGES) -> list[tuple[int, in
     rx, ry, rw, rh = region
     sub = rgb[ry:ry + rh, rx:rx + rw].astype(int)
     m = np.abs(sub - np.array(MODEL_BUBBLE_RGB)).max(2) <= MODEL_BUBBLE_TOL
-    m[:, max(0, MODEL_BUBBLE_XMAX - rx):] = False      # the avatar photo is not a bubble
+    xmax = MODEL_BUBBLE_XMAX if xmax is None else xmax
+    m[:, max(0, xmax - rx):] = False                   # the avatar photo is not a bubble
     on = m.sum(1) > 8
     out, s = [], None
     for i, v in enumerate(list(on) + [False]):
@@ -553,16 +494,20 @@ def hop(points, rect, duration: float = 0.7, dwell: float = 0.6) -> bool:
 
 
 # ----------------------------------------------------------- fan / last run --
-def find_fan_bubbles(rgb: np.ndarray, region=R_MESSAGES) -> list[tuple[int, int, int, int]]:
+def find_fan_bubbles(rgb: np.ndarray, region=R_MESSAGES, xmin: int | None = None,
+                     x0max: int | None = None) -> list[tuple[int, int, int, int]]:
     """Fan message bubbles (#262626), window-relative (x0, y0, x1, y1).
 
     Clamped to x >= FAN_BUBBLE_XMIN because the fan AVATAR is the same #262626 and
     would otherwise merge into the bubble. Same fill rule as find_model_bubbles.
+    `xmin` / `x0max` override the two constants, as `xmax` does there.
     """
+    xmin = FAN_BUBBLE_XMIN if xmin is None else xmin
+    x0max = FAN_BUBBLE_X0_MAX if x0max is None else x0max
     rx, ry, rw, rh = region
     sub = rgb[ry:ry + rh, rx:rx + rw].astype(int)
     m = np.abs(sub - np.array(FAN_BUBBLE_RGB)).max(2) <= FAN_BUBBLE_TOL
-    m[:, :max(0, FAN_BUBBLE_XMIN - rx)] = False
+    m[:, :max(0, xmin - rx)] = False
     on = m.sum(1) > 8
     out, s = [], None
     for i, v in enumerate(list(on) + [False]):
@@ -571,7 +516,7 @@ def find_fan_bubbles(rgb: np.ndarray, region=R_MESSAGES) -> list[tuple[int, int,
         if not v and s is not None:
             if i - s >= 12:
                 cols = np.where(m[s:i].sum(0) >= max(3, int(MODEL_BUBBLE_FILL * (i - s))))[0]
-                if len(cols) and rx + int(cols.min()) <= FAN_BUBBLE_X0_MAX:
+                if len(cols) and rx + int(cols.min()) <= x0max:
                     out.append((rx + int(cols.min()), ry + s, rx + int(cols.max()), ry + i - 1))
             s = None
     return out
@@ -1206,48 +1151,8 @@ def read_hotkeys() -> dict:
 # --- actions: the Python-side equivalent of HK_Bind. Add an entry here, a line in
 # --- hotkeys.ini [automation], and an HK_Def in hotkeys.ahk.
 # ---------------------------------------------------- notifications > purchases --
-def notif_panel_open(rgb) -> bool:
-    """Is the Notifications flyout up? Decided on the header band — see NOTIF_OPEN_FILL."""
-    x0, y0, x1, y1 = NOTIF_HEADER_BAND
-    band = rgb[y0:y1, x0:x1].astype(int)
-    return float((np.abs(band - 0x26).sum(2) <= 12).mean()) >= NOTIF_OPEN_FILL
-
-
-def active_notif_tab(rgb) -> str | None:
-    """Which tab is selected, or None. Assumes the panel is open — check that first.
-
-    Takes the widest CONTIGUOUS RUN of accent blue, never cols.min()..cols.max(): the
-    tab row holds several blue things, and an extent spanning between two of them
-    reported cx=396 for a pill actually centred at 486. That exact mistake (a bare
-    max() stretched by unrelated pixels) is what put the Unsend click 25px off target.
-    """
-    band = rgb[NOTIF_TAB_Y - 14:NOTIF_TAB_Y + 14, NOTIF_PANEL[0]:NOTIF_PANEL[2]].astype(int)
-    m = np.abs(band - np.array(ACCENT_BLUE)).sum(2) <= ACCENT_BLUE_TOL * 3
-    solid = m.sum(0) >= NOTIF_PILL_MIN_H
-    best, run, start = None, 0, 0
-    for i, v in enumerate(list(solid) + [False]):
-        if v and run == 0:
-            start, run = i, 1
-        elif v:
-            run += 1
-        elif run:
-            if run >= NOTIF_PILL_MIN_W and (best is None or run > best[1]):
-                best = (NOTIF_PANEL[0] + start + run // 2, run)
-            run = 0
-    if best is None:
-        return None
-    name, x = min(NOTIF_TABS.items(), key=lambda kv: abs(kv[1] - best[0]))
-    return name if abs(x - best[0]) <= NOTIF_PILL_SNAP else None
-
-
-def find_notif_dividers(rgb) -> list[int]:
-    """y of every card divider in the panel, top to bottom. See DIVIDER_MIN_W."""
-    x0, x1 = NOTIF_LIST_X
-    band = rgb[NOTIF_PANEL[1]:NOTIF_PANEL[3], x0:x1].astype(int)
-    m = np.abs(band - np.array(DIVIDER_RGB)).sum(2) <= DIVIDER_TOL * 3
-    return [NOTIF_PANEL[1] + i for i, n in enumerate(m.sum(1)) if n >= DIVIDER_MIN_W]
-
-
+# Card parsing, shared with sales_tally.py, which owns the Purchases scroll (it
+# measures the panel per frame instead of using fixed 1920x1032 coordinates).
 def _card_amount(text: str):
     """Decimal from 'has purchased your message for $25.00!', or None.
 
@@ -1272,9 +1177,11 @@ def _card_amount(text: str):
         return None
 
 
-def parse_purchase_card(rgb, y0: int, y1: int) -> dict:
-    """One purchase card -> {handle, amount, ts, responder, text}. Any field may be None."""
-    boxes = ocr_read(rgb, (NOTIF_LIST_X[0], y0, NOTIF_LIST_X[1], y1))
+def parse_purchase_card(rgb, y0: int, y1: int, xr: tuple[int, int]) -> dict:
+    """One purchase card -> {handle, amount, ts, responder, text}. Any field may be None.
+
+    `xr` is the card's text column, which sales_tally.py measures per frame."""
+    boxes = ocr_read(rgb, (xr[0], y0, xr[1], y1))
     text = " ".join(t for _, t in boxes)
 
     m = re.search(r"@([A-Za-z0-9_]+)", text)
@@ -1305,191 +1212,6 @@ def parse_purchase_card(rgb, y0: int, y1: int) -> dict:
             "responder": responder, "text": text}
 
 
-def read_visible_cards(rgb) -> list[dict]:
-    """Every COMPLETE card on screen, top to bottom.
-
-    Only bands between two dividers qualify. The part-cards clipped at the top and
-    bottom of the viewport are skipped deliberately: their text is cut, so their
-    amount would parse short or not at all. Scrolling brings each into full view.
-    """
-    ys = find_notif_dividers(rgb)
-    return [parse_purchase_card(rgb, a, b) for a, b in zip(ys, ys[1:])]
-
-
-def notif_thumb(rgb) -> tuple[int, int] | None:
-    """Scrollbar thumb as (y0, y1), or None if the list doesn't overflow."""
-    col = rgb[NOTIF_PANEL[1]:NOTIF_PANEL[3], SCROLLBAR_X[0]:SCROLLBAR_X[1]].astype(int)
-    m = (np.abs(col - SCROLLBAR_RGB).sum(2) <= SCROLLBAR_TOL).sum(1) >= SCROLLBAR_MIN_COLS
-    ys = np.where(m)[0]
-    if not len(ys):
-        return None
-    return (NOTIF_PANEL[1] + int(ys.min()), NOTIF_PANEL[1] + int(ys.max()))
-
-
-def park_cursor(rect) -> None:
-    """Move the pointer off the list so nothing is hovered while we capture.
-
-    The hover restyle repaints the card under the cursor, which is what corrupts OCR —
-    and the wheel forces us to put the cursor there in the first place. So scroll, then
-    leave. See NOTIF_PARK.
-    """
-    u32.SetCursorPos(rect[0] + NOTIF_PARK[0], rect[1] + NOTIF_PARK[1])
-    time.sleep(NOTIF_UNHOVER_S)
-
-
-def scroll_notif_list(rect, notches: int = SCROLL_NOTCHES) -> None:
-    """Wheel the list down, then get the cursor off it before anyone captures."""
-    x, y, _, _ = rect
-    u32.SetCursorPos(x + (NOTIF_PANEL[0] + NOTIF_PANEL[2]) // 2,
-                     y + (NOTIF_LIST_TOP + NOTIF_PANEL[3]) // 2)
-    time.sleep(0.05)
-    for _ in range(notches):
-        u32.mouse_event(MOUSEEVENTF_WHEEL, 0, 0, ctypes.c_int(-WHEEL_DELTA), 0)
-        time.sleep(0.12)
-    park_cursor(rect)
-    time.sleep(SCROLL_SETTLE_S)
-
-
-def _card_key(c: dict):
-    return (c["handle"], c["ts"], str(c["amount"]))
-
-
-def collect_purchase_run(rect, target: str | None = None) -> dict:
-    """Walk Purchases from the top, summing one person's sales until someone else appears.
-
-    The run ends at the first card responded to by a DIFFERENT person — that is the
-    user's stop rule, and it bounds the work to their shift rather than the whole list.
-    `target` defaults to whoever answered the top card.
-
-    Cards with NO responder (nobody replied yet) do NOT end the run — nobody is not
-    somebody else — but they are reported separately rather than folded into the total,
-    because whether an unanswered sale is "yours" is a judgement call, not ours.
-    """
-    from decimal import Decimal
-    seen: dict = {}
-    order: list = []
-    unattributed: list = []
-    problems: list = []
-    stopped_on = None
-    reason = f"hit the {SCROLL_MAX_STEPS}-pass safety cap"     # only if we never break
-    prev_keys: set = set()
-    prev_thumb = None
-    idle = 0
-
-    park_cursor(rect)                    # nothing hovered for the FIRST capture either
-    for step in range(SCROLL_MAX_STEPS):
-        rgb = grab(rect)
-        if not notif_panel_open(rgb):
-            reason = "the Notifications panel closed mid-run"
-            problems.append(reason)
-            break
-        cards = read_visible_cards(rgb)
-        keys = {_card_key(c) for c in cards}
-
-        # Consecutive passes MUST overlap: one step moves ~300px, a viewport holds ~4
-        # cards. Sharing nothing means the list jumped further than we can account for
-        # and a sale may have passed unseen — worth saying out loud, not swallowing.
-        if step and prev_keys and keys and not (keys & prev_keys):
-            problems.append(f"pass {step}: no overlap with the previous screen - "
-                            f"a card may have been skipped")
-        prev_keys = keys
-
-        fresh = 0
-        for c in cards:
-            k = _card_key(c)
-            if k in seen:
-                continue
-            seen[k] = c
-            fresh += 1
-            who = c["responder"]
-            if who is None:
-                unattributed.append(c)
-                continue
-            if target is None:
-                target = who
-            if _norm(who) != _norm(target):
-                stopped_on = c
-                break
-            if c["amount"] is None:
-                problems.append(f"unreadable amount for {c['handle']} at {c['ts']}: "
-                                f"{c['text'][:70]!r}")
-                continue
-            order.append(c)
-        if stopped_on:
-            reason = "a different person"
-            break
-
-        # Progress = a new card OR the thumb moving. Requiring both to stall is what
-        # separates the true bottom from a lazy-load fetch in flight; the pause gives
-        # that fetch time to land before we count the pass as idle.
-        #
-        # No thumb at all means the list is too short to overflow, so scrolling can
-        # never reveal anything: that has to count as stalled too, or a short list
-        # spins the full safety cap holding the user's cursor hostage for minutes.
-        thumb = notif_thumb(rgb)
-        if fresh == 0 and (thumb is None or thumb == prev_thumb):
-            idle += 1
-            if idle >= SCROLL_IDLE_STEPS:
-                reason = "the end of the list (nobody else found)"
-                break
-            time.sleep(LAZY_LOAD_WAIT_S)
-        else:
-            idle = 0
-        prev_thumb = thumb
-        scroll_notif_list(rect)
-
-    total = sum((c["amount"] for c in order), Decimal("0"))
-    return {"target": target, "sales": order, "total": total,
-            "unattributed": unattributed, "problems": problems,
-            "stopped_on": stopped_on, "reason": reason, "passes": step + 1}
-
-
-def action_count_sales(rect, args) -> None:
-    """Total one person's sales in Notifications > Purchases, newest first."""
-    from decimal import Decimal
-    rgb = grab(rect)
-    if not notif_panel_open(rgb):
-        print("  opening Notifications")
-        click(rect[0] + NOTIF_BTN[0], rect[1] + NOTIF_BTN[1], settle=1.2)
-        rgb = grab(rect)
-        if not notif_panel_open(rgb):
-            print("  ! could not open the Notifications panel")
-            return
-    tab = active_notif_tab(rgb)
-    if tab != "purchases":
-        print(f"  switching tab: {tab} -> purchases")
-        click(rect[0] + NOTIF_TABS["purchases"], rect[1] + NOTIF_TAB_Y, settle=1.2)
-        rgb = grab(rect)
-        if active_notif_tab(rgb) != "purchases":
-            print("  ! Purchases tab did not activate")
-            return
-
-    r = collect_purchase_run(rect, getattr(args, "who", None))
-    if r["target"] is None:
-        print("  no purchases with a responder found")
-        return
-
-    print(f"\n  {r['target']}: {len(r['sales'])} sale(s)  =  ${r['total']}")
-    for c in r["sales"]:
-        print(f"    ${str(c['amount']):>9}  {c['ts']:<26} {c['handle']}")
-    if r["stopped_on"]:
-        s = r["stopped_on"]
-        print(f"  stopped on {r['reason']}: {s['responder']!r} answered {s['handle']} "
-              f"at {s['ts']}  ({r['passes']} passes)")
-    else:
-        # Always say WHY it ended. "Reached the end" and "gave up early" produce the same
-        # tidy total, and only one of them is trustworthy.
-        print(f"  stopped: {r['reason']}  ({r['passes']} passes)")
-    if r["unattributed"]:
-        u = sum((c["amount"] for c in r["unattributed"] if c["amount"]), Decimal("0"))
-        print(f"  NOT counted - {len(r['unattributed'])} purchase(s) with no responder, "
-              f"${u}")
-        for c in r["unattributed"]:
-            print(f"    ${str(c['amount']):>9}  {c['ts']:<26} {c['handle']}")
-    for p in r["problems"]:
-        print(f"  ! {p}")
-
-
 def action_hop_kebabs(rect, args) -> None:
     rgb = grab(rect)
     kebabs = find_model_kebabs(rgb)
@@ -1518,11 +1240,20 @@ def action_unsend_last(rect, args) -> None:
         unsend_last_message(rect, args)
 
 
+def action_count_sales(rect, args) -> None:
+    """Total one chatter's shift in Notifications > Purchases. See sales_tally.py."""
+    import sales_tally
+    sales_tally.action(rect, args)
+
+
 ACTIONS = {                                    # configparser lowercases keys
     "hopkebabs": action_hop_kebabs,
     "unsendlast": action_unsend_last,
     "countsales": action_count_sales,
 }
+
+# Actions that measure the window themselves, so the 1920x1032 gate does not apply.
+ANY_SIZE = {"countsales"}
 
 
 def listen(args) -> int:
@@ -1533,7 +1264,7 @@ def listen(args) -> int:
     active. Polling only observes, so the key still reaches whatever you are using.
     It also matches live_detector.py, which polls Esc/F8 the same way.
 
-    Runs headless under pythonw.exe (see automation_listen.vbs): output goes to MMA's
+    Runs headless under pythonw.exe (started by src/services/runner/runner.pyw): output goes to MMA's
     error_log.txt, and `--stop` ends it since there is no console to Ctrl+C.
     """
     # Route output BEFORE anything prints. Under pythonw sys.stdout is None and the
@@ -1569,12 +1300,16 @@ def listen(args) -> int:
             if name not in ACTIONS:
                 print(f"  ! [automation] {name!r} has no action in ACTIONS - ignored")
                 continue
-            hk = parse_hotkey(raw)
-            if hk is None:
-                print(f"  - {name}: {'disabled (blank)' if not raw.strip() else f'unsupported key {raw!r}'}")
-                continue
-            bound[name] = hk
-            print(f"  - {name} = {hk.raw}")
+            # One action may carry several keys, " | " between them (an overload,
+            # the same format hotkeys.ahk reads). Each binds on its own.
+            parts = [k.strip() for k in raw.split(" | ") if k.strip()] or [""]
+            for i, part in enumerate(parts):
+                hk = parse_hotkey(part)
+                if hk is None:
+                    print(f"  - {name}: {'disabled (blank)' if not part else f'unsupported key {part!r}'}")
+                    continue
+                bound[(name, i)] = hk
+                print(f"  - {name} = {hk.raw}")
         for name in ACTIONS:
             if name not in keys:
                 print(f"  ! ACTIONS has {name!r} but hotkeys.ini [automation] does not")
@@ -1603,12 +1338,13 @@ def listen(args) -> int:
                     refresh()
 
             active = TARGET_TITLE.lower() in foreground_title().lower()
-            for name, hk in bound.items():
+            for slot, hk in bound.items():
+                name = slot[0]
                 now = hotkey_down(hk)
-                if now and not prev.get(name) and active:
+                if now and not prev.get(slot) and active:
                     print(f"{hk.raw} -> {name}")
                     try:
-                        _, rect = require_window(force=args.force)
+                        _, rect = require_window(force=args.force or name in ANY_SIZE)
                         args._hotkey = hk          # so an action can offer "press again"
                         ACTIONS[name](rect, args)
                     except WindowNotReady as e:
@@ -1620,7 +1356,7 @@ def listen(args) -> int:
                         print("  ! action crashed - listener survives:")
                         print(traceback.format_exc())
                     now = hotkey_down(hk)          # re-read: the action took seconds
-                prev[name] = now
+                prev[slot] = now
             time.sleep(POLL_S)
     except KeyboardInterrupt:
         print("stopped (Ctrl+C)")
@@ -1685,7 +1421,7 @@ def main(argv=None):
         return 0
 
     try:
-        _, rect = require_window(force=a.force)
+        _, rect = require_window(force=a.force or a.count_sales)
     except WindowNotReady as e:
         print(f"error: {e}", file=sys.stderr)
         return 1

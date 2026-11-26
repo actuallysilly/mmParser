@@ -283,6 +283,7 @@ OpenArchive(*) {
     btnLoad   := ag.Add("Button", "x16  y498 w110 h30", "Load")
     btnCopy   := ag.Add("Button", "x132 y498 w110 h30", "Copy")
     btnDelete := ag.Add("Button", "x248 y498 w110 h30", "Delete")
+    btnExport := ag.Add("Button", "x364 y498 w110 h30", "Export…")
     btnClose  := ag.Add("Button", "x614 y498 w90  h30", "Close")
 
     edSearch.OnEvent("Change",      DoSearch)
@@ -291,6 +292,7 @@ OpenArchive(*) {
     btnLoad.OnEvent("Click",        DoLoad)
     btnCopy.OnEvent("Click",        DoCopy)
     btnDelete.OnEvent("Click",      DoDelete)
+    btnExport.OnEvent("Click",      DoExport)
     btnClose.OnEvent("Click",       DoClose)
     ag.OnEvent("Close",             DoClose)
     ag.OnEvent("Escape",            DoClose)
@@ -337,13 +339,7 @@ OpenArchive(*) {
     ; Search the whole mass, not just the preview — the line you remember is
     ; usually in the middle of it, which is the point of having a search box.
     Matches(e, terms) {
-        if !terms.Length
-            return true
-        hay := e.ts " " e.model " " e.content
-        for t in terms
-            if !InStr(hay, t, false)
-                return false
-        return true
+        return ArchiveMatchesTerms(e, terms)
     }
 
     Selected() {
@@ -442,7 +438,223 @@ OpenArchive(*) {
         btnLoad.Move(pad, H - 44)
         btnCopy.Move(pad + 116, H - 44)
         btnDelete.Move(pad + 232, H - 44)
+        btnExport.Move(pad + 348, H - 44)
         btnClose.Move(W - pad - 90, H - 44)
+    }
+
+    ; The search box seeds the export's text filter, so "find them, then export
+    ; them" is two clicks.
+    DoExport(*) {
+        ArchiveExportDialog(ag, all, edSearch.Value)
+    }
+}
+
+; Every term must appear somewhere in the date, model or whole text. Shared by the
+; viewer's search box and the export's text filter so the two cannot disagree.
+ArchiveMatchesTerms(e, terms) {
+    if !terms.Length
+        return true
+    hay := e.ts " " e.model " " e.content
+    for t in terms
+        if !InStr(hay, t, false)
+            return false
+    return true
+}
+
+; The text written between masses in an export — Settings key
+; default_archive_separator. Stored escaped because an ini value cannot hold a
+; line break; empty or missing means "\n", one blank line between masses.
+ArchiveExportSeparator() {
+    sep := ""
+    try sep := IniRead(MMA_CFG, "Settings", "default_archive_separator", "\n")
+    if (sep = "")
+        sep := "\n"
+    sep := StrReplace(sep, "\n", "`n")
+    sep := StrReplace(sep, "\t", "`t")
+    return sep
+}
+
+; How a mass's model shows in the export's model list. A blank model name (old
+; entries have "[]" headers) gets a row of its own so it can be excluded too.
+ArchiveExportModelKey(model) {
+    m := Trim(model)
+    return m = "" ? "(no model)" : m
+}
+
+; The export window: optional filters over the archive, then a .txt.
+;   all    the viewer's entries, newest first
+;   query  the viewer's search box, used as the starting text filter
+ArchiveExportDialog(owner, all, query := "") {
+    BG      := "15141C"
+    FIELDBG := "2A2836"
+    TXT     := "E6E4EE"
+    MUTED   := "8E8AA6"
+    ACCENT  := "B89CFF"
+
+    models := []
+    seen := Map()
+    seen.CaseSense := false
+    ; Not named `e`: FilteredEntries() below uses `e` as its own local, and a nested
+    ; function silently shares any name the outer one also has.
+    for ent in all {
+        mdl := ArchiveExportModelKey(ent.model)
+        if !seen.Has(mdl) {
+            seen[mdl] := true
+            models.Push(mdl)
+        }
+    }
+
+    xg := Gui("+Owner" owner.Hwnd " -MinimizeBox", "Export archive")
+    xg.BackColor := BG
+    xg.MarginX := 16
+    xg.MarginY := 12
+
+    xg.SetFont("s13 Bold c" ACCENT, "Segoe UI")
+    xg.Add("Text", "x16 y12 w400", "Export to .txt")
+    xg.SetFont("s10 Norm c" MUTED, "Segoe UI")
+    xg.Add("Text", "x16 y44 w400", "Every filter is optional — leave them all empty to export everything.")
+
+    xg.SetFont("s10 c" TXT, "Segoe UI")
+    xg.Add("Text", "x16 y80 w80", "Text has")
+    edText := xg.Add("Edit", "x100 y77 w316 h26 Background" FIELDBG, query)
+    ; Every model starts ticked; untick one to leave its masses out.
+    xg.Add("Text", "x16 y116 w80", "Models")
+    xg.SetFont("s9 c" MUTED, "Segoe UI")
+    xg.Add("Text", "x16 y136 w80", "untick to`nexclude")
+    xg.SetFont("s10 c" TXT, "Segoe UI")
+    listH := Min(Max(models.Length, 2), 6) * 24 + 6
+    lvModels := xg.Add("ListView", "x100 y113 w316 h" listH " Checked -Hdr -Multi Background1B1A24",
+                       ["Model"])
+    for mdl in models
+        lvModels.Add("Check", mdl)
+    lvModels.ModifyCol(1, 290)
+
+    y := 113 + listH + 12
+    xg.Add("Text", "x16 y" (y + 3) " w80", "From")
+    dtFrom := xg.Add("DateTime", "x100 y" y " w150 ChooseNone", "yyyy-MM-dd")
+    xg.Add("Text", "x266 y" (y + 3) " w30", "To")
+    dtTo   := xg.Add("DateTime", "x296 y" y " w120 ChooseNone", "yyyy-MM-dd")
+    ; These two draw their own white field, so their text must be dark.
+    for c in [dtFrom, dtTo]
+        c.SetFont("c000000")
+    y += 39
+    ; Off by default: an export is the masses themselves, no [date] [model] lines.
+    cbHead := xg.Add("Checkbox", "x16 y" y " w400", "Keep metadata (date and model above each mass)")
+
+    y += 32
+    xg.SetFont("s10 c" MUTED, "Segoe UI")
+    lblN := xg.Add("Text", "x16 y" y " w400", "")
+
+    y += 30
+    xg.SetFont("s10 c" TXT, "Segoe UI")
+    btnGo     := xg.Add("Button", "x200 y" y " w110 h30 Default", "Export…")
+    btnCancel := xg.Add("Button", "x316 y" y " w100 h30", "Cancel")
+    winH := y + 46
+
+    edText.OnEvent("Change",  Recount)
+    lvModels.OnEvent("ItemCheck", Recount)
+    dtFrom.OnEvent("Change",  Recount)
+    dtTo.OnEvent("Change",    Recount)
+    btnGo.OnEvent("Click",    DoGo)
+    btnCancel.OnEvent("Click", DoCancel)
+    xg.OnEvent("Close",       DoCancel)
+    xg.OnEvent("Escape",      DoCancel)
+
+    ArchiveDarkTheme(xg, [edText, lvModels])
+    THEME_BoldButtons(xg)
+    Recount()
+    xg.Show("w432 h" winH)
+    return
+
+    ; Oldest first: a file reads top-down, so it goes in the order they were sent.
+    FilteredEntries() {
+        terms := []
+        for t in StrSplit(Trim(edText.Value), " ")
+            if t != ""
+                terms.Push(t)
+        keep := Map()
+        keep.CaseSense := false
+        row := 0
+        while (row := lvModels.GetNext(row, "Checked"))
+            keep[lvModels.GetText(row, 1)] := true
+        from  := dtFrom.Value != "" ? SubStr(dtFrom.Value, 1, 8) "000000" : ""
+        to    := dtTo.Value   != "" ? SubStr(dtTo.Value,   1, 8) "000000" : ""
+        out := []
+        Loop all.Length {
+            e := all[all.Length - A_Index + 1]
+            if !keep.Has(ArchiveExportModelKey(e.model))
+                continue
+            if (from != "" || to != "") {
+                day := ArchiveDayStamp(e.ts)
+                if (day = "")
+                    continue
+                ; StrCompare, not < — the comparison operators throw on strings.
+                if (from != "" && StrCompare(day, from) < 0)
+                    continue
+                if (to != "" && StrCompare(day, to) > 0)
+                    continue
+            }
+            if !ArchiveMatchesTerms(e, terms)
+                continue
+            out.Push(e)
+        }
+        return out
+    }
+
+    Recount(*) {
+        n := FilteredEntries().Length
+        lblN.Value := (n = all.Length) ? "All " n " masses will be exported."
+                                       : n " of " all.Length " masses will be exported."
+        btnGo.Enabled := n > 0
+    }
+
+    DoGo(*) {
+        picked := FilteredEntries()
+        if !picked.Length
+            return
+        dir  := ""
+        SplitPath(ArchiveFile(), , &dir)
+        name := "mass_archive_export_" FormatTime(, "yyyy-MM-dd") ".txt"
+        xg.Opt("+OwnDialogs")
+        path := FileSelect("S16", dir "\" name, "Export archive", "Text (*.txt)")
+        if (path = "")
+            return
+        if !RegExMatch(path, "i)\.txt$")
+            path .= ".txt"
+
+        sep := ArchiveExportSeparator()
+        if (SubStr(sep, -1) != "`n")
+            sep .= "`n"                     ; the next mass starts on its own line
+        heads := cbHead.Value
+        out := ""
+        for i, e in picked {
+            if (i > 1)
+                out .= sep
+            if heads
+                out .= "[" e.ts "] [" e.model "]`n"
+            out .= StrReplace(e.content, "`r`n", "`n") "`n"
+        }
+        out := StrReplace(out, "`n", "`r`n")
+
+        try {
+            f := FileOpen(path, "w", "UTF-8-RAW")
+            if !f
+                throw Error("could not open the file for writing")
+            f.Write(out)
+            f.Close()
+        } catch as err {
+            LOGE("archive.export", "could not write the export", LOG_Err(err) "   " path)
+            MsgBox("Could not write " path "`n`n" err.Message, "Export archive", 0x30)
+            return
+        }
+        LOGI("archive.export", "exported " picked.Length " mass(es) to " path)
+        xg.Destroy()
+        ToolTip("Exported " picked.Length " mass" (picked.Length = 1 ? "" : "es"))
+        SetTimer(ClearArchiveTip, -1500)
+    }
+
+    DoCancel(*) {
+        xg.Destroy()
     }
 }
 

@@ -1,0 +1,60 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<!-- "Infloww Messages" in the title is deliberate: MMA's screen readers match it,
+     so autoword, grammar, hotstrings, masses and the chat reader all work here. -->
+<title>Infloww Messages - TestFlow</title>
+<link rel="stylesheet" href="/ic/clone.css">
+<link rel="stylesheet" href="tf.css">
+</head>
+<body style="margin:0;background:#151515">
+<!-- The window itself: drawn by the shared Infloww clone (tools/inflowwclone). -->
+<div id="root"></div>
+
+<div class="tf">
+<!-- Rate a message. Over the right column, never over the message pane,
+     so the chat reader still sees a clean chat. -->
+  <div id="rate" hidden>
+    <div class="rt-head"><span id="rateTitle">Rate her reply</span> <span id="rateModel"></span></div>
+    <div class="rt-quote" id="rateQuote"></div>
+    <div id="rateScoreWrap">
+      <div class="rt-scores" id="rateScores"></div>
+      <div class="rt-anchor" id="rateAnchor">Pick a score</div>
+      <div class="rt-tags" id="rateTags"></div>
+      <select id="rateStep" hidden aria-label="The move it should have made"></select>
+    </div>
+    <textarea id="rateNote" rows="2" spellcheck="false"></textarea>
+    <div id="rateRewriteWrap">
+      <textarea id="rateRewrite" rows="2" placeholder="What you'd have sent instead (optional)" spellcheck="false"></textarea>
+      <label class="rt-check"><input type="checkbox" id="rateReplace" checked> Use my version in the chat</label>
+    </div>
+    <div class="rt-btns"><button id="rateSkip">Skip</button><button id="rateSave" disabled>Save</button></div>
+  </div>
+</div>
+<!-- End-of-chat review. Over the whole window: the chat is over, so nothing
+     needs to read the message pane any more. -->
+<div class="tf"><div id="review" hidden>
+  <div class="rv-box" role="dialog" aria-labelledby="rvTitle">
+    <h3 id="rvTitle">Review this conversation</h3>
+    <p class="rv-hint">Score the whole interaction, then explain it. Context is the point: what worked, what didn't, and what a good chatter would have done.</p>
+    <div class="rv-row"><span class="rv-k" id="rvOverallK">Her, overall</span>
+      <div class="rt-scores rv-scores" id="rvOverall"></div><div class="rt-anchor" id="rvOverallA">Pick a score</div></div>
+    <div class="rv-row" id="rvFanRow"><span class="rv-k">The fan's realism</span>
+      <div class="rt-scores rv-scores" id="rvFan"></div><div class="rt-anchor" id="rvFanA">Pick a score</div></div>
+    <div class="rv-grid">
+      <label>How it ended<select id="rvOutcome"></select></label>
+      <label>Best message<select id="rvBest"></select></label>
+      <label>Worst message<select id="rvWorst"></select></label>
+    </div>
+    <label>What went well<textarea id="rvWell" rows="2" spellcheck="false"></textarea></label>
+    <label>What went wrong<textarea id="rvWrong" rows="2" spellcheck="false"></textarea></label>
+    <label>The lesson: what should a chatter do differently next time?<textarea id="rvLesson" rows="2" spellcheck="false"></textarea></label>
+    <div class="rt-btns"><button id="rvCancel">Cancel</button><button id="rvKeep">Save, keep chatting</button><button id="rvSave" disabled>Save &amp; end chat</button></div>
+  </div>
+</div></div>
+<script src="/ic/clone.js"></script>
+<script src="common.js"></script>
+<script src="clone.js"></script>
+</body>
+</html>

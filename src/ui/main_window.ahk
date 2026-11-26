@@ -23,6 +23,8 @@
 ; be reached without taking your hands off the chat box.
 #Include "../hotstrings/shortcuts.ahk"
 #Include "tools_window.ahk"
+#Include "tools_settings.ahk"
+#Include "payout_calc.ahk"
 ; The Variants window's "Add alt-FU…" button. Its own file rather than another
 ; screenful in here: it is a self-contained form, and this file is the largest in
 ; MMA. It reaches back into edCtrls and the mass-slot helpers below, which is why

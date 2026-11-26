@@ -1,0 +1,67 @@
+/*
+  TestFlow's own overlays, on top of the shared Infloww clone (/ic/clone.css):
+  the rate card over the right column and the end-of-chat review dialog.
+  No #444444 / #262626 / #353535 / #666666 here: those belong to the pixel contract.
+*/
+.tf * { box-sizing: border-box; }
+.tf button { font: inherit; color: inherit; background: none; border: 0; padding: 0; cursor: pointer; }
+.tf [hidden] { display: none !important; }
+.tf { font: 14px/1.35 "Inter", "Segoe UI", system-ui, sans-serif; color: #d9d9d9; }
+
+/* Rate-her-reply pop-up (LLM testing), over the right panel. No #444444 /
+   #262626 / #353535 / #666666 here: those colours belong to the pixel contract. */
+/* Over the right column (x from the right edge, above the Insights/Sales/Notes
+   nav), never over the message pane: the chat reader must see a clean chat. */
+#rate { position: fixed; right: 11px; width: 258px; bottom: 78px; padding: 12px; z-index: 20;
+        background: #1d2731; border: 1px solid #3b5368; border-radius: 10px;
+        box-shadow: 0 6px 24px rgba(0,0,0,.5); -webkit-user-select: text; user-select: text; }
+#rate .rt-head { font-weight: 600; font-size: 14px; color: #eef3f8; margin-bottom: 6px; }
+#rate .rt-head span { font-weight: 400; font-size: 12px; color: #8fa6ba; }
+#rate .rt-quote { font-size: 12px; color: #b9c7d4; overflow: hidden; margin-bottom: 8px;
+                  font-style: italic; display: -webkit-box; -webkit-line-clamp: 4; -webkit-box-orient: vertical; }
+#rate .rt-scores { display: grid; grid-template-columns: repeat(5, 1fr); gap: 4px; margin-bottom: 8px; }
+#rate .rt-scores button { height: 28px; border-radius: 6px; background: #2a3a48; color: #dfe8f0; font-weight: 600; }
+#rate .rt-scores button:hover { background: #33495c; }
+#rate .rt-scores button.on { background: #2f8f5b; color: #fff; }
+#rate textarea { width: 100%; resize: none; background: #121a21; color: #dfe8f0; border: 1px solid #3b5368;
+                 border-radius: 6px; padding: 6px 8px; font: inherit; font-size: 13px; outline: none; }
+#rate .rt-btns { display: flex; justify-content: flex-end; gap: 8px; margin-top: 8px; }
+#rate .rt-btns button { padding: 5px 14px; border-radius: 6px; background: #2a3a48; }
+#rate #rateSave { background: #2f6fb0; color: #fff; }
+#rate #rateSave:disabled { opacity: .45; cursor: default; }
+
+
+/* ── annotation card (v2) and the review dialog ─────────────────────────── */
+#rate { max-height: calc(100vh - 170px); overflow-y: auto; }
+#rate .rt-head { display: flex; gap: 6px; align-items: baseline; }
+#rate .rt-anchor, #review .rt-anchor { font-size: 11.5px; color: #9fb4c7; min-height: 16px; margin: -4px 0 8px; }
+#rate .rt-tags { display: flex; flex-wrap: wrap; gap: 4px; margin-bottom: 8px; }
+#rate .rt-tags button { font-size: 11px; padding: 2px 7px; border-radius: 999px; background: #22303c; color: #b9c7d4; }
+#rate .rt-tags button.on { background: #8a4b2f; color: #fff; }
+#rate .rt-tags button.on.good { background: #2f8f5b; }
+#rate select { width: 100%; margin-bottom: 8px; background: #121a21; color: #dfe8f0; border: 1px solid #3b5368;
+               border-radius: 6px; padding: 4px 6px; font: inherit; font-size: 12px; }
+#rate textarea + textarea, #rate #rateRewriteWrap { margin-top: 6px; }
+#rate .rt-check { display: flex; gap: 6px; align-items: center; font-size: 12px; color: #b9c7d4; margin-top: 4px; }
+
+
+#review { position: fixed; inset: 0; background: rgba(0,0,0,.6); display: grid; place-items: center; z-index: 50;
+          -webkit-user-select: text; user-select: text; }
+#review .rv-box { width: min(720px, 92vw); max-height: 90vh; overflow-y: auto; background: #1d2731;
+                  border: 1px solid #3b5368; border-radius: 12px; padding: 18px 20px; }
+#review h3 { margin: 0 0 4px; color: #eef3f8; font-size: 18px; }
+#review .rv-hint { color: #8fa6ba; font-size: 13px; margin: 0 0 14px; }
+#review .rv-row { margin-bottom: 6px; }
+#review .rv-k { display: block; font-size: 12px; color: #b9c7d4; margin-bottom: 4px; }
+#review .rv-scores { grid-template-columns: repeat(10, 1fr); }
+#review .rt-scores { display: grid; gap: 4px; margin-bottom: 8px; }
+#review .rt-scores button { height: 30px; border-radius: 6px; background: #2a3a48; color: #dfe8f0; font-weight: 600; }
+#review .rt-scores button.on { background: #2f8f5b; color: #fff; }
+#review .rv-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; margin: 6px 0 10px; }
+#review label { display: flex; flex-direction: column; gap: 4px; font-size: 12px; color: #b9c7d4; margin-bottom: 10px; }
+#review select, #review textarea { background: #121a21; color: #dfe8f0; border: 1px solid #3b5368; border-radius: 6px;
+                                   padding: 6px 8px; font: inherit; font-size: 13px; resize: vertical; min-width: 0; }
+#review .rt-btns { display: flex; justify-content: flex-end; gap: 8px; }
+#review .rt-btns button { padding: 7px 14px; border-radius: 6px; background: #2a3a48; }
+#review #rvSave { background: #2f6fb0; color: #fff; }
+#review button:disabled { opacity: .45; cursor: default; }

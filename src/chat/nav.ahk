@@ -1,4 +1,6 @@
 #Requires AutoHotkey v2.0
+; The AI suite's launchers (TestFlowOpen, LiveTrainerOpen, …), bound below.
+#Include "../core/ai_suite.ahk"
 ; ═══════════════════════════════════════════════════════════════════════════════
 ;  chat/nav.ahk — moving around Infloww: unread, next chat, focus, the click keys.
 ; ───────────────────────────────────────────────────────────────────────────────
@@ -60,7 +62,6 @@ NavBind() {
     HK_Bind("nav.unread",      Unread)
     HK_Bind("nav.focusAuto",   focusAuto)
     HK_Bind("nav.nextChat",    nextChat)
-    HK_Bind("nav.unreadLeft",  Unread)
     HK_Bind("nav.focusTop",    focusTop)
     HK_Bind("nav.clickUnread", ClickUnread)
     HK_Bind("nav.clickHome",   ClickHome)
@@ -70,5 +71,14 @@ NavBind() {
     HK_Bind("util.afkClick",        AfkClick)
     HK_Bind("util.recoverMsg",      RecoverLastMsg)
     HK_Bind("util.clickSecondGrey", ClickSecondGrey)
-    HK_Bind("util.debugGrey",       DebugGreySearch)
+    HK_Bind("util.fixGrammarCasual", FixGrammarCasual)
+    HK_Bind("util.fixGrammarAlice",  FixGrammarAlice)
+    HK_Bind("util.suggest",          SuggestOpen)
+    HK_Bind("util.ppvPick",          PpvPickOpen)
+    HK_Bind("util.reword",           RewordMessage)
+    HK_Bind("util.chatView",         ChatViewOpen)
+    HK_Bind("util.liveTrainer",      LiveTrainerOpen)
+    HK_Bind("util.testFlow",         TestFlowOpen)
+    HK_Bind("util.shiftViewer",      ShiftViewerOpen)
+    HK_Bind("util.arena",            ArenaOpen)
 }

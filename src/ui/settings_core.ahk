@@ -19,6 +19,15 @@
 ;  two front ends to share.
 ; ═══════════════════════════════════════════════════════════════════════════════
 
+; INI8_Read / INI8_Write, for the rows whose home is a Python service's own ini
+; rather than mass_gui.cfg — see SETTINGS_Read below.
+#Include "../core/ini_utf8.ahk"
+
+; autoword's own settings file. Its [Model] rows are in the table below.
+global SETTINGS_AUTOWORD_INI := MMA_USERDATA "\autoword.ini"
+; The local-AI services' settings file ([Ollama], [Draft], [Grammar]).
+global SETTINGS_LLM_INI := MMA_USERDATA "\llm.ini"
+
 ; ═════════════════════════════════════════════════════════════════════════════
 ;  THE FIELD TABLE — one description of every plain setting.
 ; ─────────────────────────────────────────────────────────────────────────────
@@ -79,6 +88,10 @@ SETTINGS_Int(v, fallback, min := 0) {
 ;    help   the line under it, or ""
 ;    opts   choice only: [[value, label], …]
 ;    warn   true if changing it needs MMA restarted to take effect
+;    tool   the feature id (or pseudo-id) whose page in the Tools window draws
+;           this row, or "" for a row that lives in Settings. A tool row is drawn
+;           generically by ui\tools_settings.ahk; the WebView settings page shows
+;           it under its `sect` like any other.
 SETTINGS_Fields(cur := "") {
     f := []
     ; `grp` is the sub-heading a row sits under within its section. Empty for most
@@ -86,17 +99,22 @@ SETTINGS_Fields(cur := "") {
     ; different questions and running them together as one list is what made the
     ; Win32 tab hard to read.
     _grp := ""
+    ; `file` is where a row lives when that is NOT mass_gui.cfg — "" for nearly
+    ; all of them. Set it before a run of rows and clear it after, like _grp.
+    _file := ""
+    ; `tool` — see the header. Set before a run of rows and clear it after.
+    _tool := ""
     _add(id, sect, iniSect, iniKey, type, def, label, help := "", opts := 0, warn := false) {
         f.Push({id: id, sect: sect, grp: _grp, iniSect: iniSect, iniKey: iniKey,
                 type: type, def: def, label: label, help: help, opts: opts,
-                warn: warn})
+                warn: warn, file: _file, tool: _tool})
     }
     ; A read-only line the page draws but cannot edit — a live readout, or a note
     ; about why a row above it is empty.
     _note(id, sect, label, help := "") {
         f.Push({id: id, sect: sect, grp: _grp, iniSect: "", iniKey: "",
                 type: "note", def: "", label: label, help: help, opts: 0,
-                warn: false})
+                warn: false, file: "", tool: _tool})
     }
     ; The value a row should show: what the page has edited if it has edited it,
     ; otherwise what the cfg says. The Models rows below BUILD THEMSELVES out of
@@ -138,6 +156,11 @@ SETTINGS_Fields(cur := "") {
          "Restart scripts that die",
          "A watchdog checks every 5 seconds and relaunches anything on the"
        . " startup list that has stopped.")
+    _add("AutoRecordShift", "General", "Settings", "AutoRecordShift", "bool", "1",
+         "Record every shift with OBS",
+         "When the Infloww Messages window opens, start OBS on its Shifts"
+       . " profile, recording to D:\ShiftRecordings. Once per window; if OBS"
+       . " is already open it is left alone.")
     _add("StartupScripts", "General", "Settings", "StartupScripts", "text", "general.ahk",
          "Scripts started with MMA",
          "Comma-separated. general.ahk holds your hotstrings, so it belongs here"
@@ -354,9 +377,17 @@ SETTINGS_Fields(cur := "") {
          "Off gives one Load and one Save for the tab in front of you. On gives"
        . " the per-model grid, which is the only way to load a model you are not"
        . " looking at.", 0, true)
+    _tool := "archive"
     _add("ArchiveOnParse", "Interface", "Settings", "ArchiveOnParse", "bool", "1",
          "Archive every mass you Parse",
          "Keeps a dated copy of each pasted mass so you can find it again.")
+    ; Read by ArchiveExportSeparator in mass\archive.ahk. Stored escaped (\n, \t)
+    ; because an ini value cannot hold a real line break.
+    _add("ArchiveSeparator", "Interface", "Settings", "default_archive_separator", "text", "\n",
+         "Export separator",
+         "Goes between masses in an exported .txt. \n is a line break, \t a tab."
+       . " Empty means \n.")
+    _tool := ""
     ; TWO keys, and they are not the same question. CreditPicture is a BOOLEAN —
     ; CREDIT_On() reads it with LOG_IniInt and it means "show her at all" — while
     ; CreditImage holds WHICH file. Writing a path into CreditPicture (which is
@@ -383,5 +414,310 @@ SETTINGS_Fields(cur := "") {
          "Which picture",
          "Anything in assets\decoration\ shows up here. Pick a file from"
        . " elsewhere in the Classic Settings — this list is the folder.", _ci)
+
+    ; ── Autoword ──────────────────────────────────────────────────────────────
+    ;  Its own section. Every row lives in userdata\autoword.ini, which autoword
+    ;  reads once at startup — so the main window restarts autoword whenever that
+    ;  file changes (CORE_AutowordModelCheck in ui\main_core.ahk). Switching
+    ;  autoword on or off is still Features; this is how it behaves once it is on.
+    ;  autoword's keys ([Keys], [Reword] Key) are left to the ini.
+    ;
+    ;  A choice row lists only the values worth offering, plus the current one
+    ;  when it is something else (hand-edited), for the reason CreditImage keeps
+    ;  its outside file: leaving it out would wipe it on save.
+    ; NOT `cur`: a nested function assigning a name the outer function owns
+    ; writes the OUTER variable, and that one is the pending-edits callback, so
+    ; every _cur() after this section threw "String has no method Call".
+    _awOpts(opts, iniSect, iniKey, def) {
+        have := INI8_Read(SETTINGS_AUTOWORD_INI, iniSect, iniKey, def)
+        for o in opts
+            if (o[1] = have)
+                return opts
+        if (have != "")
+            opts.Push([have, have])
+        return opts
+    }
+    _file := SETTINGS_AUTOWORD_INI
+    _tool := "autoword"
+
+    _grp  := "Suggestions"
+    _add("awRender", "Autoword", "Mode", "Render", "choice", "off",
+         "Show suggestions",
+         "Off still predicts, and logs what it would have said to"
+       . " debuglogs\autoword_shadow.log.",
+         _awOpts([["strip", "Strip near the message box"],
+                  ["off",   "Off (measure only)"]], "Mode", "Render", "off"))
+    _add("awPredict", "Autoword", "Mode", "Predict", "choice", "nextword",
+         "What to predict",
+         "Completion ignores the words before; Both uses them and falls back to"
+       . " completion when it has never seen them.",
+         _awOpts([["nextword",   "Next word, from the words before it"],
+                  ["completion", "Complete the word being typed"],
+                  ["both",       "Both"]], "Mode", "Predict", "nextword"))
+    _add("awMinChars", "Autoword", "Suggest", "MinChars", "choice", "1",
+         "When to suggest",
+         "Before any letter, the right word is in the list about 47% of the time;"
+       . " after one letter, 73%.",
+         _awOpts([["1", "After the first letter (measured best)"],
+                  ["0", "Right after space, before any letter"],
+                  ["2", "After two letters"]], "Suggest", "MinChars", "1"))
+    _add("awListSize", "Autoword", "Suggest", "ListSize", "int", "3",
+         "How many to show",
+         "Measured: 3 saves the most keystrokes; past 3 you are reading for nothing.")
+    _add("awMinSaving", "Autoword", "Suggest", "MinSaving", "int", "1",
+         "Least letters saved",
+         "Hide a suggestion that saves fewer letters than this. 1 measured best;"
+       . " higher cuts to, so, me — the easiest words to predict.")
+    _add("awPreferContent", "Autoword", "Suggest", "PreferContentWords", "choice", "off",
+         "Prefer real words",
+         "Rank real words above stop words (to, the, you, it), which are quicker to"
+       . " type than to pick. Before the first letter needs When to suggest = right"
+       . " after space. Weights and the word list are in autoword.ini.",
+         _awOpts([["off",    "Off (plain ranking)"],
+                  ["empty",  "Only before the first letter"],
+                  ["always", "Always"]], "Suggest", "PreferContentWords", "off"))
+
+    _grp  := "Model"
+    _add("awPredictor", "Autoword", "Model", "Predictor", "choice", "ngram",
+         "Who ranks them",
+         "The language model reads the whole sentence and your previous message;"
+       . " it needs the GPU. Shadow shows the n-gram and logs both, to"
+       . " debuglogs\autoword_lm_shadow.log.",
+         [["ngram",  "n-gram (fast, no GPU)"],
+          ["lm",     "Language model"],
+          ["shadow", "Shadow (n-gram shown, both measured)"]])
+    ; The model folders that can load: a config.json beside the weights. Plus the
+    ; current value when it points somewhere else, for the reason CreditImage
+    ; keeps its outside file: leaving it out would wipe it on save.
+    _lm := []
+    _lmCur := INI8_Read(SETTINGS_AUTOWORD_INI, "Model", "LmPath", "")
+    _lmSeen := false
+    loop files MMA_USERDATA "\corpus\models\*", "D" {
+        if !FileExist(A_LoopFileFullPath "\config.json")
+            continue
+        _v := "userdata\corpus\models\" A_LoopFileName
+        _lm.Push([_v, A_LoopFileName])
+        if (_v = _lmCur)
+            _lmSeen := true
+    }
+    if (_lmCur != "" && !_lmSeen)
+        _lm.Push([_lmCur, _lmCur])
+    _add("awLmPath", "Autoword", "Model", "LmPath", "choice", "",
+         "Language model",
+         "Which fine-tuned model, from userdata\corpus\models. Used by Language"
+       . " model and Shadow; ignored by n-gram.", _lm)
+    _add("awLmContext", "Autoword", "Model", "Context", "choice", "typed",
+         "What it reads first",
+         "The open chat needs Features ▸ Chat reader on; it uses the reader's OCR"
+       . " and falls back to your last message when that is missing.",
+         _awOpts([["typed", "Your last sent message"],
+                  ["chat",  "The open chat (OCR, fan and model)"]], "Model", "Context", "typed"))
+    _add("awLmWeight", "Autoword", "Model", "LmWeight", "text", "0.5",
+         "n-gram weight in the mix",
+         "Suggestions are ranked by LM + weight × log(n-gram). 0.5 to 1 measured best.")
+
+    _grp  := "Typing for you"
+    _add("awAutoChars", "Autoword", "Suggest", "AutoCompleteChars", "int", "0",
+         "Type the word after",
+         "Letters typed before an obvious word (the only one you have ever typed"
+       . " here) is typed for you. 0 = never; 3 is a sane start.")
+    _add("awAutoSeen", "Autoword", "Suggest", "AutoCompleteSeen", "int", "5",
+         "Only words seen at least",
+         "Times. Measured at 3 letters: 5 is right 97% of the time, 10 is 98% but"
+       . " fires a third less.")
+    _add("awAutoIdle", "Autoword", "Suggest", "AutoCompleteIdleMs", "int", "250",
+         "Wait for a pause of",
+         "Milliseconds of no typing before it types. 0 typed 'feelinging': it acted"
+       . " a keystroke behind your fingers.")
+    _add("awAutoFrag", "Autoword", "Suggest", "AutoCompleteOnlyFragments", "choice", "true",
+         "Finished words",
+         "do → does is right most of the time and still wrong: you were done.",
+         _awOpts([["true",  "Never extend a word you had finished"],
+                  ["false", "Extend them too"]], "Suggest", "AutoCompleteOnlyFragments", "true"))
+    _add("awAutoNever", "Autoword", "Suggest", "AutoCompleteNever", "text", "",
+         "Never type these",
+         "Comma separated, the finished word: does, your, legs."
+       . " userdata\autoword\vocabulary.tsv lists your words, commonest first.")
+
+    _grp  := "Where"
+    _add("awProcesses", "Autoword", "Scope", "Processes", "text", "infloww.exe",
+         "Only in",
+         "Programs it suggests in, comma separated. Empty = everywhere.")
+    _file := ""
+    _grp  := ""
+
+    ; ══ Tools ════════════════════════════════════════════════════════════════
+    ;  Settings for the tools that had none in any window — they lived only in
+    ;  mass_gui.cfg or a service's own ini. Drawn by ui\tools_settings.ahk on each
+    ;  tool's page. Most services read these once at start, so the Tools window
+    ;  says "press Restart" rather than pretending they apply live.
+    _tool := "statsOverlay", _grp := "Stats overlay"
+    _add("soVisible", "Tools", "StatsOverlay", "Visible", "bool", "1", "Show the overlay")
+    _add("soPoll", "Tools", "StatsOverlay", "PollMs", "int", "10000", "Read every (ms)")
+    _add("soScale", "Tools", "StatsOverlay", "OcrScale", "int", "2", "OCR scale")
+    _add("soRed", "Tools", "StatsOverlay", "RedAt", "text", "0.30", "Ratio is red under")
+    _add("soYellow", "Tools", "StatsOverlay", "YellowAt", "text", "0.40", "Yellow under")
+    _add("soGreen", "Tools", "StatsOverlay", "GreenAt", "text", "0.50", "Green from")
+
+    ; Read on every start (src/timer/timer.ahk), so no restart. The timer's own
+    ; window writes the first four too.
+    _tool := "timer", _grp := "Timer"
+    _add("tmMin", "Tools", "Timer", "Minutes", "int", "5", "Minutes")
+    _add("tmSec", "Tools", "Timer", "Seconds", "int", "0", "Seconds")
+    _add("tmRepeat", "Tools", "Timer", "Repeat", "bool", "0", "Repeat")
+    _add("tmBeep", "Tools", "Timer", "Beep", "bool", "1", "Beep when done")
+    _add("tmBeeps", "Tools", "Timer", "Beeps", "int", "3", "Beeps")
+
+    _tool := "unreadPing", _grp := "Unread ping"
+    _add("upAt", "Tools", "UnreadPing", "At", "int", "10", "Ping at (unread chats)",
+         "The number on Infloww's Unread pill. Read every 5s; applies live.")
+    _add("upEvery", "Tools", "UnreadPing", "EveryMin", "int", "3", "Repeat every (minutes)",
+         "While it stays at or above that. 0 = once, until it drops back under.")
+
+    ; The countSales key (automation.py -> sales_tally.py). Read on every run.
+    ; Prices are per model SLOT, so renaming a model keeps its prices.
+    _tool := "automation", _grp := "Sales tally"
+    _add("stStop", "Tools", "SalesTally", "StopAfter", "int", "3",
+         "Stop after (in a row)",
+         "The shift ends when this many purchases in a row were answered by someone else.")
+    Loop _n {
+        _add("stMppv" A_Index, "Tools", "SalesTally", "Mppv" A_Index, "text", "",
+             _cur("Model" A_Index, "Settings", "Model" A_Index, "Model " A_Index) " MPPV prices",
+             A_Index = 1 ? "Mass PPV prices, comma separated (20, 25). Those sales are not the chatter's and are listed apart." : "")
+    }
+
+    _tool := "modelDetector", _grp := "Model detector (Infloww)"
+    _add("detWin", "Tools", "Detector", "WinMatch", "text", "Infloww Messages",
+         "Window title has", "Restart the detector after changing anything here.")
+    _add("detPoll", "Tools", "Detector", "PollMs", "int", "500", "Check every (ms)")
+    _add("detX", "Tools", "Detector", "RegionX", "int", "0", "Tab strip left")
+    _add("detY", "Tools", "Detector", "RegionY", "int", "0", "Tab strip top")
+    _add("detW", "Tools", "Detector", "RegionW", "int", "330", "Tab strip width")
+    _add("detH", "Tools", "Detector", "RegionH", "int", "50", "Tab strip height")
+    _add("detOrigin", "Tools", "Detector", "TabOrigin", "int", "30", "First tab starts at")
+    _add("detPitch", "Tools", "Detector", "TabPitch", "int", "150", "Tab width")
+    _add("detGrey", "Tools", "Detector", "GreyColor", "text", "0x2B2C30", "Selected-tab colour")
+    _add("detTol", "Tools", "Detector", "GreyTol", "int", "22", "Colour tolerance")
+    _add("detScale", "Tools", "Detector", "OcrScale", "int", "3", "OCR scale",
+         "Only used when Models reads the model by name.")
+
+    _tool := "fanslyDetector", _grp := "Model detector (Fansly)"
+    _add("fanWin", "Tools", "Fansly", "WinMatch", "text", "Fansly",
+         "Window title has", "Restart the detector after changing anything here.")
+    _add("fanPoll", "Tools", "Fansly", "PollMs", "int", "500", "Check every (ms)")
+    _add("fanRows", "Tools", "Fansly", "Rows", "int", "3", "Cards on the rail")
+    _add("fanPitch", "Tools", "Fansly", "RowPitch", "int", "116", "Card spacing (px)")
+    _add("fanRowH", "Tools", "Fansly", "RowHeight", "int", "86", "Card height (px)")
+    _add("fanCard", "Tools", "Fansly", "CardColor", "text", "0x2C2C2C", "Selected-card colour")
+    _add("fanTol", "Tools", "Fansly", "CardTol", "int", "6", "Colour tolerance")
+    _add("fanScale", "Tools", "Fansly", "OcrScale", "int", "4", "OCR scale",
+         "Only used when Models reads the model by name.")
+
+    _tool := "activity", _grp := "Activity tracker"
+    _add("actIdle", "Tools", "Activity", "IdleMs", "int", "2000", "Idle after (ms)",
+         "A pause longer than this stops the typing clock.")
+    _add("actKeep", "Tools", "Activity", "KeepDays", "int", "0", "Keep logs (days)",
+         "0 = keep everything.")
+    _add("actRange", "Tools", "Activity", "Range", "int", "30", "Chart shows (days)")
+
+    _tool := "tabMarks", _grp := "Tab bars"
+    _add("mkVisible", "Tools", "Marks", "Visible", "bool", "1", "Show the bars")
+    _add("mkW", "Tools", "Marks", "SepWidth", "int", "5", "Bar width (px)")
+    _add("mkH", "Tools", "Marks", "SepHeight", "int", "36", "Bar height (px)")
+    _add("mkCol", "Tools", "Marks", "SepColor", "text", "FF6B7A", "Bar colour (hex)")
+
+    _tool := "clickWall", _grp := "Click wall"
+    _add("cwHold", "Tools", "ClickWall", "HoldMaxMs", "int", "6000", "Hold a click at most (ms)",
+         "A click held longer than this is dropped, never replayed late.")
+    _add("cwVerify", "Tools", "ClickWall", "Verify", "bool", "1", "Check the chat list first")
+    _add("cwWin", "Tools", "ClickWall", "WinMatch", "text", "Infloww Messages", "Window title has")
+
+    ; Read every time the calculator recalculates — no restart. UsdToEur is
+    ; overwritten by every successful live fetch; what is here is the fallback.
+    _tool := "calc", _grp := "Payout calculator"
+    _add("calcFees", "Tools", "Calculator", "Fees", "text", "0.97, 0.97", "Multiply by",
+         "Comma separated; each is applied in turn.")
+    _add("calcSub", "Tools", "Calculator", "Subtract", "text", "150", "Then subtract (EUR)")
+    _add("calcRate", "Tools", "Calculator", "UsdToEur", "text", "0.91", "USD→EUR rate",
+         "Updated from the live rate each time the calculator opens; used as is when it cannot fetch.")
+
+    _tool := "recorder", _grp := "Coordinate recorder"
+    _add("recSleep", "Tools", "Recorder", "DefaultSleep", "int", "500", "Pause between steps (ms)")
+
+    _tool := "hotstrings", _grp := "Hotstrings manager"
+    _add("hsFont", "Tools", "Hotstrings", "FontSize", "int", "11", "Font size")
+    _add("hsOverload", "Tools", "Hotstrings", "OverloadMode", "choice", "ask",
+         "A trigger with several texts",
+         "The default for triggers that do not set their own.",
+         [["ask", "Ask which one"], ["random", "Pick one at random"]])
+
+    _tool := "discord", _grp := "Discord import"
+    _add("dcX", "Tools", "Discord", "HeaderX", "int", "460", "Channel name left")
+    _add("dcY", "Tools", "Discord", "HeaderY", "int", "42", "Channel name top")
+    _add("dcW", "Tools", "Discord", "HeaderW", "int", "500", "Channel name width")
+    _add("dcH", "Tools", "Discord", "HeaderH", "int", "38", "Channel name height")
+    _grp := "MM Gatherer"
+    _add("mmgLeft", "Tools", "Discord", "GatherLeft", "int", "460", "Messages start at x",
+         "Right of the channel sidebar.")
+    _add("mmgTop", "Tools", "Discord", "GatherTop", "int", "80", "Messages start at y",
+         "Below the channel header.")
+    _add("mmgRight", "Tools", "Discord", "GatherRight", "int", "260", "Trim from the right",
+         "The member list. 0 if you hide it.")
+    _add("mmgBottom", "Tools", "Discord", "GatherBottom", "int", "90", "Trim from the bottom",
+         "The message box.")
+    _add("mmgWheel", "Tools", "Discord", "GatherWheel", "int", "4", "Scroll per step (notches)")
+    _add("mmgSettle", "Tools", "Discord", "GatherSettleMs", "int", "450", "Wait after a scroll (ms)")
+    _add("mmgChars", "Tools", "Discord", "GatherMinChars", "int", "80", "A mass is at least (chars)")
+    _add("mmgParas", "Tools", "Discord", "GatherMinParas", "int", "2", "A mass has paragraphs",
+         "Or a ppv / !mm line.")
+    _add("mmgDebug", "Tools", "Discord", "GatherDebug", "bool", "1", "Dump every screen read",
+         "To debuglogs\mm_gatherer_frames.txt")
+
+    ; Local AI: every AI tool's model and voice, in the services' own UTF-8 ini.
+    _file := SETTINGS_LLM_INI
+    _tool := "llm", _grp := "Local AI (Ollama)"
+    _add("llmHost", "Tools", "Ollama", "Host", "text", "http://127.0.0.1:11434", "Ollama address")
+    _add("llmModel", "Tools", "Ollama", "Model", "text", "mistral-nemo:12b", "Model",
+         "Must fit in the GPU's memory, or it is many times slower.")
+    _add("llmKeep", "Tools", "Ollama", "KeepAlive", "text", "30m", "Keep loaded for")
+    _add("llmTimeout", "Tools", "Ollama", "TimeoutMs", "int", "300000", "Give up after (ms)")
+    _add("llmCount", "Tools", "Draft", "Count", "int", "3", "Drafts per request")
+    _add("llmTemp", "Tools", "Draft", "Temperature", "text", "0.9", "Draft temperature",
+         "Higher is more varied, lower is safer.")
+    _add("llmMax", "Tools", "Draft", "MaxTokens", "int", "80", "Draft length (tokens)")
+    _add("llmPersona", "Tools", "Draft", "Persona", "text",
+         "a flirty, playful adult creator talking to a paying fan", "Persona")
+    _add("llmGModel", "Tools", "Grammar", "Model", "text", "mistral-nemo:12b", "Grammar model")
+    _add("llmGTemp", "Tools", "Grammar", "Temperature", "text", "0.2", "Grammar temperature")
+    _file := ""
+
+    _tool := "", _grp := ""
     return f
+}
+
+; ─── Where a row's value lives ───────────────────────────────────────────────
+;  Both front ends read and write every row through these two, so a row whose
+;  home is another file (`file` above) needs nothing special from either of them.
+;  `cfg` is the front end's own handle on mass_gui.cfg.
+SETTINGS_Read(fld, cfg) {
+    if (fld.file != "")
+        return INI8_Read(fld.file, fld.iniSect, fld.iniKey, fld.def)
+    return Trim(IniRead(cfg, fld.iniSect, fld.iniKey, fld.def))
+}
+
+SETTINGS_Write(fld, v, cfg) {
+    if (fld.file != "")
+        INI8_Write(fld.file, fld.iniSect, fld.iniKey, v)
+    else
+        IniWrite(v, cfg, fld.iniSect, fld.iniKey)
+}
+
+; The row for [iniSect] iniKey, or 0. By key rather than by id so that the Win32
+; window, which builds its controls by hand, names the key it offers — the thing
+; tools	est\settings_parity_test.ahk looks for.
+SETTINGS_FieldFor(iniSect, iniKey) {
+    for _, fld in SETTINGS_Fields()
+        if (fld.iniSect = iniSect && fld.iniKey = iniKey)
+            return fld
+    return 0
 }

@@ -308,15 +308,13 @@ chain is readable end to end.</p>
     <span class="c">; each extra is BOTH a user setting AND a feature</span>
     editable := editable &amp;&amp; FEAT("editableFu")
     openTab  := openTab  &amp;&amp; FEAT("openTab")
-    sendBoth := doubleMM &amp;&amp; FEAT("doubleMM")
 
     LOG_Kv("mass.fu", Map("group",    group,
                           "model",    MASS_CUR_MODEL,
                           "massNo",   MASS_MassNo(MASS_DOC, MASS_CUR_MODEL),
                           "branch",   ActiveBranchNo(),
                           "editable", editable ? "y" : "n",
-                          "openTab",  openTab ? "y" : "n",
-                          "doubleMM", sendBoth ? "y" : "n"))
+                          "openTab",  openTab ? "y" : "n"))
 
     MASS_RememberSent(MASS_CUR_MODEL, MASS_MassNo(MASS_DOC, MASS_CUR_MODEL),
                       "fu" group)
@@ -371,9 +369,8 @@ on the follow-up you last aimed at.</p>
 from Settings instead of nothing.</p>
 
 <p><strong>Why here and not in <code>sndFu</code>:</strong> <code>SndFuEditable</code> takes the
-same parts and has no idea which group it is holding. One place covers the plain send, the
-editable paste, and <em>both halves of a double-MM</em> — so a second model with no f3 still gets
-the default.</p>
+same parts and has no idea which group it is holding. One place covers both the plain send and
+the editable paste.</p>
 
 <pre><code>DefaultFu3Parts() {
     if !FEAT("defaultFu3")

@@ -1,0 +1,88 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>TestFlow Arena</title>
+<link rel="stylesheet" href="lab.css">
+<link rel="stylesheet" href="arena.css">
+</head>
+<body>
+<header class="bar">
+  <div class="brand">TestFlow <span>Arena</span></div>
+  <div class="controls">
+    <button id="play" class="primary">▶ Play</button>
+    <button id="stepNext" title="One turn, whoever is due">Next turn</button>
+    <button id="stepFan" class="ghost" title="Make the fan write now">Fan now</button>
+    <button id="stepHer" class="ghost" title="Make her write now">Her now</button>
+    <label class="inline">Pause <input id="delay" type="number" min="0.2" step="0.5"> s</label>
+    <label class="inline">Stop after <input id="maxTurns" type="number" min="1" step="1"> turns</label>
+  </div>
+  <div id="status" class="chip"></div>
+</header>
+
+<main class="arena">
+  <aside class="left">
+    <h2>Matches</h2>
+    <div id="matches" class="matches"></div>
+    <details id="newBox" open>
+      <summary>New match</summary>
+      <div class="form">
+        <label>Fan persona<select id="nPersona"></select></label>
+        <label>Fan name<input id="nName" type="text" placeholder="random" spellcheck="false"></label>
+        <label>Her engine<select id="nEngine">
+          <option value="co">Co-chatter (cochatter.md)</option>
+          <option value="agent">Agent (nextmove + sexting.md, pitches PPVs)</option>
+        </select></label>
+        <label>Her voice<select id="nAccount"></select></label>
+        <label>Her model<select id="nHerModel"></select></label>
+        <label>Fan model<select id="nFanModel"></select></label>
+        <label>Opener<select id="nOpener">
+          <option value="cold">Cold: he writes first</option>
+          <option value="welcome">New subscriber welcome</option>
+          <option value="mass">He replies to one of her masses</option>
+        </select></label>
+        <label>Next PPV (optional)<input id="nNext" type="text" placeholder="what she should set up" spellcheck="false"></label>
+        <button id="create" class="primary">Start match</button>
+      </div>
+    </details>
+  </aside>
+
+  <section class="stage">
+    <div id="chatHead" class="chathead"></div>
+    <div id="chat" class="chat" aria-live="polite"></div>
+    <div id="typing" class="typing" hidden></div>
+    <div class="sendbox">
+      <textarea id="text" rows="2" placeholder="Type a message. Enter = as her, Shift+Enter = as the fan, Ctrl+Enter = new line" spellcheck="true"></textarea>
+      <div class="btnrow">
+        <button id="asFan">Send as fan</button>
+        <button id="asHer" class="primary">Send as her</button>
+        <button id="ppvToggle" class="ghost">PPV…</button>
+        <label class="check" title="While paused: the other side writes one reply to what you sent"><input id="answer" type="checkbox" checked> They answer</label>
+        <span class="grow"></span>
+        <label class="inline">Direction for her next reply <input id="direction" type="text" spellcheck="false" placeholder="one-shot note"></label>
+      </div>
+      <div id="ppvRow" class="ppvrow" hidden>
+        <input id="ppvContent" type="text" placeholder="what the PPV shows" spellcheck="false">
+        <input id="ppvPrice" type="number" min="1" step="1" placeholder="$" value="30">
+        <select id="ppvTier"></select>
+        <button id="ppvSend" class="primary">Send PPV as her</button>
+      </div>
+    </div>
+  </section>
+
+  <aside class="right">
+    <h2>This match</h2>
+    <div id="settings" class="form"></div>
+    <h2>Score</h2>
+    <div id="stats" class="stats"></div>
+    <h2>Cut branches</h2>
+    <p class="hint">Everything you cut, re-roll or replay over is kept here. Restore swaps it back in.</p>
+    <div id="cuts" class="cuts"></div>
+  </aside>
+</main>
+
+<script src="common.js"></script>
+<script src="arena.js"></script>
+</body>
+</html>

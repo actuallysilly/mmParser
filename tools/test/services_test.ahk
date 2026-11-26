@@ -95,6 +95,7 @@ for _id in SVC_ORDER {
 }
 
 ; ── every service is one of the two kinds, with what that kind needs ──────────
+_RunnerText := FileRead(MMA_SRC "\services\runner\runner.pyw", "UTF-8")
 for _id in SVC_ORDER {
     _s := SVC_META[_id]
     Ok("'" _id "' kind is ahk or python", _s.kind = "ahk" || _s.kind = "python")
@@ -102,8 +103,8 @@ for _id in SVC_ORDER {
     Ok("'" _id "' has a noun",     _s.noun != "")
 
     ; The file has to be on disk. A missing one is logged at launch and nothing
-    ; starts — which for the .vbs launchers is a SILENT failure, because a .vbs
-    ; has nowhere to report anything. Checking here means a path typo or a moved
+    ; starts — which for a Python tool is a SILENT failure, visible only in the
+    ; runner's own log. Checking here means a path typo or a moved
     ; file is caught by the test run rather than by a feature that quietly does
     ; nothing.
     Ok("'" _id "' path exists: " _s.path, FileExist(_s.path) != "")
@@ -117,7 +118,14 @@ for _id in SVC_ORDER {
         ; announce := true means a user clicked it by hand, so "nothing happened
         ; because Python is missing" has to be sayable out loud.
         Ok("python '" _id "' has needText", _s.needText != "")
-        Ok("'" _id "' launcher is a .vbs", SubStr(_s.path, -4) = ".vbs")
+        Ok("'" _id "' path is the .py/.pyw itself",
+           SubStr(_s.path, -3) = ".py" || SubStr(_s.path, -4) = ".pyw")
+        ; The host says "start <id>" and the runner looks the id up in its own
+        ; TOOLS table. A service missing from it would start nowhere.
+        Ok("python '" _id "' is a tool in runner.pyw",
+           InStr(_RunnerText, 'Tool("' _id '", ') > 0)
+        Ok("python '" _id "' stop event matches runner.pyw",
+           InStr(_RunnerText, StrReplace(_s.event, "\", "\\")) > 0)
     } else {
         Ok("ahk '" _id "' needs no event", _s.event = "")
         Ok("'" _id "' script is a .ahk", SubStr(_s.path, -4) = ".ahk")

@@ -60,8 +60,9 @@
 ;  main_window.ahk posts these when you tick a box; mass/runtime.ahk listens and
 ;  updates its own copy of the setting. Kept CONTIGUOUS and in this order because
 ;  MMA_MSG_EditableFu() below indexes off the first of the three.
-global MMA_MSG_DOUBLE_MM      := 0x8001   ; toggle double-MM (no payload)
-global MMA_MSG_WALLET_FU3     := 0x8002   ; wParam = 1 on, 0 off
+; 0x8001 is retired (it toggled double-MM, which is gone). Not reused, so an old
+; engine still running during an upgrade cannot misread a new message.
+global MMA_MSG_WALLET_FU3    := 0x8002   ; wParam = 1 on, 0 off
 global MMA_MSG_EDITABLE_FU1   := 0x8003   ; wParam = 1 on, 0 off
 global MMA_MSG_EDITABLE_FU2   := 0x8004
 global MMA_MSG_EDITABLE_FU3   := 0x8005

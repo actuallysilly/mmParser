@@ -1,0 +1,132 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>TestFlow Lab</title>
+<link rel="stylesheet" href="lab.css">
+</head>
+<body>
+<header>
+  <div class="brand">TestFlow <span>Lab</span></div>
+  <div id="ollama" class="chip">Ollama…</div>
+</header>
+
+<section>
+  <h2>You are</h2>
+  <div class="seg" role="tablist" aria-label="Who you play">
+    <button id="roleFan" role="tab">The fan <small>the AI plays her: rate and rewrite her</small></button>
+    <button id="roleHer" role="tab">Her <small>the AI plays the fan: your messages teach her</small></button>
+  </div>
+  <p class="hint" id="roleHint"></p>
+</section>
+
+<section>
+  <h2>Start a chat</h2>
+  <div class="seg small four" role="tablist" aria-label="How the chat starts">
+    <button id="scCold" data-sc="cold">Cold open</button>
+    <button id="scWelcome" data-sc="welcome">New subscriber</button>
+    <button id="scMass" data-sc="mass">Reply to a mass</button>
+    <button id="scRandom" data-sc="random">Random</button>
+  </div>
+  <p class="hint" id="scHint"></p>
+  <div class="grid2">
+    <label id="welcomeWrap" class="wide">Her automated welcome message<input id="welcome" type="text" spellcheck="false"></label>
+    <label id="massWrap" class="wide">The mass message (blank = one of your real ones from the archive)
+      <textarea id="mass" rows="2" spellcheck="false" placeholder="Leave blank to pick from userdata/mass_archive.txt"></textarea></label>
+    <label>Fan persona<select id="newPersona"></select></label>
+    <label>Fan name (optional)<input id="newName" type="text" spellcheck="false" placeholder="random"></label>
+    <div class="btnrow wide"><button id="start" class="primary">Start chat</button><span class="hint" id="startMsg"></span></div>
+  </div>
+</section>
+
+<section>
+  <h2>This chat</h2>
+  <div class="grid2">
+    <label>Conversation<select id="chatSel"></select></label>
+    <label>Tier he has bought<select id="tier"></select></label>
+    <p class="hint wide" id="chatInfo"></p>
+    <div class="btnrow wide">
+      <button id="review" class="primary">End &amp; review</button>
+      <button id="herNow">Make her reply now</button>
+      <button id="fanNow">Make him reply now</button>
+      <button id="delChat" class="ghost danger">Delete</button>
+    </div>
+  </div>
+  <details id="ppvBox">
+    <summary>Send a PPV (when you are her)</summary>
+    <div class="grid2">
+      <label class="wide">What it shows<input id="ppvContent" type="text" placeholder="topless, hands covering" spellcheck="false"></label>
+      <label>Price ($)<input id="ppvPrice" type="text" value="30"></label>
+      <label>Its tier<select id="ppvTier"></select></label>
+      <label class="wide">Caption (optional)<textarea id="ppvCaption" rows="2"></textarea></label>
+      <div class="btnrow end wide"><button id="sendPpv">Send PPV</button></div>
+    </div>
+    <p class="hint">He decides in character whether to buy. A purchase raises the chat's tier.</p>
+  </details>
+</section>
+
+<section>
+  <h2>The AI</h2>
+  <div class="grid2">
+    <label class="check"><input id="autoHer" type="checkbox"> She replies on her own</label>
+    <label class="check"><input id="autoFan" type="checkbox"> He replies on his own</label>
+    <label>Her model<select id="herModel"></select></label>
+    <label>His model<select id="fanModel"></select></label>
+    <label>Her pause before replying (s)<input id="herDelay" type="number" min="0.5" max="60" step="0.5"></label>
+    <label>His pause before replying (s)<input id="fanDelay" type="number" min="1" max="60" step="0.5"></label>
+  </div>
+</section>
+
+<section>
+  <h2>How to rate</h2>
+  <p class="hint">One meaning per number, every time. Hover a number in the pop-up to see it. 8+ is used as an example to copy; 7+ beats anything worse in a comparison.</p>
+  <div class="scales">
+    <div><h3>Her messages</h3><ol id="scaleHer"></ol></div>
+    <div><h3>The fan's messages</h3><ol id="scaleFan"></ol></div>
+  </div>
+  <p class="hint">Rate the message, not the chat: if his line was strange, that's not her fault. Rate the good ones too. Tags are quick; notes are better; a rewrite is best.</p>
+</section>
+
+<section>
+  <h2>Your data</h2>
+  <p class="agentStats" id="dataStats"></p>
+  <p class="agentStats" id="replyStats"></p>
+  <div class="btnrow"><button id="export">Export training data</button><span class="hint" id="exportMsg"></span></div>
+  <pre id="exportOut" hidden></pre>
+  <p class="hint" id="statsFile"></p>
+</section>
+
+<details class="adv">
+  <summary>Advanced: blind drafts and the agent's read</summary>
+  <section>
+    <h2>Write as the fan</h2>
+    <div class="composer">
+      <textarea id="fanText" rows="2" placeholder="Type his message. Enter sends, Shift+Enter is a new line." spellcheck="false"></textarea>
+      <button id="fanSend">Send</button>
+    </div>
+    <label class="check"><input id="autoAgent" type="checkbox"> Ask her agent once I go quiet (only while "She replies on her own" is off)</label>
+    <h2>Her reply</h2>
+    <div class="seg small four">
+      <button id="modeAgent">Agent decides</button><button id="modeCo">Co-chatter</button><button id="modeFiller">Filler</button><button id="modePpv">PPV caption</button>
+    </div>
+    <div class="grid2">
+      <label class="wide" id="contentWrap">Bundle content<input id="content" type="text" placeholder="what the PPV shows (agent: blank = the next rung)" spellcheck="false"></label>
+      <label class="wide">Direction (optional)<input id="direction" type="text" placeholder="a note, like you'd give the suggestion key" spellcheck="false"></label>
+      <label>Drafts per model<select id="perModel"><option>1</option><option selected>2</option><option>3</option></select></label>
+      <label class="check"><input id="blind" type="checkbox" checked> Blind (hide models until you send)</label>
+    </div>
+    <div class="models" id="models"></div>
+    <div class="btnrow"><button id="draft" class="primary">Draft her replies</button><span id="busy" class="busy"></span></div>
+    <div id="read"></div>
+    <div id="drafts"></div>
+    <h2>Draft ratings (1-5)</h2>
+    <p class="agentStats" id="agentStats"></p>
+    <table id="stats"><thead><tr><th>Model</th><th class="num">Rated</th><th class="num">Average</th><th class="num">Sent</th></tr></thead><tbody></tbody></table>
+  </section>
+</details>
+
+<div id="err" class="err" hidden><span></span><button aria-label="Dismiss">×</button></div>
+<script src="common.js"></script>
+<script src="lab.js"></script>
+</body>
+</html>

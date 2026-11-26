@@ -378,9 +378,14 @@ function keycaps(r){
     s.className = "unbound"; s.textContent = "not assigned";
     btn.appendChild(s);
   } else {
-    r.tokens.forEach((t, i) => {
-      if(i){ const p = document.createElement("kbd"); p.className="plus"; p.textContent="+"; btn.appendChild(p); }
-      const k = document.createElement("kbd"); k.textContent = t; btn.appendChild(k);
+    // An action can carry several keys (an overload); each is its own set of caps.
+    const groups = (r.groups && r.groups.length) ? r.groups : [r.tokens];
+    groups.forEach((toks, g) => {
+      if(g){ const o = document.createElement("kbd"); o.className="plus"; o.textContent="/"; btn.appendChild(o); }
+      toks.forEach((t, i) => {
+        if(i){ const p = document.createElement("kbd"); p.className="plus"; p.textContent="+"; btn.appendChild(p); }
+        const k = document.createElement("kbd"); k.textContent = t; btn.appendChild(k);
+      });
     });
   }
   btn.onclick = () => post({cmd:"assign", id:r.id});

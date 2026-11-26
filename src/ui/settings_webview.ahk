@@ -146,7 +146,9 @@ SWV_Load() {
         ; inflowwMatch IS [Settings] ModelMatch, and this loop is the whole of it.
         if (fld.iniSect = "")
             continue
-        SWV_Val[fld.id] := Trim(IniRead(CFG, fld.iniSect, fld.iniKey, fld.def))
+        ; SETTINGS_Read, not IniRead: a row may live in another file (the
+        ; autoword rows are in userdata\autoword.ini).
+        SWV_Val[fld.id] := SETTINGS_Read(fld, CFG)
     }
 
     SWV_Feat := Map()
@@ -208,12 +210,12 @@ SWV_Save() {
         if (fld.iniSect = "")
             continue
 
-        was := Trim(IniRead(CFG, fld.iniSect, fld.iniKey, fld.def))
+        was := SETTINGS_Read(fld, CFG)
         if (was = v)
             continue
         if (fld.type = "int")
             v := SETTINGS_Int(v, fld.def, 0) . ""
-        IniWrite(v, CFG, fld.iniSect, fld.iniKey)
+        SETTINGS_Write(fld, v, CFG)
         LOGI("swv.save", fld.iniKey ": " (was = "" ? "(unset)" : was) " → " v)
         if fld.warn
             needRestart.Push(fld.label)
@@ -440,6 +442,9 @@ SWV_Sync() {
     }
     st["features"] := feats
     st["models"]   := SWV_ModelsInfo()
+    ; Settings ▸ Help: every bound key and what it does, read from hotkeys.ini
+    ; on every sync (core\hotkeys.ahk HK_HelpRows — the Win32 Help tab's list).
+    st["help"]     := HK_HelpRows()
     st["easy"]     := SWV_Easy ? 1 : 0
     st["dirty"]    := SWV_Dirty ? 1 : 0
     st["theme"]    := SWV_Val.Has("Theme") ? SWV_Val["Theme"] : THEME_Name()
