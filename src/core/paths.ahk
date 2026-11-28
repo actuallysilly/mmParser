@@ -89,6 +89,9 @@ global MMA_FANSLY      := MMA_USERDATA "\fansly_status.ini"
 ; them. The mass engine writes the result here (core/active_publish.ahk) so that
 ; typelog can tag each message with its account without re-implementing any of it.
 global MMA_ACTIVE_NOW  := MMA_USERDATA "\active_now.ini"
+; The Screen Map: which Infloww window is which and where everything is in each.
+; Written by src\services\screenmap\screenmap.pyw, read through core\screenmap.ahk.
+global MMA_SCREENMAP   := MMA_USERDATA "\layout\infloww.json"
 global MMA_VERSION     := MMA_ROOT "\version.txt"
 
 ; ─── Diagnostics ──────────────────────────────────────────────────────────────
@@ -307,3 +310,4 @@ MMA_ScriptPath(name) {
 ;  directly — and that is fine: AHK loads a given file once however many times it
 ;  is named, so whichever is reached first wins and the other is a no-op.
 #Include "log.ahk"
+#Include "usage.ahk"      ; the usage log (userdata\usage), for every process too

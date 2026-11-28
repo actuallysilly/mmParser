@@ -15,6 +15,10 @@ that is the useful bit later.
 | 4 | [replytime.md](replytime.md) — where the time in Infloww goes | planned, v2.1.4 |
 | 5 | [fantools.md](fantools.md) — fan profiles from their messages | superseded by fan-memory.md |
 | 6 | [fan-memory.md](fan-memory.md) — fan identity (handle, not header name) + per-fan memory | planned — decision entry first |
+| 7 | [layout-layer.html](layout-layer.html) — one Screen Map: window recognition + live layout, mandatory for every screen tool; replaces snapping.md part A | **step 0 BUILT** 2026-11-27 (`src/services/screenmap/`, `core/screenmap.ahk`); no tool moved onto it yet |
+| 8 | [ocr.html](ocr.html) — OCR lesson + 14 questions for Silly; engineering calls (test bench, exact-match scoring, handle letter-matcher, one shared reader) stated in it | questions out, 2026-11-27 — awaiting answers |
+| 9 | [ocr-report.html](ocr-report.html) — the Infloww reader built and tested (98.7% practice, real list rows 11/11, video: every real fan one chat, no fake fans) | **BUILT** 2026-11-28 — only `video2chat --names infloww` uses it; live wiring + chat-list roster next |
+| 10 | [lore-report.html](lore-report.html) — __lore rebuilt: capture by pixels (scrollcap.py), read once, two readers + evidence, account from lit tab, scroll back; Ghost-OCR overlay (`__ghost`) | **BUILT** 2026-11-28, tested on OBS recordings; NOT run live yet |
 
 ---
 

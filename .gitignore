@@ -69,3 +69,12 @@ mm_gatherer_*.png
 
 # Private notes to Claude.
 /# answer to *.md
+
+# ─── private as of 2026-11-28 ────────────────────────────────────────────────
+# Reports about Silly's live chats (fan names, handles, chat text) and the OCR
+# model, which was trained on text taken from fan chats. Both stay on this PC.
+src/services/ocr/model/
+docs/proposals/lore-report.html
+docs/proposals/ocr.html
+docs/proposals/ocr-report.html
+docs/proposals/ocr-answers.md

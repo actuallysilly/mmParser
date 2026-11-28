@@ -358,6 +358,12 @@ SVC_Def("autoword", "python", MMA_SRC "\services\autoword\autoword.pyw",
          needText: "Autoword needs Python, which isn't installed.`n`n"
                  . "Run install.bat to set it up."})
 
+SVC_Def("screenMap", "python", MMA_SRC "\services\screenmap\screenmap.pyw",
+        "proc.screenmap", "the Screen Map",
+        {event: "Global\MMA.screenmap.stop",
+         needText: "The Screen Map needs Python, which isn't installed.`n`n"
+                 . "Run install.bat to set it up."})
+
 SVC_Def("chatReader", "python", MMA_SRC "\services\llm\chatreader.pyw",
         "proc.chatreader", "the chat reader",
         {event: "Global\MMA.chatreader.stop",

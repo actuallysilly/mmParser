@@ -42,6 +42,7 @@ import autonote                                   # noqa: E402
 import client                                     # noqa: E402
 import fanid                                      # noqa: E402
 import fanstore                                   # noqa: E402
+import scrollcap                                  # noqa: E402
 import transcript as T                            # noqa: E402
 
 MMA_ROOT = Path(__file__).resolve().parents[3]
@@ -389,7 +390,7 @@ class Run:
 
     def _go(self) -> None:
         rgb, layout, th = settle(self.win)
-        acct = fanid.account(rgb, layout) or "unknown"
+        acct = account_of(rgb, layout)
         who = identify(self.win, rgb, layout, self.status)
         if not who["handle"]:
             raise Stop("couldn't read his @handle from the name popup. Nothing was saved. "
@@ -419,12 +420,31 @@ class Run:
         self.q.put(("card", note or f"No note: {err}"))
 
     def _read_up(self, acct: str, handle: str, name: str) -> tuple[int, str]:
+        """Capture the chat by scrolling (stitched by pixels), then read it once.
+        See scrollcap.py for why this replaced reading + text-stitching each page."""
+        strip, msgs = capture_and_read(self.win, self.rule, self.status)
+        turns = [_strip(dict(m.turn, verdict=m.verdict)) for m in msgs]
+        turns = trim(self.rule, self.arg, turns)
+        keep_evidence(acct, handle, strip, msgs)
+        if turns:
+            why = fanstore.record(acct, handle, {"at": time.time(), "name": name, "fresh": True,
+                                                 "turns": turns, "source": "lore-strip"})
+            if why:
+                log(f"merge into his file: {why}")
+        pages = len(strip.pages) - 1
+        stopped = "reached the first message" if strip.reached_top else (strip.log[-1] if strip.log else "")
+        bad = sum(1 for m in msgs if m.verdict == "disputed")
+        log(f"{pages} pages, {len(msgs)} messages ({bad} disputed): {stopped}")
+        return pages, stopped
+
+    def _read_up_old(self, acct: str, handle: str, name: str) -> tuple[int, str]:
         win = self.win
         rgb, layout, th = settle(win)
         x, y, w, h = layout.region
         px, py = x + w // 2, y + h // 2
         notches = max(2, round(PAGE_SHARE * h / (NOTCH_PX * layout.scale)))
         fanstore._prev["key"] = None             # the first page is the bottom: fresh
+        _keep_page(handle, 0, rgb)
         fanstore.record(acct, handle, {"at": time.time(), "name": name, "fresh": True,
                                        "turns": [_strip(t) for t in read_page(rgb, layout)]})
         verdict: dict = {}
@@ -462,10 +482,114 @@ class Run:
             stuck = 0
             th = th2
             pages += 1
+            _keep_page(handle, pages, rgb)
             why = fanstore.record(acct, handle, {"at": time.time(), "name": name,
                                                  "turns": [_strip(t) for t in read_page(rgb, layout)]})
             if why:
                 log(f"page {pages}: {why}")
+
+
+# ── capture + read (2026-11-28) ──────────────────────────────────────────────
+def account_of(rgb, layout) -> str:
+    """The model whose chat this is: the NAME on the lit model tab (Screen Map).
+    The chat-list heading was used before, and a list that starts straight at a
+    fan row ("<name>(...)") filed his whole chat under an account named after the fan."""
+    try:
+        sys.path.insert(0, str(MMA_ROOT / "src" / "services" / "screenmap"))
+        import screenmap as SM
+        m = SM.measure(rgb)
+        name = SM.read_model(rgb, m) if m.status == "ok" else ""
+        if name:
+            return name
+    except Exception as e:
+        log(f"account via Screen Map failed: {e}")
+    return fanid.account(rgb, layout) or "unknown"
+
+
+def capture_and_read(win: "Win", rule: str, status, max_pages: int | None = None):
+    rgb, layout, _ = settle(win)
+    x, y, w, h = layout.region
+    px, py = x + w // 2, y + h // 2
+
+    def grab():
+        r, lay, _t = settle(win)
+        return r, lay
+
+    def pane_of(r, lay):
+        rx, ry, rw, rh = lay.region
+        return r[ry:ry + rh, rx:rx + rw].copy()
+
+    limit = max_pages or (AI_MAX_PAGES if rule == "ai" else scrollcap.MAX_PAGES)
+    t0 = time.time()
+    strip = scrollcap.capture(grab, lambda n: win.wheel(px, py, n), pane_of,
+                              max_pages=limit, status=status)
+    # Leave the chat where it was: back down to the newest message.
+    try:
+        win.wheel(px, py, -(len(strip.pages) * 10 + 30))
+    except Stop:
+        pass
+    for line in strip.log:
+        log(line)
+    log(f"captured {len(strip.pages)} pages, {strip.height}px in {time.time() - t0:.0f}s")
+    t1 = time.time()
+    msgs = scrollcap.read(strip.image(), h, layout.scale, status=status)
+    log(f"read {len(msgs)} messages in {time.time() - t1:.0f}s")
+    _date_messages(msgs)
+    return strip, msgs
+
+
+def _date_messages(msgs) -> None:
+    """Day separators were read per page before; with one tall picture the footer
+    dates fanstore.fill_days() spreads are enough. Kept as a hook."""
+    return None
+
+
+def trim(rule: str, arg: str, turns: list[dict]) -> list[dict]:
+    """Apply a stop rule AFTER the whole capture: keep only what was asked for."""
+    if rule == "msgs" and str(arg).strip().isdigit():
+        return turns[-int(arg):]
+    return turns
+
+
+def keep_evidence(acct: str, handle: str, strip, msgs) -> None:
+    """Each message's own picture + both readings, so any message can be checked
+    against the screen later. In the fan's folder, under lore/<when>/."""
+    try:
+        from PIL import Image
+        d = fanstore.fan_dir(acct, handle) / "lore" / time.strftime("%Y%m%d-%H%M%S")
+        d.mkdir(parents=True, exist_ok=True)
+        rows = []
+        for i, m in enumerate(msgs):
+            if m.crop is not None and m.crop.size:
+                Image.fromarray(m.crop).save(d / f"{i:04d}.png")
+            rows.append({"i": i, "y": m.y, "who": m.turn.get("who"), "text": m.turn.get("text", ""),
+                         "second": m.second, "conf": round(m.second_conf, 3), "verdict": m.verdict})
+        (d / "messages.json").write_text(json.dumps(rows, ensure_ascii=False, indent=1), encoding="utf-8")
+        Image.fromarray(strip.image()).save(d / "chat.jpg", quality=85)
+        (d / "capture.log").write_text("\n".join(strip.log), encoding="utf-8")
+        if strip.lost is not None:               # why it stopped: the last good page vs the one that didn't fit
+            Image.fromarray(strip.lost[0]).save(d / "lost_last_good.png")
+            Image.fromarray(strip.lost[1]).save(d / "lost_no_match.png")
+    except Exception as e:
+        log(f"evidence not saved: {e}")
+
+
+# OCR test material (2026-11-28): with userdata/ocr/lore_keep_pages.flag present,
+# every page read is also saved as a picture, so the whole chat can be used to
+# compare text readers on real Infloww. Off unless that file exists.
+KEEP_FLAG = MMA_ROOT / "userdata" / "ocr" / "lore_keep_pages.flag"
+
+
+def _keep_page(handle: str, n: int, rgb) -> None:
+    if not KEEP_FLAG.exists() or rgb is None:
+        return
+    try:
+        from PIL import Image
+        d = MMA_ROOT / "userdata" / "ocr" / "lore_pages" / re.sub(r"[^\w.-]", "_", handle or "unknown")
+        d.mkdir(parents=True, exist_ok=True)
+        Image.fromarray(rgb).save(d / f"page_{n:03d}.png")
+    except Exception as e:                        # never let test material break a run
+        log(f"keep page {n}: {e}")
 
 
 def _strip(t: dict) -> dict:
@@ -650,7 +774,61 @@ def dev(pages: int) -> int:
     return 0
 
 
+def dev2(max_pages: int) -> int:
+    """The new capture + read on the first Infloww window with a chat open (works
+    on a main window too). Writes ONLY to userdata/ocr/lore_dev/<when>/: no fan
+    file, no LLM. Prints what it did and how long each part took."""
+    T.A.set_dpi_aware()
+    tgt = None
+    for hwnd, title in T._matching_windows("Infloww Messages"):
+        rgb = T._pinger.print_window(hwnd)
+        if rgb is not None and T.find_layout(rgb):
+            tgt = (hwnd, title)
+            break
+    if not tgt:
+        print("no Infloww Messages window with a chat open")
+        return 1
+    win = Win(*tgt)
+    rgb, layout, _ = settle(win)
+    print("account:", account_of(rgb, layout), "| header:", T.read_fan_name(rgb, layout))
+    t0 = time.time()
+    # --raise: lift Infloww above whatever covers the chat WITHOUT activating it
+    # (no focus, no input), and put it back under that window afterwards.
+    above = 0
+    if "--raise" in sys.argv:
+        r = wt.RECT()
+        u32.GetWindowRect(win.hwnd, ctypes.byref(r))
+        pt = wt.POINT((r.left + r.right) // 2, (r.top + r.bottom) // 2)
+        above = u32.GetAncestor(u32.WindowFromPoint(pt), 2)
+        if above == win.hwnd:
+            above = 0
+        u32.SetWindowPos(win.hwnd, 0, 0, 0, 0, 0, 0x0001 | 0x0002 | 0x0010)  # NOSIZE|NOMOVE|NOACTIVATE
+        time.sleep(0.5)
+    try:
+        strip, msgs = capture_and_read(win, "whole", lambda s: print("  ", s, flush=True), max_pages)
+    finally:
+        if above:
+            u32.SetWindowPos(win.hwnd, above, 0, 0, 0, 0, 0x0001 | 0x0002 | 0x0010)
+    out = MMA_ROOT / "userdata" / "ocr" / "lore_dev" / time.strftime("%Y%m%d-%H%M%S")
+    fanstore_root = fanstore.root
+    fanstore.root = lambda: out.parent / "_fans"           # evidence goes beside, never D:\FanData
+    try:
+        keep_evidence("dev", "dev", strip, msgs)
+    finally:
+        fanstore.root = fanstore_root
+    from collections import Counter
+    v = Counter(m.verdict for m in msgs)
+    print("\n".join(strip.log[-6:]))
+    print(f"{len(strip.pages)} pages, {strip.height}px, {len(msgs)} messages, {dict(v)}, "
+          f"top reached: {strip.reached_top}, total {time.time() - t0:.0f}s")
+    print(f"evidence: {out.parent / '_fans'}")
+    return 0
+
+
 if __name__ == "__main__":
+    if "--dev2" in sys.argv:
+        sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+        sys.exit(dev2(int(sys.argv[sys.argv.index("--dev2") + 1])))
     if "--test" in sys.argv:
         sys.stdout.reconfigure(encoding="utf-8", errors="replace")
         sys.exit(selftest())

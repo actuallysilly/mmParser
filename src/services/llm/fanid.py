@@ -198,8 +198,8 @@ def parse_tags(line: str) -> list[str]:
 
 
 # ----------------------------------------------------------------- account --
-# The window title says "Infloww Messages - 333" for EVERY account: 333 is a badge
-# count, not the creator (shiftlog filed everything under "333"). The account is
+# The window title says "Infloww Messages - 333" for EVERY account: 333 is the agency's
+# fixed tag, not the creator (shiftlog filed everything under "333"). The account is
 # the heading at the top of the chat list ("CIN"), just above the conversation
 # header's divider line. Only the work window has it.
 ACCT_DY = (68, 20)      # the heading's band: this far above the divider, at scale 1.37

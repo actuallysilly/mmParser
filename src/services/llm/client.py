@@ -174,7 +174,7 @@ def reachable() -> tuple[bool, str]:
 
 def chat(messages: list[dict], *, temperature: float = 0.8,
          max_tokens: int = 120, use_model: str = "",
-         fmt: dict | str | None = None) -> tuple[str, str]:
+         fmt: dict | str | None = None, keep_alive: str | None = None) -> tuple[str, str]:
     """Ask the model. Returns (text, error) — exactly one of them is non-empty.
 
     `use_model` lets one feature run a different model from [Ollama] Model —
@@ -192,13 +192,22 @@ def chat(messages: list[dict], *, temperature: float = 0.8,
         "model": use_model or model(),
         "messages": messages,
         "stream": False,
-        "keep_alive": get("Ollama", "KeepAlive", "30m"),
+        # Background jobs (AutoNote) pass keep_alive="0": the model leaves RAM the
+        # moment they finish, instead of squatting there (2026-11-27: Artemis held
+        # ~half the RAM and CPU at idle because every note restarted a 30m clock).
+        "keep_alive": keep_alive if keep_alive is not None else get("Ollama", "KeepAlive", "5m"),
         "options": {"temperature": temperature, "num_predict": max_tokens},
         # Gemma 4 models (Artemis) think by default and spend the whole
         # max_tokens reasoning: content came back "" on every call. Models
         # without a thinking mode ignore this (checked on Rocinante).
         "think": False,
     }
+    # CPU cores the model may use for the part that doesn't fit the GPU. Ollama's
+    # default is every physical core, which pegs the machine while Infloww and the
+    # OCR also need it. 0 = let Ollama decide.
+    threads = get_int("Ollama", "Threads", 8)
+    if threads > 0:
+        payload["options"]["num_thread"] = threads
     if fmt:
         payload["format"] = fmt
     try:

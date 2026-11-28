@@ -126,6 +126,9 @@ TOOLS = [
     # services: MMA starts and stops these from Settings ▸ Features
     Tool("automation", r"src\services\automation\automation.py", ("--listen",),
          "Global\\MMA.automation.listener.stop"),
+    # which Infloww window is which + where everything is in each (layout-layer.html)
+    Tool("screenMap", r"src\services\screenmap\screenmap.pyw", ("--listen",),
+         "Global\\MMA.screenmap.stop"),
     Tool("pinger", r"src\services\pinger\pinger.pyw", ("--listen",),
          "Global\\MMA.pinger.stop"),
     Tool("typelog", r"src\services\typelog\typelog.pyw", ("--listen",),
@@ -147,6 +150,8 @@ TOOLS = [
     Tool("videoimport", r"tools\videoimport\videoimport.pyw", restart="never", show=1),
     # lore_gatherer: read a fan's chat upwards in the background, keep it, brief you
     Tool("lore", r"src\services\llm\lore.pyw", restart="never"),
+    # Ghost-OCR: what MMA read, drawn beside each message (toggle: run it again)
+    Tool("ghost", r"src\services\ocr\ghost.pyw", restart="never"),
 ]
 TOOLS_BY_NAME = {t.name.lower(): t for t in TOOLS}
 

@@ -221,6 +221,7 @@ HSU_TogglePin(trigger) {
 HSU_Note(trigger) {
     global HSU_INI, HSU_KEEP, HSU_PRUNE_AT
     trigger := Trim(trigger)
+    USAGE_Note("hotstring", trigger)
     if !HSU_Usable(trigger) {
         LOGV("hs.usage", "not recording '" trigger "' — it cannot be an ini key")
         return

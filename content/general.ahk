@@ -405,3 +405,23 @@ PpvNameToday()
 {
     snd("8008135")
 }
+
+; @added 2026-11-27 09:59
+:*:_amenotejikara::
+{
+    Sendt("when i release my shikai", 1000)
+    Sendt("clouds begin to gather", 1000)
+    Sendt("and light rain starts to drop", 1000)
+    Sendt("the droplets are infused with reiatsu", 1000)
+    Sendt("theyre heavy", 1000)
+    Sendt("and as the fight drags on", 1000)
+    Sendt("the rain gets heavier", 1000)
+    Sendt("by the end its like a monsoon in there", 1000)
+    Sendt("thick layer of heavenly rain pushes you onto your knees", 1000)
+    Sendt("its too heavy to stand", 1000)
+    Sendt("amenotejikara weeps for you and wants you to submit", 1000)
+    Sendt("amenotejikara seeks peace", 1000)
+    Sendt("it seeks to save you", 1000)
+    Sendt("and if it cannot", 1000)
+    Sendt("ban kai", 1000)
+}

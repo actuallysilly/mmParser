@@ -107,7 +107,14 @@ FEAT(id) {
     }
     f := FEAT_META[id]
     on := Trim(IniRead(MODE_CFG, "Settings", f.cfgKey, f.default)) = "1"
-    LOGV("feat", id " " (on ? "on" : "OFF") "  ([Settings] " f.cfgKey ")")
+    ; Only when the answer CHANGES (per process). Every call filled mma.log with
+    ; 58,000 identical lines in 6 hours (2026-11-28), so it rotated every ~3h and
+    ; forgot everything else. The first answer and every flip are still logged.
+    static said := Map()
+    if (!said.Has(id) || said[id] != on) {
+        said[id] := on
+        LOGV("feat", id " " (on ? "on" : "OFF") "  ([Settings] " f.cfgKey ")")
+    }
     return on
 }
 
@@ -226,6 +233,7 @@ FEAT_Def("chatSim",       "ChatSim",       "Chat simulator (write a mass in cont
 ; system-wide hook, sharing a namespace with ~117 message triggers — if one ever
 ; swallows a message you type all day, the fix has to be one click and not a file
 ; you have to remember the name of.
+FEAT_Def("clipboard",     "ClipboardHistory",   "Clipboard history (your last copies, private, survives restarts)", "1", "Tools")
 FEAT_Def("shortcuts",     "HotstringShortcuts", "Hotstring shortcuts (type a trigger, run an action)", "1", "Tools")
 ; How the fix-grammar keys (chat/grammar.ahk) hand back their result. Off = the
 ; fix goes on the clipboard and you paste it. On = FAST: it pastes the fix back
@@ -270,6 +278,11 @@ FEAT_Def("replyBox",      "ReplyBox",           "Reply timers (box rows kept wai
 FEAT_Def("timer",         "TimerTool",          "Timer (countdown, beep, repeat)",     "1", "Screen helpers")
 FEAT_Def("automation",    "AutomationListener", "Automation hotkeys (needs Python)",   "1", "Screen helpers")
 FEAT_Def("pinger",        "Pinger",             "Unread pinger (needs Python)",        "0", "Screen helpers")
+; The Screen Map (docs/proposals/layout-layer.html): which Infloww window is which
+; and where everything is in each, for every tool that reads or clicks Infloww.
+; On by default: tools moved onto it refuse to act without it. Only looks at the
+; windows (PrintWindow) — no focus, no clicks. See src/services/screenmap/.
+FEAT_Def("screenMap",     "ScreenMap",          "Screen Map (finds Infloww's windows and layout, needs Python)", "1", "Screen helpers")
 FEAT_Def("startupScripts","StartupScriptsOn",   "Auto-start scripts + restart watchdog", "1", "System")
 ; OFF by default, and this one is not a taste call. It installs a keyboard hook
 ; that sees every key you press, in every application, for as long as it runs —
@@ -316,12 +329,13 @@ FEAT_Def("shiftMedia",    "ShiftMedia",         "Shift recorder: keep a picture 
 ; A fan whose handle is cut off is filed provisionally and merged once it is read.
 ; Read by Python (mmacfg.feat) inside the Chat reader. See llm/fanrec.py.
 FEAT_Def("fanRecorder",   "FanRecorder",        "Fan recorder (files every chat by the fan's @handle, D:\FanData)", "1", "Chat reading and AI")
-; AutoNote (Silly's name for the fan database): a few minutes after you stop
-; chatting a fan ([AutoNote] AfterMin, default 3), the local LLM writes or
-; refreshes his note from his whole kept chat: who, into, money, recently, right
-; now, avoid, reach-out lines. Shown in Fan Viewer. Uses the GPU, live, by choice
-; (2026-11-26). Needs the Fan recorder. See llm/autonote.py.
-FEAT_Def("autoNote",      "AutoNote",           "AutoNote (writes each fan's note after you chat him, needs Fan recorder)", "1", "Chat reading and AI")
+; AutoNote (Silly's name for the fan database): AFTER THE SHIFT (2026-11-27) —
+; once nothing has been recorded for [AutoNote] QuietMin minutes (default 30), the
+; local LLM writes or refreshes the note of every fan whose chat grew: who, into,
+; money, recently, right now, avoid, reach-out lines. Shown in Fan Viewer. The
+; model is unloaded after each note. [AutoNote] Mode=live notes mid-shift instead.
+; Needs the Fan recorder. See llm/autonote.py.
+FEAT_Def("autoNote",      "AutoNote",           "AutoNote (writes fan notes after your shift, needs Fan recorder)", "1", "Chat reading and AI")
 ; Rings when a PPV in the open chat flips from "not paid" to "paid" (what live
 ; Infloww shows), or a "has purchased your message" bubble appears.
 ; Read by Python (shiftlog.feat) inside the Chat reader, so it needs that on.

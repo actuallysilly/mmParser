@@ -1175,6 +1175,8 @@ CORE_Arm() {
     HK_Bind("gui.branchBuilder",  OpenBranchBuilder)
     HK_Bind("gui.chatSim",        OpenChatSim)
     HK_Bind("gui.help",           CORE_OpenHelp)
+    ; The private clipboard history (hotstrings\clip_history.ahk).
+    CLIP_Arm()
 }
 
 ; ── the activity chart ────────────────────────────────────────────────────────
@@ -1336,6 +1338,8 @@ CORE_SettingsChangedFromMsg(wParam, lParam, msg, hwnd) {
 ;  deliberately cannot start or stop anything (see settings_webview.ahk's top);
 ;  it tells this window it saved, and this window owns the services.
 #Include "../core/ini_utf8.ahk"
+; The private clipboard history; CORE_Arm starts it (see CLIP_Arm).
+#Include "../hotstrings/clip_history.ahk"
 global CORE_AW_SIG := CORE_AutowordModelSig()
 
 CORE_AutowordModelSig() {

@@ -498,10 +498,64 @@ def scan(path: Path, every: float, t_from: float, t_to: float | None) -> Timelin
     return tl
 
 
+def infloww_name(rgb: np.ndarray, lay: T.Layout) -> str:
+    """The header fan name read by the Infloww reader (src/services/ocr), or ""
+    when it isn't sure — an unsure name is skipped like an unreadable one, never
+    guessed (a wrong name files the chat under the wrong fan)."""
+    _ocr = Path(__file__).resolve().parent.parent / "ocr"
+    if str(_ocr) not in sys.path:
+        sys.path.insert(0, str(_ocr))
+    import reader as RD
+    x, y, w, h = lay.region
+    s = lay.scale
+    line = RD.header_line(rgb, (x, max(0, round(y - 2 - 52 * s)), w, round(52 * s)), s)
+    if line is None or line.size == 0:
+        return ""
+    r = RD.read_line(line)
+    text = RD.clean_header(r.text)
+    if not text:
+        return ""
+    k = RD.name_key(text)
+    if k in _SEEN:                        # one spelling per name ("Scotly G" = "ScotlyG")
+        return _SEEN[k]
+    if r.sure:
+        _SURE_NAMES[k] = text
+        _SEEN[k] = text
+        return text
+    # Unsure. Skipping it lost whole chats (Celine, Scotty, 2026-11-28), so:
+    # snap to a name this video already read for sure if it's one letter off —
+    # a closed set beats a fresh guess — else keep it if it's reasonably sure.
+    best = min(_SURE_NAMES, key=lambda s: _edits(s, k), default=None)
+    if best is not None and _edits(best, k) <= max(1, len(k) // 6):
+        return _SURE_NAMES[best]
+    if r.conf >= UNSURE_KEEP:
+        _SEEN[k] = text
+        return text
+    return ""
+
+
+_SURE_NAMES: dict[str, str] = {}     # name_key -> spelling, names read for sure in this run
+_SEEN: dict[str, str] = {}           # name_key -> the first spelling used for it
+UNSURE_KEEP = 0.60
+
+
+def _edits(a: str, b: str) -> int:
+    """Levenshtein distance (names are short)."""
+    prev = list(range(len(b) + 1))
+    for i, ca in enumerate(a, 1):
+        cur = [i]
+        for j, cb in enumerate(b, 1):
+            cur.append(min(prev[j] + 1, cur[j - 1] + 1, prev[j - 1] + (ca != cb)))
+        prev = cur
+    return prev[-1]
+
+
 def run(path: Path, account: str, every: float, t_from: float, t_to: float | None,
-        probe: bool = False, upscale: float = 0) -> None:
+        probe: bool = False, upscale: float = 0, names: str = "") -> None:
     import cv2
     engine = "PP-OCRv5 en" if use_v5() else "PP-OCRv3 (live engine)"
+    if names == "infloww":
+        engine += " + Infloww reader for fan names"
     T.NAME_INK = NAME_INK
     cap, fps, n = open_video(path)
     duration = n / fps
@@ -555,7 +609,7 @@ def run(path: Path, account: str, every: float, t_from: float, t_to: float | Non
         if T.thumb_diff(cur[0], last_pane) > CHANGED or T.thumb_diff(cur[2], last_head) > CHANGED:
             last_pane, last_head = cur[0], cur[2]
             turns = T.read_turns(rgb, lay, footers=True)
-            fan = T.read_fan_name(rgb, lay)
+            fan = infloww_name(rgb, lay) if names == "infloww" else T.read_fan_name(rgb, lay)
             state = {"read_at": at, "title": title, "fan": fan, "resumed": resumed,
                      "turns": [t.to_dict() for t in turns]}
             # No name in the header = no conversation open (the chat LIST, a
@@ -608,11 +662,13 @@ def main(argv=None) -> int:
     ap.add_argument("--upscale", type=float, default=0,
                     help=f"fixed enlargement before reading (default: whatever reaches {TARGET}x)")
     ap.add_argument("--no-rebuild", action="store_true", help="skip rebuilding the chats at the end")
+    ap.add_argument("--names", choices=["infloww"], default="",
+                    help="read fan names with the Infloww reader (src/services/ocr) instead")
     a = ap.parse_args(argv)
     if a.scan:
         print(scan(Path(a.video), a.every or 1.0, a.t_from, a.t_to).report())
         return 0
-    run(Path(a.video), a.account, a.every or EVERY_S, a.t_from, a.t_to, a.probe, a.upscale)
+    run(Path(a.video), a.account, a.every or EVERY_S, a.t_from, a.t_to, a.probe, a.upscale, a.names)
     if not a.probe and not a.no_rebuild:
         print("rebuilding chats (folds name spellings)…")
         shiftlog.rebuild()

@@ -404,6 +404,7 @@ HK_Def("gui.actions",        "Actions menu (what can I do?)", ,             "act
 ; hotstring, and only a script that #Includes core\utils.ahk can send. Which
 ; one, and why exactly one, is HSQ_Register in hotstrings\quick_menu.ahk.
 HK_Def("gui.hotstringMenu",  "Hotstrings quick menu (pinned + recent)", ,   "general.ahk")
+HK_Def("gui.clipboard",      "Clipboard history (last copies, at the mouse)", , "main_window.ahk")
 HK_Def("gui.quickActions",   "Quick actions (pinned buttons)", ,            "actions_menu.ahk")
 HK_Def("gui.help",           "Help: what every key does",     ,             "main_window.ahk")
 ; Owned by the ENGINE, not by a window: the badge is built there, beside the lock
@@ -550,6 +551,7 @@ _HK_Fire(id, fn) {
         HK_SendBegin()
     }
     LOGI("hk.fire", id " → running" (isSend ? "  (send)" : ""))
+    USAGE_Note("key", id)
     try
         fn()
     catch as e {

@@ -183,6 +183,7 @@ SHORTCUTS_Fire(target) {
 
 _SC_Run(target) {
     global SC_RUN_PREFIX, SC_TOOL_PREFIX, MMA_ROOT
+    USAGE_Note("typed", target)
     if (SubStr(target, 1, StrLen(SC_RUN_PREFIX)) = SC_RUN_PREFIX) {
         _SC_Launch(Trim(SubStr(target, StrLen(SC_RUN_PREFIX) + 1)))
         return

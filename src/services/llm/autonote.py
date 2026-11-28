@@ -2,9 +2,10 @@
 llm/autonote.py — AutoNote: every fan's recorded chat turned into a note, by itself.
 
 Silly's name (2026-11-26) for the database part of the chatting suite: the fan
-files in D:\\FanData plus a note per fan. Decided: LIVE, per fan. A fan's note is
-written or refreshed once you have stopped chatting him for [AutoNote] AfterMin
-minutes (default 3) and his chat has grown since his last note.
+files in D:\\FanData plus a note per fan. Since 2026-11-27: AFTER THE SHIFT. Once
+nothing has been recorded for [AutoNote] QuietMin minutes (default 30), every fan
+whose chat grew since his last note gets one, newest first. [AutoNote] Mode=live
+brings back the per-fan, mid-shift behaviour (AfterMin, default 3).
 
     the note   the card from prompts/lore.md (who, into, money, recently, right now,
                avoid, reach-out lines), from his whole kept chat + tags + notes +
@@ -75,7 +76,9 @@ def write_card(fan: dict, fields: dict, chat: str) -> tuple[str, str]:
         {"role": "user", "content":
             f"TAGS:\n{tags}\n\nNOTES:\n{fan.get('notes') or '(none)'}\n\nINSIGHTS:\n{ins}\n\n"
             f"CHAT (oldest first):\n{chat[-CHAT_CHARS:]}"},
-    ], temperature=0.3, max_tokens=CARD_TOKENS, use_model=client.get("Lore", "Model", ""))
+    ], temperature=0.3, max_tokens=CARD_TOKENS, use_model=client.get("Lore", "Model", ""),
+        # Unload right after: a background note must never keep the model resident.
+        keep_alive=mmacfg.setting("AutoNote", "KeepAlive", "0") or "0")
 
 
 def noted(acct: str, handle: str) -> dict:
@@ -110,53 +113,95 @@ def write_note(acct: str, handle: str, head_extra: str = "") -> tuple[str, str]:
     return f"{head}\n\n{card}", ""
 
 
+def all_due() -> list[tuple[str, str]]:
+    """Every fan on disk whose chat grew since his last note, most recent first.
+    From the files, so nothing is lost if the chat reader restarts mid-shift."""
+    out = []
+    root = fanstore.root()
+    for f in root.glob("*/*/fan.json") if root.exists() else []:
+        acct, handle = f.parent.parent.name, f.parent.name
+        try:
+            if due(acct, handle):
+                out.append((f.stat().st_mtime, acct, handle))
+        except Exception as e:
+            log(f"{acct}/{handle}: check failed: {e}")
+    return [(a, h) for _t, a, h in sorted(out, reverse=True)]
+
+
 class AutoNote:
-    """Lives in the chat reader. touch() on every filed read; the worker notes a fan
-    once he has been quiet for AfterMin minutes."""
+    """Lives in the chat reader; touch() on every filed read.
+
+    [AutoNote] Mode (mass_gui.cfg):
+      aftershift (default, Silly 2026-11-27)  nothing is written while you work.
+          Once no chat has been recorded for QuietMin minutes (default 30), every
+          fan whose chat grew since his last note is noted, newest first. A new
+          read (you're back) pauses the batch after the note in progress.
+      live   a fan is noted AfterMin minutes (default 3) after you stop chatting
+          him, mid-shift too (the 2026-11-26 behaviour).
+    """
 
     def __init__(self) -> None:
         self.last: dict[tuple[str, str], float] = {}     # (acct, handle) -> last read
+        self.last_any = time.time()                      # the newest read of any fan
         self.lock = threading.Lock()
         self.stop = threading.Event()
         self.thread: threading.Thread | None = None
         self.fail_until = 0.0                            # LLM down: back off
+        self.batch: list[tuple[str, str]] = []
+        self.ensure()
 
-    def touch(self, acct: str, handle: str) -> None:
-        with self.lock:
-            self.last[(acct, handle)] = time.time()
+    def ensure(self) -> None:
         if self.thread is None or not self.thread.is_alive():
             self.thread = threading.Thread(target=self._run, name="autonote", daemon=True)
             self.thread.start()
 
-    def _after_s(self) -> float:
-        try:
-            return float(mmacfg.setting("AutoNote", "AfterMin", "3") or 3) * 60
-        except ValueError:
-            return 180.0
+    def touch(self, acct: str, handle: str) -> None:
+        with self.lock:
+            now = time.time()
+            self.last[(acct, handle)] = now
+            self.last_any = now
+            self.batch = []                              # you're working: the batch waits
+        self.ensure()
 
-    def _next(self) -> tuple[str, str] | None:
+    def _mins(self, key: str, default: str) -> float:
+        try:
+            return float(mmacfg.setting("AutoNote", key, default) or default) * 60
+        except ValueError:
+            return float(default) * 60
+
+    def _next_live(self) -> tuple[str, str] | None:
         now = time.time()
         with self.lock:
-            quiet = [(t, k) for k, t in self.last.items() if now - t >= self._after_s()]
+            quiet = [(t, k) for k, t in self.last.items() if now - t >= self._mins("AfterMin", "3")]
         for _t, (acct, handle) in sorted(quiet):
             try:
-                if not fanstore.fan_dir(acct, handle).exists():
-                    with self.lock:                      # promoted into a real handle
-                        self.last.pop((acct, handle), None)
-                    continue
-                if due(acct, handle):
+                if fanstore.fan_dir(acct, handle).exists() and due(acct, handle):
                     return acct, handle
             except Exception as e:
                 log(f"{acct}/{handle}: check failed: {e}")
-            with self.lock:                              # nothing new: forget him
+            with self.lock:                              # promoted, or nothing new: forget him
                 self.last.pop((acct, handle), None)
+        return None
+
+    def _next_aftershift(self) -> tuple[str, str] | None:
+        if time.time() - self.last_any < self._mins("QuietMin", "30"):
+            return None                                  # the shift is still on
+        if not self.batch:
+            self.batch = all_due()
+            if self.batch:
+                log(f"after-shift batch: {len(self.batch)} fan(s) to note")
+        while self.batch:
+            acct, handle = self.batch.pop(0)
+            if fanstore.fan_dir(acct, handle).exists() and due(acct, handle):
+                return acct, handle
         return None
 
     def _run(self) -> None:
         while not self.stop.wait(TICK_S):
             if not mmacfg.feat("AutoNote") or time.time() < self.fail_until:
                 continue
-            nxt = self._next()
+            live = mmacfg.setting("AutoNote", "Mode", "aftershift").lower() == "live"
+            nxt = self._next_live() if live else self._next_aftershift()
             if not nxt:
                 continue
             acct, handle = nxt
@@ -168,6 +213,8 @@ class AutoNote:
             if err:
                 log(f"{acct}/{handle}: no note: {err}")
                 self.fail_until = time.time() + 300      # don't hammer a down LLM
+                with self.lock:
+                    self.batch = []
                 continue
             log(f"{acct}/{handle}: note written in {time.time() - t0:.0f}s")
             with self.lock:
@@ -206,6 +253,16 @@ def selftest() -> int:
     check("render", render([{"who": "model", "text": "hi", "price": "20", "paid": True,
                              "day": "Nov 20", "time": "9:10 am"}]),
           "her: [PPV $20 paid] hi   (Nov 20 9:10 am)")
+    fanstore.record("CIN", "u2", {"at": 3, "name": "Sam", "turns": turns})
+    an = AutoNote()
+    an.stop.set()                                # no worker: drive it by hand
+    mmacfg.setting = lambda sec, key, d="": d    # defaults: aftershift, QuietMin 30
+    an.touch("CIN", "u2")
+    check("mid-shift: nothing", an._next_aftershift(), None)
+    an.last_any = time.time() - 31 * 60
+    check("30 min quiet: the batch starts", an._next_aftershift(), ("CIN", "u2"))
+    an.touch("CIN", "u2")
+    check("a new read pauses it", an._next_aftershift(), None)
     shutil.rmtree(tmp, ignore_errors=True)
     print("ALL OK" if not fails else f"{fails} FAILED")
     return 1 if fails else 0

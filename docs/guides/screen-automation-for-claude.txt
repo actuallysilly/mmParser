@@ -1,0 +1,269 @@
+SCREEN-READING AUTOMATION FOR A CHAT APP: WHAT WORKED, WHAT DIDN'T
+A guide for Claude, from a project that automated a desktop chat client
+(an Electron/Chromium app used to run several creator accounts at once).
+Written 2026-11-27. Every rule below cost at least one failed attempt.
+
+How to use this: you are building the same kind of tool for a DIFFERENT app.
+The specific colours and pixel offsets will not carry over. The methods will.
+Re-measure everything on the new app; trust nothing here as a constant.
+
+
+======================================================================
+0. BEFORE ANY CODE
+======================================================================
+
+- Ask the user to walk you through their real workflow, screen by screen:
+  what they look at, what their hands do, what decision they make. Four
+  designs of one feature failed here because they were built from a
+  described flow instead of observed work.
+- Find the riskiest unknown and prove it with a tiny throwaway probe first
+  (e.g. "can this window be scrolled without the real mouse?"). Everything
+  else depends on the answer.
+- Ask the user before you probe their live window. The user is usually
+  working in that app while you develop. Never scroll, click or type in the
+  window they are using; ask them to open a spare one.
+- Keep a set of real screenshots of the app as test fixtures (normal view,
+  scrolled, popup open, other window sizes). Every reader gets an offline
+  self-test against them.
+
+
+======================================================================
+1. READ PIXELS, NOT INTERNALS
+======================================================================
+
+- Read only what is on screen. Do not attach to the app's DOM, DevTools/CDP,
+  local storage or network traffic. Doing that is fragile, often against the
+  platform's terms, and detectable. Screen + OCR is slower, but it is yours.
+- Capture the window with Win32 PrintWindow(hwnd, PW_RENDERFULLCONTENT=2).
+  It reads a window that is covered by others, without taking focus
+  (~40 ms for a large window). It does NOT work on a minimised window:
+  there is no surface. Say so to the user instead of returning garbage.
+- DPI: make the capturing process per-monitor DPI aware (v2) before any
+  coordinate call, or Windows scales the numbers. On a desk with monitors
+  at different scales, never calibrate one process's coordinates from
+  another process's capture; measure inside the process that will use them.
+
+
+======================================================================
+2. FINDING THE RIGHT WINDOW
+======================================================================
+
+- Window titles lie. In our app, two or three windows had the same title,
+  same exe and same window class: the real one, an "inbox" decoy with no
+  conversation, and a home page. The title also carried a changing badge
+  count ("App - 333"). One tool read "333" as an account name for weeks.
+- Pick the window by its CONTENT: capture each candidate and keep the one
+  whose layout matches (section 3). Prefer the "work" window (has the chat
+  list) over a secondary window (a chat opened in its own window has no list).
+- A colour check alone may not separate decoys: their background greys can
+  sit inside your tolerance. Test against the decoy on purpose.
+
+
+======================================================================
+3. LAYOUT: DERIVE IT PER FRAME, NEVER HARDCODE IT
+======================================================================
+
+- The user's window will NOT be the size you measured. Ours was measured at
+  1920x1032 and ran live at 3441x1381 and 2162x3770 (portrait monitor, 165%
+  scale). Every constant-coordinate feature broke.
+- Find stable structure in each frame instead: thin divider lines between
+  panels (here 1px #444444), panel background colours, the header bottom.
+  From four dividers you get the message pane at any size.
+- Get the SCALE from a known distance (here: window top to the header line
+  = 133 px at 100%), then multiply every offset by it.
+- Colours do not change with window size; coordinates do. Lean on colours.
+
+
+======================================================================
+4. DETECTING UI ELEMENTS BY COLOUR
+======================================================================
+
+- Sample the real colours from captures: each side's message-bubble fill,
+  the unread badge, status pills (paid / not paid), selection highlight.
+  Use a tolerance of a few units, and check what ELSE on screen falls
+  inside that tolerance (another panel, a dimmed overlay).
+- A thin line drawn at a fractional pixel position gets antialiased across
+  two rows (one 53-grey row came out as 43 + 31). Accept a range, merge rows.
+- To tell a separator line from a bubble of the same grey, use shape: the
+  line spans BOTH the left and right quarters of the pane, a bubble never does.
+- TRAP: some UIs draw an element only in its SELECTED state. In a sidebar
+  of avatars, only the active row had its disc; unselected rows measured
+  exactly zero. A positional "which row is lit" detector then always says
+  "row 1". Before building a positional detector, prove that selected and
+  unselected states are both visible. If they are not, positional
+  detection is impossible, and manual selection is the right answer.
+- Modals: a popup darkens everything behind it to near black and kills
+  your dividers, so the layout finder fails. Detect the modal itself (a
+  large uniform box over a near-black surround) as its own state.
+
+
+======================================================================
+5. OCR
+======================================================================
+
+- Windows.Media.Ocr (WinRT) is local, free and fast enough. No cloud OCR
+  for private chats.
+- Pad every crop horizontally (~20 px of background colour on each side).
+  Text touching the crop edge often returns NOTHING.
+- Do NOT pad vertically; it costs you the spaces between words.
+- Aspect ratio limit: past ~26:1 the recogniser drops the end of the line,
+  and very wide strips (~700 px+ here) return nothing at all. Cut wide lines
+  at word gaps (runs of background columns) into chunks of ~14:1 and join.
+- Icons get read into the text. An edit-pencil icon after a name became
+  "Name 0". Fix it before OCR: keep only near-white ink (min channel >= 200)
+  and paint everything else background.
+- Typical misreads to expect and normalise: "|" -> "I", bullet separators
+  -> "-", small icons -> "X" or a random CJK glyph, "(" -> ":" or ".".
+- Lone digits / tiny badges: run the recogniser only (no detector), on an
+  upscaled crop.
+- Windows OCR returns LAYOUT BLOCKS, not reading order. Chats that alternate
+  left/right come back shuffled. Re-sort the boxes by y, then x.
+- One visual line is not one message. A long message wraps over several
+  lines; group lines by the bubble they sit in, never by line.
+
+
+======================================================================
+6. READING A CONVERSATION
+======================================================================
+
+- Find bubbles by fill colour per side, OCR the text bands inside each
+  bubble, then read the FOOTER line under it (time, sender, price pill,
+  like icon). Keep the raw footer text too, so it can be re-parsed later.
+- A media bubble with no caption has no fill: detect it from its footer.
+- Dates usually live on separator lines between days, not on each message.
+  Give each message the date of the last separator above it, and carry it
+  down the stitched history, but never across a known gap.
+- Only read when the screen has SETTLED: keep a tiny grey thumbnail of the
+  pane (e.g. 96x32 block means), and OCR only when it changed and then held
+  still for 2 polls (~1.4 s). OCR is ~2 s, so never OCR every frame.
+- When the user switches conversations, the panel, the messages and the
+  header name update at DIFFERENT moments. Wait until all three are still,
+  or you will file one person's chat under the previous person's name.
+- Anything that consumes a saved read should check its thumbnail against a
+  fresh capture, so it never acts on the previous conversation.
+
+
+======================================================================
+7. STITCHING SCREENS INTO ONE CHAT (the hardest part)
+======================================================================
+
+Every early attempt died here. What works:
+
+- Keep two layers: raw reads, append-only (the truth), and the stitched
+  chat (derived, rebuildable). A stitching bug then costs nothing: fix it
+  and replay the raw reads.
+- Message equality must be fuzzy: same side + (equal after normalising, or
+  one is a prefix of the other for cut-off messages, or difflib ratio >= 0.8).
+- Align a new read to the history with a strict pass first (every
+  overlapping message agrees). If that fails, use a diff/LCS alignment that
+  accepts the read when >= 2 text anchors match and >= 60% of the overlap
+  agrees. Strict alone refused 45% of real reads.
+- Insert messages one read caught and another missed; prepend older ones
+  only at the top of the history, append newer ones only at the bottom.
+- A read that fits nowhere: if footer times say it is newer, append it with
+  a "gap before" mark. Otherwise keep it as a separate fragment ("island")
+  that joins once a later read bridges the gap. Never guess it into place.
+- Drop messages clipped by the top edge (half a message); keep the longer
+  copy when one read was cut by the bottom.
+- When scrolling up yourself, scroll ~55% of the pane per step so every
+  screen overlaps the previous one.
+
+
+======================================================================
+8. IDENTITY: WHO IS THIS PERSON?
+======================================================================
+
+- Display names are editable by staff and change ("Alex" becomes "$171 Alex"),
+  which splits one person into many files. Key everything on an id the
+  staff cannot edit (a username/@handle), wherever the UI shows it.
+- It is often cut off ("@u813..."). OCR drops the "...", so decide
+  "truncated" geometrically: the text ends at the edge of its column.
+- A unique match of handle prefix + name against known people is enough.
+  Otherwise file under a PROVISIONAL id (prefix + name) at once, and merge
+  it into the real one when the full handle is read later (profile popup,
+  a deliberate lookup). Never make data wait for the user.
+- Do not depend on the user answering prompts mid-work. 350 "click his
+  name" toasts in two days were ignored; the data piled up unfiled.
+- A wrong merge is worse than a split. When clues conflict, keep them apart.
+
+
+======================================================================
+9. INTERACTING WITHOUT STEALING THE USER'S MOUSE
+======================================================================
+
+- Background scrolling of a Chromium/Electron window: PostMessage
+  WM_MOUSEWHEEL (wParam = delta<<16, lParam = screen x/y) to the
+  "Chrome_RenderWidgetHostHWND" CHILD window. It scrolls an unfocused,
+  even covered, window. Re-find the child every time: Chromium creates and
+  destroys it on its own schedule.
+- Without that child, the top-level window only takes the wheel if it is the
+  visible window at that screen point. Chromium re-routes wheel messages to
+  whatever is under the given point. Covered + no child = no scroll.
+  Posted keys (PageUp/Up), WM_GETOBJECT and AccessibleObjectFromWindow did
+  not bring the child back. The practical rule: the window must be visible
+  (another monitor is ideal), and it never needs focus.
+- When real input is unavoidable (a click), keep it under a second: remember
+  the cursor position and foreground window, act, then restore both.
+  Use SendInput/mouse_event with absolute virtual-desktop coordinates.
+- Never type into fields that matter (staff notes). If you must copy from
+  one, use select-all + copy behind a low-level keyboard hook that blocks
+  the user's keystrokes during the copy. Without the hook, read it by OCR.
+- Global hotkeys swallow keys everywhere. Default to modified combos (Ctrl+Win+X),
+  never bare F-keys, and keep one central registry of every key.
+
+
+======================================================================
+10. PER-ACCOUNT ("PER-MODEL") DETECTION
+======================================================================
+
+Problem: one person runs several accounts in one app; actions must go to
+the account that is active right now.
+
+- Read the account TAB STRIP: OCR the tab labels (in ~600 px chunks, see
+  section 5). That list is your allowlist of real account names.
+- Any other place you read the active account (a heading over the chat
+  list) must match an allowlisted tab, compared case-blind with I/l folded.
+  Otherwise keep the last good value. Without this, a heading that briefly
+  showed a person's name or "Search" created ~50 fake accounts.
+- Offer three modes per site and let the user pick: manual (they press a
+  key per account), name (OCR the active tab's label), position (which tab
+  index is lit). Position only works if the lit state is visible (section 4).
+- On-screen names differ from internal names ("Ann" on screen is
+  "Annabelle" internally, a third spelling on another site). Keep a mapping
+  table, and fill it by ASKING once when an unknown name shows up. Never
+  auto-claim. Ambiguous reads (two tabs merged) are refused, not guessed.
+- Gate actions on the detection result. Reading the wrong account is worse
+  than doing nothing, so when unsure, do nothing and say why.
+
+
+======================================================================
+11. ARCHITECTURE THAT HELD UP
+======================================================================
+
+- One background "reader" process owns capture + OCR and writes a small
+  JSON of the current conversation. Other tools read that file instead of
+  OCRing again.
+- Start Python tools with pythonw through one supervisor (named pipe,
+  restart with backoff, kill on parent exit). Do not launch via .vbs or
+  "cmd /c where python": every one flashes a console window.
+- Log everything to files (pythonw has no stdout; a bare
+  sys.stdout.reconfigure() crashes silently under pythonw).
+- Tests must never write the user's real settings; point them at temp folders.
+- Watch for features that overlap. When two tools do the same job, pick one
+  and retire the other instead of adding a third.
+
+
+======================================================================
+12. IF YOU ADD A LOCAL LLM (summaries, drafts)
+======================================================================
+
+- The model must fit VRAM. A model that spills to CPU was ~150x slower.
+  Check `ollama ps` (PROCESSOR column).
+- Background jobs should unload the model when done (Ollama keep_alive "0").
+  A long keep_alive plus periodic jobs means the model never leaves RAM,
+  and users notice.
+- Run heavy background LLM work after the user's working session, not
+  during it.
+- Some models "think" by default and burn the token budget; turn it off.
+- Few-shot examples beat written rules for style. Enforce hard rules
+  (lowercase, no apostrophes) in code after generation.

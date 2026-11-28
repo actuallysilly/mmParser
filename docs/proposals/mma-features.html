@@ -1,0 +1,521 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>MMA Features</title>
+<style>
+:root{
+  --bg:#f6f5f2; --panel:#ffffff; --ink:#1d1d1f; --mute:#6b6b70; --line:#e3e1dc;
+  --acc:#7b5cff; --chip:#efedf8;
+  --core:#0f8a5f; --works:#2f6fd6; --new:#b26b00; --alpha:#8a5cc7; --broken:#c43c3c; --dev:#6b7280; --unknown:#8b8b8b; --legacy:#a05a2c;
+}
+@media (prefers-color-scheme: dark){:root:not([data-theme="light"]){
+  --bg:#121316; --panel:#1b1c21; --ink:#e9e9ec; --mute:#9a9aa3; --line:#2c2d34; --acc:#a993ff; --chip:#26233a;
+  --core:#3fcf97; --works:#6fa2ff; --new:#f0a93a; --alpha:#c29bff; --broken:#ff7a7a; --dev:#9ca3af; --unknown:#a3a3a3; --legacy:#e0965f;}}
+:root[data-theme="dark"]{
+  --bg:#121316; --panel:#1b1c21; --ink:#e9e9ec; --mute:#9a9aa3; --line:#2c2d34; --acc:#a993ff; --chip:#26233a;
+  --core:#3fcf97; --works:#6fa2ff; --new:#f0a93a; --alpha:#c29bff; --broken:#ff7a7a; --dev:#9ca3af; --unknown:#a3a3a3; --legacy:#e0965f;}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font:15px/1.55 "Segoe UI",system-ui,sans-serif}
+main{max-width:1100px;margin:0 auto;padding:28px 16px 80px}
+h1{font-size:30px;margin:0 0 4px}
+h2{font-size:22px;margin:44px 0 10px;padding-top:8px;border-top:1px solid var(--line)}
+h3{font-size:17px;margin:26px 0 8px}
+p{margin:8px 0}
+.sub{color:var(--mute)}
+code{background:var(--chip);padding:1px 5px;border-radius:4px;font-size:13px}
+.kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px;margin:18px 0}
+.kpi{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:12px}
+.kpi b{display:block;font-size:24px}
+.kpi span{color:var(--mute);font-size:13px}
+.box{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:14px 16px;margin:12px 0}
+.layers{display:grid;gap:6px}
+.layer{display:grid;grid-template-columns:170px 1fr;gap:10px;background:var(--panel);border:1px solid var(--line);border-radius:8px;padding:10px 12px}
+.layer b{color:var(--acc)}
+@media (max-width:640px){.layer{grid-template-columns:1fr}}
+.controls{position:sticky;top:0;background:var(--bg);padding:10px 0;z-index:5;display:flex;flex-wrap:wrap;gap:8px;align-items:center;border-bottom:1px solid var(--line)}
+.controls input{flex:1 1 220px;padding:8px 10px;border-radius:8px;border:1px solid var(--line);background:var(--panel);color:var(--ink);font:inherit}
+.f{border:1px solid var(--line);background:var(--panel);color:var(--ink);border-radius:999px;padding:4px 10px;font-size:13px;cursor:pointer}
+.f.on{background:var(--acc);color:#fff;border-color:var(--acc)}
+.grp{margin-top:30px}
+.grp h3 .n{color:var(--mute);font-weight:400;font-size:14px}
+.grp .why{color:var(--mute);margin:0 0 10px}
+.cards{display:grid;grid-template-columns:repeat(auto-fill,minmax(320px,1fr));gap:10px}
+@media (max-width:400px){.cards{grid-template-columns:1fr}}
+.card{background:var(--panel);border:1px solid var(--line);border-left:4px solid var(--c,var(--line));border-radius:10px;padding:12px 14px}
+.card h4{margin:0 0 4px;font-size:15.5px;display:flex;gap:8px;justify-content:space-between;align-items:baseline}
+.st{font-size:11.5px;font-weight:600;text-transform:uppercase;letter-spacing:.04em;color:var(--c)}
+.key{font-size:12.5px;color:var(--mute);margin-bottom:6px}
+.card p{margin:5px 0;font-size:14px}
+.card .lbl{font-weight:600}
+.tech{font-size:12.5px;color:var(--mute)}
+.debt{font-size:13px;background:color-mix(in srgb,var(--broken) 10%,transparent);border-radius:6px;padding:5px 8px;margin-top:6px}
+.legend{display:flex;flex-wrap:wrap;gap:12px;font-size:13px;color:var(--mute)}
+.legend i{display:inline-block;width:10px;height:10px;border-radius:2px;margin-right:5px;vertical-align:-1px}
+table{border-collapse:collapse;width:100%;font-size:14px}
+th,td{text-align:left;padding:7px 8px;border-bottom:1px solid var(--line);vertical-align:top}
+th{color:var(--mute);font-weight:600}
+.tw{overflow-x:auto}
+.opt{display:grid;grid-template-columns:repeat(auto-fit,minmax(250px,1fr));gap:10px}
+.opt .box h4{margin:0 0 6px}
+.hide{display:none!important}
+.count{color:var(--mute);font-size:13px}
+</style>
+</head>
+<body>
+<main>
+<h1>MMA: everything it can do</h1>
+<p class="sub">Written 2026-11-28 from the code itself (not memory or old docs). For deciding what to keep, merge, finish or throw away.</p>
+
+<div class="kpis">
+  <div class="kpi"><b>~90,000</b><span>lines of our own code (no libraries)</span></div>
+  <div class="kpi"><b>52,000</b><span>AutoHotkey: keys, sending, windows</span></div>
+  <div class="kpi"><b>29,000</b><span>Python: reading the screen, recording, AI</span></div>
+  <div class="kpi"><b>9,000</b><span>web pages (fake Infloww, viewers, WebView UI)</span></div>
+  <div class="kpi"><b>44</b><span>feature on/off switches</span></div>
+  <div class="kpi"><b>~80</b><span>hotkeys bound</span></div>
+  <div class="kpi"><b>12 + 8</b><span>background services + launchable tools</span></div>
+  <div class="kpi"><b>May 8</b><span>first commit; 111 commits since</span></div>
+</div>
+
+<h2>How MMA is built, in one picture</h2>
+<p>MMA is really <b>two programs that grew together</b>. The AutoHotkey half is the hands (keys, typing, clicking, windows). The Python half is the eyes and the brain (reading the screen, recording chats, AI). A small runner connects them.</p>
+<div class="layers">
+  <div class="layer"><b>1. You</b><div>Hotkeys, typed triggers (<code>__lore</code>), hotstrings, the main window and Settings.</div></div>
+  <div class="layer"><b>2. AHK app (MMA.ahk)</b><div>One AutoHotkey process: the hotkey registry, mass sending, hotstrings, windows, model selection. Starts and watches everything else. <span class="tech">src/core, src/mass, src/ui, src/hotstrings, src/chat</span></div></div>
+  <div class="layer"><b>3. AHK helpers</b><div>Small separate AHK scripts for overlays and detectors (model detector, stats overlay, reply timers, timer, activity). <span class="tech">src/screen, src/timer, src/activity</span></div></div>
+  <div class="layer"><b>4. Runner</b><div>Starts every Python program the same way and restarts it if it crashes. AHK talks to it over a named pipe. <span class="tech">src/services/runner/runner.pyw</span></div></div>
+  <div class="layer"><b>5. Python services</b><div>Always-on eyes: chat reader, Screen Map, automation, typelog, autoword, pinger. <span class="tech">src/services/*</span></div></div>
+  <div class="layer"><b>6. Python tools</b><div>Windows you open: TestFlow, Arena, Live Trainer, Fan Viewer, Chat View, Video import, <code>__lore</code>, Ghost OCR. <span class="tech">tools/*, src/services/llm, src/services/ocr</span></div></div>
+  <div class="layer"><b>7. Local AI</b><div>Ollama on your PC running Artemis-31B (or nemo 12B). Nothing goes to the cloud. <span class="tech">src/services/llm/client.py, userdata/llm.ini</span></div></div>
+  <div class="layer"><b>8. Your data</b><div><code>userdata/</code> (settings, masses, typelog, shift log, corpus), <code>D:\FanData</code> (406 fan files), <code>D:\ShiftRecordings</code> (206 videos, 23 GB).</div></div>
+</div>
+
+<h2>The catalogue</h2>
+<p class="sub">Each card says what the feature does, why it exists, how it works, and how healthy it is. The red notes are debt: overlap, breakage, or things nobody uses.</p>
+<div class="legend" id="legend"></div>
+<div class="controls">
+  <input id="q" placeholder="Search: a key, a word, a file…" aria-label="Search features">
+  <span id="filters"></span>
+  <span class="count" id="count"></span>
+</div>
+<div id="cat"></div>
+
+<h2>The debt, honestly</h2>
+<p>Nothing here is "bad code" line by line. The debt is <b>the same job done several times by different features</b>, each built when it was needed and never merged into the others. Each overlap below has to be kept working, tested and explained separately.</p>
+
+<div class="tw"><table>
+<tr><th>Same job</th><th>Done by</th><th>Cost</th><th>One owner would be</th></tr>
+<tr><td><b>Reading Infloww's screen</b></td><td>~15 separate readers: model_detector, fansly_detector/scan, pill_scan, rail_scan, reply_scan, reply_box, stats_overlay, ocr_grab, composer (AHK); automation.py, sales_tally, pinger, transcript, chatreader, fanid, unread_ping, purchase_alert (Python). Each finds its own positions.</td><td>Every Infloww/DPI/window-size change breaks some of them. "Geometry keeps tripping us" comes from here.</td><td><b>Screen Map</b> (built, step 0) for positions + <b>one chat reader</b> everyone asks</td></tr>
+<tr><td><b>OCR engines</b></td><td>Windows OCR (AHK), RapidOCR PP-OCRv3 (live), PP-OCRv5 (video→chat), the new Infloww reader</td><td>4 engines with different mistakes. Ghost OCR exists because we can't tell which one is right.</td><td>The new reader, once retrained on Roboto, with one fallback</td></tr>
+<tr><td><b>Getting chats into storage</b></td><td>Typelog, shift recorder (userdata/shiftlog), fan recorder (D:\FanData), <code>__lore</code>, video→chat, OBS recording</td><td>Two stores (shiftlog and FanData) that disagree. Folders named after a fan end up as fake models.</td><td><b>FanData</b> as the only store; everything else feeds it</td></tr>
+<tr><td><b>Sending keys</b></td><td>[mass.1], [mass.2], [mass.3] and [mass.active]: four key sets, plus second/third keys per action</td><td>F1 is in two sets at once. <b>F24 is both "send PPV" and "click 2nd grey icon".</b></td><td>[mass.active] only; numbered slots retired</td></tr>
+<tr><td><b>Windows (UI)</b></td><td>Main window, Settings and Hotkeys each exist twice: WebView and Classic Win32 (src/ui = 16,700 lines, the biggest area)</td><td>Every UI change is paid twice</td><td>One style</td></tr>
+<tr><td><b>Unread alerts</b></td><td>Pinger (pinger.pyw, off) and Unread ping (in chat reader, on)</td><td>Two features, one job</td><td>Unread ping</td></tr>
+<tr><td><b>Reply drafting</b></td><td>draft.py (phase-1 command line), suggest.py (the real one), nextmove.py, Live Trainer and TestFlow each prompt the AI their own way</td><td>Improving the AI means improving it in several places</td><td>One "brain" module every window calls</td></tr>
+<tr><td><b>"Reword"</b></td><td>Autoword's Ctrl+Tab (one word) and the AI reword ^#t (a whole message)</td><td>Same name, two features</td><td>Rename one</td></tr>
+<tr><td><b>Model detection</b></td><td>Infloww model detector (AHK, off, garbled names), Fansly detector (broken), Screen Map's read_model (new), fanid.account (old)</td><td>Four answers to "which model?"</td><td>Screen Map</td></tr>
+</table></div>
+
+<h3>Other mess</h3>
+<ul>
+  <li><b>Broken or dead but still shipped:</b> Fansly detector + rail badge (only the selected row is detectable), "Select top PPV" (no key), "Click 2nd grey" (a test helper on F24), hop kebabs (a test), and draft.py.</li>
+  <li><b>Hard-coded geometry:</b> older AHK tools assume a 1920×1032 window. Your live window is 3441×1381. Screen Map fixes this, but no AHK tool uses it yet.</li>
+  <li><b>Developer probes mixed into tools/:</b> about 10 probe/test AHK scripts (one is 938 lines), next to real tools.</li>
+  <li><b>Root clutter:</b> <code># answer to The MMA — Unfinished Work Re.md</code>, <code>forClaude/</code>, <code>mm_gatherer_1.png</code>, <code>devnotes.md</code>, <code>development.md</code>, plus three overlapping guides (ARCHITECTURE.md, LEARN-MMA-CODEBASE.html, MMA-DEVGUIDE.html) and ~25 docs/proposals.</li>
+  <li><b>Unfinished and uncommitted:</b> Screen Map, the new OCR reader, the new <code>__lore</code> and Ghost OCR are on disk but not committed, and not yet proven live.</li>
+  <li><b>Bare keys grabbed globally:</b> Up, Del, End and PgDn are bound to Infloww clicks.</li>
+</ul>
+
+<h2>Debt ranked by real usage (0–10)</h2>
+<p><b>Is there a usage log?</b> Not a real one. MMA never counts "action X was used". The main log (<code>debuglogs/mma.log</code>) could have shown it, but it fills 10 MB in about 3 hours, mostly with 58,000 repeats of the same feature-switch lines, so today's 10:13–16:28 is all it remembers. The ranking below pieces usage together from other traces:</p>
+<ul>
+  <li><b>mma.log (today):</b> what each background service did. No key presses were logged, because you were testing with me, not chatting.</li>
+  <li><b>runner.log (since Nov 9):</b> which Python tools were started, and how often.</li>
+  <li><b>hotstring_usage.ini:</b> per-trigger counts.</li>
+  <li><b>typelog:</b> about 1,000 typed and 70–350 pasted messages per day.</li>
+  <li><b>TestFlow and Live Trainer ratings,</b> and when each tool's data file was last changed.</li>
+</ul>
+<p class="sub"><b>Score</b> = how urgently it should be fixed or cut: 10 = it hurts you right now, 0 = healthy. Being unused only scores high when keeping the feature costs something.</p>
+<div class="tw"><table>
+<tr><th>Score</th><th>What</th><th>Evidence</th><th>Do</th></tr>
+<tr><td><b>7</b></td><td><b>Click wall: position lookup failing</b></td><td>3,897 times today (about 84 a minute, all day): "could not read the client rect of 'Infloww Messages'". That's the background job that tells the Python side where the chat list is, so the chat list position it passes on is usually blank. The wall at send time looks Infloww up a different way; it never logged holding a click today, so whether it works is unproven.</td><td>Take the position from Screen Map; test the wall once on purpose</td></tr>
+<tr><td><b>✓</b></td><td><b>No usage log</b>; the main log only lasted 3 hours</td><td>58,045 'feat' lines in 6 hours drowned everything else</td><td><b>Done 2026-11-28:</b> repeats stopped; usage log in userdata\usage, read with <code>python tools\usage_report.py</code></td></tr>
+<tr><td><b>9</b></td><td><b>F24 = PPV and a test click</b></td><td>Bound in both [mass.active] and [util]</td><td>Remove the test binding</td></tr>
+<tr><td><b>8</b></td><td><b>Infloww model detector</b> (old AHK)</td><td>Ran all day. The main window checks the active model about once a second, and 1,836 of 2,236 checks (82%) found "NO active model name"; only 394 read "CIN".</td><td>Replace with Screen Map's model reading</td></tr>
+<tr><td><b>8</b></td><td><b>Fansly detector</b></td><td>Running all day: 1,790 start checks and heartbeats saying "Fansly is not in front". It's known not to work.</td><td>Cut</td></tr>
+<tr><td><b>8</b></td><td><b>~15 separate screen readers</b></td><td>The two failures above are both "finding Infloww on screen"</td><td>Move them onto Screen Map, one by one</td></tr>
+<tr><td><b>7</b></td><td><b>Numbered key sets</b> [mass.1/2/3]</td><td>Can't be measured: F1–F3 and F9–F11 are in both sets, so nobody can tell which one fired</td><td>Ask you; most likely cut</td></tr>
+<tr><td><b>7</b></td><td><b>Two UI styles</b></td><td>You use one; the other is 16,700 lines kept in step</td><td>Pick one</td></tr>
+<tr><td><b>6</b></td><td><b>Autoword</b></td><td>Started 29 times since Nov 9 (every day) but draws nothing by default. Its data was last touched Aug 21.</td><td>Turn off by default, or cut</td></tr>
+<tr><td><b>6</b></td><td><b>Shift log vs FanData</b></td><td>Both written all day (shiftlog 217 MB); the PPV picker still reads the shift log</td><td>Fold into FanData</td></tr>
+<tr><td><b>5</b></td><td><b>Branch builder</b>, <b>Chat simulator</b></td><td>Data last touched Aug 7 and Oct 24</td><td>Park or cut</td></tr>
+<tr><td><b>5</b></td><td><b>Unused hotstrings</b></td><td>Only 16 triggers were ever counted. ..povmppv 463, ..bday 57, ..rem1 54, __randprice 49, ..rem2 34, ..jar1 31; the other ~100 have no recorded use.</td><td>Check whether the counter sees every hotstring, then prune</td></tr>
+<tr><td><b>4</b></td><td><b>Pinger</b> (old unread alert)</td><td>3 starts ever; Unread ping replaced it</td><td>Cut</td></tr>
+<tr><td><b>4</b></td><td><b>draft.py</b>, test helpers, probes, root clutter</td><td>Never started; small</td><td>Cut or move</td></tr>
+<tr><td><b>3</b></td><td><b>Live Trainer / TestFlow</b></td><td>358 and 12 ratings, both last mid-October; no Live Trainer start since Nov 9, TestFlow 4</td><td>Keep, parked: needed for the agent later</td></tr>
+<tr><td><b>2</b></td><td><b>AI keys</b> (Suggest, Reword, Grammar, PPV picker)</td><td>Not logged at all, so unknown</td><td>Count for 2 weeks first</td></tr>
+<tr><td><b>1</b></td><td><b>Chat reader, fan recorder, AutoNote</b></td><td>Started every day (32×); fan files updated today</td><td>Healthy; move onto the new reader later</td></tr>
+<tr><td><b>0</b></td><td><b>Active-model keys, mass parse, Discord import</b></td><td>Your daily core; typelog shows 70–350 pasted sends a day. (No key presses were logged today because you were testing, not chatting.)</td><td>Healthy</td></tr>
+</table></div>
+
+<h2>What to ponder</h2>
+<p>Three directions, from cheapest to biggest. They aren't exclusive; my recommendation is 1, then 2.</p>
+<div class="opt">
+  <div class="box"><h4>1. Prune (days)</h4>
+    <p>Cut what's broken, dead or duplicated: numbered key sets, Fansly detection, pinger, draft.py, test helpers on real keys, probes moved out of tools/, root clutter. Fix the F24 collision. Commit the November work.</p>
+    <p class="tech">Risk: low. Gain: less to break, a clearer Settings.</p></div>
+  <div class="box"><h4>2. One eye, one memory (weeks)</h4>
+    <p>Every tool asks <b>Screen Map</b> where things are and <b>one chat reader</b> what's on screen; everything is stored in <b>FanData</b>. Retire the ~15 separate readers and the shiftlog store. This is your #1 priority (lore_gatherer, "one merged scroll+capture core") taken to its end.</p>
+    <p class="tech">Risk: medium. Gain: geometry stops tripping us, and the data gets clean enough to train the agent on.</p></div>
+  <div class="box"><h4>3. Pick one UI (weeks)</h4>
+    <p>Keep either WebView or Classic, not both. Or go further: AHK keeps only keys and sending, and every window becomes a web page served by Python, like TestFlow and Fan Viewer already are.</p>
+    <p class="tech">Risk: higher. Gain: halves the biggest area of code.</p></div>
+</div>
+<div class="box">
+  <b>Questions for you:</b>
+  <ol>
+    <li>Which features on this page have you <i>actually</i> used in the last two weeks? (Anything not used is a candidate to cut.)</li>
+    <li>Do you ever use the numbered keys ([mass.1/2/3]), or only the active-model keys?</li>
+    <li>WebView or Classic: which windows do you actually open?</li>
+    <li>Is Fansly still part of your work?</li>
+    <li>Should the shift recorder's store (userdata/shiftlog) be folded into FanData and retired?</li>
+  </ol>
+</div>
+</main>
+
+<script>
+const ST = {
+  core:   ["Core", "used daily, the business runs on it"],
+  works:  ["Works", "built and working; how often you use it is unknown"],
+  new:    ["New", "built in Nov 2026, not yet proven live"],
+  alpha:  ["Alpha", "early or half-finished"],
+  legacy: ["Legacy", "replaced by something newer but still shipped"],
+  broken: ["Broken", "known not to work"],
+  dev:    ["Dev tool", "for building or testing MMA, not for chatting"],
+};
+const G = [
+ ["send","Sending masses","The money feature: get a mass from Discord into MMA and send it, with its follow-ups and PPV, to the right model's fans with one key."],
+ ["type","Typing and messages","Hotstrings and helpers that make typing faster and more consistent."],
+ ["nav","Moving around Infloww","Keys that click and focus things in Infloww so your hands stay on the keyboard."],
+ ["model","Knowing which model is active","The active-model keys only work if MMA knows whose chat you're in."],
+ ["overlay","Overlays and alerts","Things drawn on top of the screen, or sounds, that tell you what's going on."],
+ ["record","Recording chats","Turning what happens in Infloww into saved, readable chats. This feeds fan memory and AI training."],
+ ["memory","Fan memory","Everything known about each fan, in one place."],
+ ["ai","AI that writes","The local AI drafting, rewording and fixing messages."],
+ ["train","AI training and testing","Making the AI better: practice environments, grading, fine-tuning, the OCR reader."],
+ ["plumb","Plumbing","What holds it all together. You never press these, but everything depends on them."],
+];
+const F = [
+// ---- sending
+["send","Mass paste and parse","Main window ▸ paste ▸ Parse","core",
+ "Splits a pasted mass into the mass, follow-ups f1–f3 (each in up to 3 parts), the PPV caption and the PPV follow-ups.",
+ "Masses arrive as one block of text; copying each piece by hand is slow and error-prone.",
+ "src/mass/parser.ahk (776 lines), store.ahk, shape.ahk. Format in docs/mass-format.md.",""],
+["send","Save / Load / Export / Archive","Main window buttons","core",
+ "Saves each model's three mass tabs, loads them back, rebuilds the !mma paste text, and keeps every past mass to browse.",
+ "Masses repeat and get reused; you need yesterday's back in two clicks.",
+ "src/mass/store.ahk, archive.ahk (730). Saving only rewrites the mN:={} blocks.",""],
+["send","Active-model keys","F1–F3 / F9–F11 / mouse side buttons = f1–f3 · F4/F24 = PPV · F12/F5 = PPV follow-ups","core",
+ "One set of keys that sends for whichever model is active, detected or picked by you.",
+ "With 2–3 models per window, fixed keys per model meant remembering which key belongs to whom.",
+ "[mass.active] in hotkeys.ini; src/mass/engine.ahk, runtime.ahk (938), core/active_model.ahk (843).",
+ "F24 is also bound to 'click 2nd grey icon' ([util]), so one key does two things."],
+["send","Numbered model keys","[mass.1] F1–F3 · [mass.2] F9–F12 · [mass.3] F6–F8","legacy",
+ "The original fixed keys: each set always sends that tab's model, whoever is active.",
+ "From before the active-model keys existed.",
+ "[mass.1/2/3] in hotkeys.ini.",
+ "Overlaps the active-model keys: F1–F3 and F9–F11 are bound in BOTH sets."],
+["send","Model select and lock","Ctrl+Win+F1/F2/F3 pick · Ctrl+Win+W cycle · Ctrl+Win+F5 lock","core",
+ "Tells the active-model keys which model you mean, and locks it so detection can't change it. A small badge shows the lock.",
+ "Detection isn't reliable enough to trust blindly.",
+ "core/active_model.ahk, ui/lock_badge.ahk, mass/model_picker.ahk.",""],
+["send","Discord Ctrl+click import","Ctrl+click a mass in Discord","core",
+ "Copies the mass, OCRs the Discord channel header to work out which model it's for, and parses it into that tab.",
+ "Masses are posted in Discord; this removes the copy, paste and pick-tab steps.",
+ "src/sequences/sequences.ahk; needs sequences.ahk in Startup scripts.",""],
+["send","Branches and Variants","::name lines in a mass · Variants… button","works",
+ "Gives a follow-up alternative wordings. Tab picks one and the choice carries into f2/f3.",
+ "Different fans need different angles of the same follow-up.",
+ "ui/alt_fu_window.ahk (897 lines).",""],
+["send","Next follow-up (reads the chat)","Ctrl+XButton2","works",
+ "Reads the open chat, works out whether f1, f2 or f3 is next, and sends it.",
+ "One button instead of remembering where each fan is in the mass.",
+ "mass/next_fu.ahk + screen reading.",
+ "A misread sends the wrong follow-up. Uses its own screen reading, not Screen Map."],
+["send","Send options","Settings ▸ Sending","works",
+ "FuSingle (join parts into one message), editable follow-ups + wallet check before f3, default f3, open in new tab after a send, ask which model on shared PPV keys.",
+ "Different ways of working on different days.",
+ "FEAT_Def switches in core/modes.ahk.",""],
+["send","Click wall","automatic","works",
+ "While a multi-part follow-up is sending, a click on the chat list is held until it finishes.",
+ "Otherwise part 2 can land in the next fan's chat.",
+ "screen/click_wall.ahk.",""],
+["send","MM Gatherer","Ctrl+Win+K in Discord","alpha",
+ "Scrolls Discord to the top and OCR-saves every mass into userdata/gathered/.",
+ "Builds a library of all past masses.",
+ "sequences/mm_gatherer.ahk.",
+ "Live geometry and scrolling never verified."],
+["send","Branch builder","Ctrl+Win+B","alpha",
+ "Draw a conversation as a tree and compile it into a mass with branches.",
+ "Visual way to design masses.",
+ "src/branch/tree.ahk, ui/branch_window.ahk.","Usage unknown."],
+["send","Chat simulator","Ctrl+Shift+Win+C","alpha",
+ "Write a mass inside a fake chat, so you see it the way a fan will.",
+ "Masses read differently in context.",
+ "ui/chat_window.ahk, mass/sim_notes.ahk.","Usage unknown. TestFlow does a richer version of this."],
+
+// ---- typing
+["type","Hotstrings + Hotstrings manager","type a trigger · manager window","core",
+ "About 117 typed triggers that expand into canned messages; the manager searches, edits and organises them.",
+ "The same lines get sent hundreds of times a shift.",
+ "content/general.ahk + content/accounts; ui/hotstrings_window.ahk (1,717 lines), hotstrings/index.ahk.",""],
+["type","Overloads and expiring keys","hotstring_overloads.ini","works",
+ "One trigger with several wordings (asks, or picks at random); bind a key to a hotstring for a while.",
+ "Variety, so fans don't get the identical line.",
+ "hotstrings/overloads.ahk, usage.ahk.",""],
+["type","Hotstrings quick menu","Ctrl+Win+H","works",
+ "A popup at the cursor with pinned and recent messages; 1–9 sends.",
+ "For messages you don't have a trigger for.",
+ "hotstrings/quick_menu.ahk.",""],
+["type","Shortcuts (typed commands)","__lore · __ghost · ..dostats · ..dorail","works",
+ "Type a trigger to run an action instead of sending text.",
+ "Commands without using up a hotkey.",
+ "userdata/shortcuts.ini, hotstrings/shortcuts.ahk.",""],
+["type","Add hotstring / OCR grab","Alt+0 (selected text) · Ctrl+Shift+O (from screen)","works",
+ "Turns selected text, or text read off the screen, into a new hotstring or a replacement follow-up.",
+ "Capture a good line the moment you write it.",
+ "screen/ocr_grab.ahk (Windows OCR).",""],
+["type","Clipboard history","Ctrl+Win+V · __clip","new",
+ "Your last 25 copies as a popup at the mouse: click or 1–9 pastes, shift-click forgets one. Kept across restarts; the oldest drops off when full.",
+ "Windows' own history is off because it isn't private. This one stays on your PC, skips MMA's own pastes, and skips anything a password manager marks private.",
+ "src/hotstrings/clip_history.ahk → userdata/clipboard_history.txt; size in mass_gui.cfg [Clipboard] Size.",""],
+["type","Capitalizer","Enter","works",
+ "After Enter, capitalizes the first letter of your next message. Shift+Enter and Ctrl+Enter pass through.",
+ "Looks deliberate without thinking about it.",
+ "src/capitalizer.ahk.",""],
+["type","Send + remember / Recover","Enter · Ctrl+Shift+Z","works",
+ "Remembers what you typed before sending; puts the last message back.",
+ "Infloww sometimes eats a message.",
+ "[chat] captureEnter, [util] recoverMsg.",""],
+["type","General pitches","Alt+Shift+= · Alt+Shift+] · Ctrl+Win+A","works",
+ "Canned open-fast and open-and-rate pitches; anti-CC types a random 199.00–200.00.",
+ "Common sales lines on a key.",
+ "content/general.ahk.","Hotstrings wearing hotkeys; could just be hotstrings."],
+["type","PPV picker","Ctrl+Win+P","works",
+ "Lists PPV captions ranked by how well they sold (sold/sent, 2+ fans only) for the chat on screen.",
+ "Send what sells, not what you remember.",
+ "chat/ppvpick.ahk + services/llm/ppvlib.py (reads the shift log).",""],
+["type","Autoword","off by default · Ctrl+Tab","alpha",
+ "Next-word suggestions while you type, trained on your own messages; Ctrl+Tab rewords the last word.",
+ "Type faster in your own voice.",
+ "services/autoword (4,400 lines) + LM reranker: 74% top-3 at 1 letter, 20 ms a word.",
+ "Ships drawing nothing. Its own .venv sits inside src/."],
+
+// ---- nav
+["nav","Navigation keys","Alt+- / Shift+Left unread · Alt+Space focus · Up top chat · Del unread · End home · PgDn PPV notification","works",
+ "Click and focus things in Infloww from the keyboard.",
+ "Speed: no mouse trips.",
+ "chat/nav.ahk.","Up, Del, End and PgDn are bare keys grabbed globally."],
+["nav","AFK click cycle","Ctrl+P","works","Clicks every so often so the session doesn't idle out.","Keeps Infloww logged in.","[util] afkClick.","Ctrl+P is also 'print' everywhere."],
+["nav","Recorded click sequences","Ctrl+Shift+Win+F (Farmolijer DM) · Select top PPV (no key)","legacy",
+ "Replays recorded clicks.","Shortcuts for one-off routines.","src/sequences, coordinate recorder (Ctrl+Win+F12).",
+ "Fixed screen coordinates; break when the window moves. 'Select top PPV' has no key."],
+["nav","Click 2nd grey icon","F24","dev","Pixel-search helper that clicks a grey icon.","A test from the composer work.","sequences/composer.ahk.","A test on a real key, colliding with PPV."],
+["nav","Tab bars (separators)","Ctrl+Win+,","works",
+ "Divider bars you place on the browser tab strip; drag to move, right-click for colour/size.",
+ "Group many fan tabs visually.","screen/tab_marks.ahk (787).",""],
+["nav","Timer","Ctrl+Shift+Win+T · Ctrl+Win+X","works","Countdown with beep and repeat, with or without a window.","Timed follow-ups and breaks.","src/timer/timer.ahk.",""],
+["nav","Payout calculator","main window","works","Input × fees × USD→EUR − deductions.","Know what a sale actually pays you.","ui/payout_calc.ahk.",""],
+
+// ---- model
+["model","Screen Map","service, always on","new",
+ "Finds each Infloww window (main vs fan pop-out), measures its layout at any size or DPI, and reads the active model by NAME from the lit tab. Every tool should ask it where things are.",
+ "Position and DPI problems kept breaking tools one at a time.",
+ "services/screenmap (Python) + core/screenmap.ahk (SM_Require gate); writes userdata/layout/infloww.json.",
+ "Only __lore and Ghost OCR use it so far. Every older reader still finds positions itself."],
+["model","Infloww model detector","off by default","legacy",
+ "OCRs the tab strip every few seconds to set the active model.",
+ "So the active-model keys follow you.",
+ "screen/model_detector.ahk (Windows OCR).",
+ "Garbled names; fixed geometry. Screen Map's model reading replaces it."],
+["model","Fansly detector + rail badge","off · ..dorail","broken",
+ "Same for Fansly.","Fansly support.",
+ "screen/fansly_detector.ahk, fansly_scan, rail_scan, ui/fansly_badge.ahk.",
+ "Can't work: Fansly only marks the selected row. Fansly is manual-only."],
+["model","Active-model publishing","automatic","works",
+ "Tells the Python side which account you're on, so recordings are filed under the right model.",
+ "Python can't see AHK's state otherwise.",
+ "core/active_publish.ahk → userdata/active_now.ini.",""],
+
+// ---- overlays
+["overlay","Purchase sound","on","works",
+ "Rings the moment Infloww's top-right 'has purchased' popup appears, for any fan.",
+ "Sales need a fast thank-you.","services/llm/purchase_alert.py inside the chat reader.",""],
+["overlay","Unread ping","on","works",
+ "Reads the Unread badge every 5 s and beeps when X or more fans are waiting.",
+ "Don't let fans go cold.","services/llm/unread_ping.py inside the chat reader.",""],
+["overlay","Unread pinger (old)","off","legacy",
+ "Alerts on unread messages.","The first version of the above.","services/pinger/pinger.pyw.",
+ "Duplicate of Unread ping."],
+["overlay","Stats overlay","Ctrl+Shift+Win+O · ..dostats","works",
+ "Shows sales and the PPV/fans ratio, read off the Infloww Home window in the background.",
+ "See how the shift is going without switching windows.","screen/stats_overlay.ahk.",""],
+["overlay","Reply timers","off; needs calibration","alpha",
+ "Frames on chat-list rows showing how long each fan has waited.",
+ "Answer whoever's waited longest first.","screen/reply_box.ahk, reply_scan, core/reply_tiers.ahk.",
+ "Needs a manual calibration that Screen Map could do automatically."],
+["overlay","Sales tally","Ctrl+Shift+Win+S","works",
+ "On Notifications ▸ Purchases, totals the top chatter's shift.",
+ "End-of-shift numbers.","services/automation/sales_tally.py.",""],
+["overlay","Unsend last","Ctrl+Win+U (twice = whole run)","works",
+ "Unsends the last message, or the whole multi-part run.","Mistakes happen.","services/automation/automation.py.",""],
+["overlay","Ghost OCR","__ghost (toggle)","new",
+ "Draws a card beside every visible message showing what the OCR read, with green/yellow/red for agree/nearly/differ. Hover for the full text.",
+ "See with your own eyes whether reading is trustworthy.",
+ "services/ocr/ghost.pyw (click-through Tk overlay).",
+ "A debugging tool; becomes unnecessary once there's one trusted reader."],
+
+// ---- record
+["record","Typelog","off by default, on for you · Ctrl+Win+F9 pause","works",
+ "Records every message you SEND in Infloww, with model and time.",
+ "Your own words are the best training data: 36,485 typed messages over 35 days so far.",
+ "services/typelog/typelog.pyw → userdata/typelog/messages.",
+ "Pre-2026-10-10 logs are a broken format; corpus analyses from before then are void."],
+["record","Chat reader","on","works",
+ "Keeps a fresh reading of the open chat at all times; the hub other features plug into.",
+ "Reading costs ~2 s; doing it once and sharing is cheaper than every tool reading itself.",
+ "services/llm/chatreader.pyw + transcript.py (1,015).",
+ "Not yet on Screen Map or the new reader."],
+["record","Shift recorder","on","legacy",
+ "Journals every chat you work: times, chatter, PPV paid, likes, the fan panel, pictures of media you send.",
+ "AI training and PPV stats.",
+ "services/llm/shiftlog.py → userdata/shiftlog (217 MB).",
+ "A second store beside FanData. The PPV picker still reads it."],
+["record","Fan recorder","on","works",
+ "Files every chat by the fan's @handle into D:\\FanData, merging each read into one history.",
+ "One file per fan, whichever window you saw him in.",
+ "services/llm/fanrec.py, fanstore.py.",
+ "Stray folders from old model detection need merging."],
+["record","__lore","__lore in a chat","new",
+ "Scrolls a whole chat to the top, stitches the pages by pixels, reads it once, merges it into the fan file and writes a fan card (WHO, INTO, MONEY, RECENTLY, AVOID, REACH OUT).",
+ "The live recorders only see what's on screen; this gets the whole history.",
+ "services/llm/lore.pyw, scrollcap.py; evidence in <fan>/lore/<date>/.",
+ "Live run 1: 81 messages, then stopped at a big PPV. Fixed today; needs a re-run."],
+["record","OBS shift recording","desktop icon 'Record Shift'","works",
+ "Records the Infloww window at 5 fps during your shift.",
+ "A complete visual record to mine later.",
+ "OBS 'Shifts' profile → D:\\ShiftRecordings (206 videos, 23 GB).",""],
+["record","Video → chat","Video import window","works",
+ "Turns recordings (yours, or Discord streams) into chats, saved or viewed once.",
+ "The biggest untapped data source.",
+ "services/llm/video2chat.py, tools/videoimport.",
+ "Not yet on the new pixel-stitch capture."],
+["record","Activity tracker","off","alpha","Counts keystrokes (never content) for a chart (Ctrl+Win+G).","Work stats.","src/activity.","Usage unknown."],
+
+// ---- memory
+["memory","Fan files (FanData)","D:\\FanData\\<model>\\<handle>","works",
+ "One folder per fan: every message, names, notes, media, lore evidence. 406 fans so far.",
+ "Remembering every fan is impossible by hand.",
+ "services/llm/fanstore.py; keyed on the @handle (display names are rewritten by chatters).",""],
+["memory","AutoNote","on, after your shift","works",
+ "Writes a note for every recorded fan by itself.",
+ "Notes nobody has time to write.",
+ "services/llm/autonote.py (unloads the AI right after).",""],
+["memory","Fan Viewer","Ctrl+Shift+Win+V","works",
+ "Every recorded fan laid out like Infloww: spend, messages, warnings.",
+ "Browse and check what was recorded.",
+ "tools/shiftview on the shared Infloww clone.",""],
+["memory","Infloww Notes rule","—","core",
+ "MMA only ever reads Infloww's own Notes (Ctrl+A, Ctrl+C), never edits them.",
+ "Your notes are sacred.","Rule in lore.pyw.",""],
+
+// ---- ai
+["ai","Suggest","Ctrl+Shift+Win+D","works",
+ "Reads the chat on screen and suggests her next sexting message; co-chatter mode by default.",
+ "The AI's one job is sexting; sales stay human.",
+ "services/llm/suggest.py (959) + prompts/cochatter.md.",""],
+["ai","Reword","Ctrl+Win+T","works","Rewrites a message in her voice.","Freshen a repeated line.","services/llm/reword.py, chat/reword.ahk.","Shares a name with Autoword's Ctrl+Tab word reword."],
+["ai","Fix grammar","Ctrl+Win+R (casual) · Ctrl+Win+E (Alice)","works",
+ "Fixes spelling and grammar in a persona's style; fast mode pastes the fix back.",
+ "Clean messages without losing tone.","services/llm/grammar.py, chat/grammar.ahk; uses nemo 12B.",""],
+["ai","Next move","inside Suggest / Live Trainer","alpha",
+ "Reads how interested the fan is and what she should do next.",
+ "The first step towards an agent.","services/llm/nextmove.py.",""],
+["ai","Draft (command line)","none","legacy","Reads the chat and prints replies.","The phase-1 prototype.","services/llm/draft.py.","Replaced by Suggest."],
+["ai","Chat View","Ctrl+Shift+Win+W","dev","Shows the chat exactly as the AI sees it.","Debug bad suggestions.","services/llm/chatview.pyw.",""],
+["ai","Local AI (Ollama)","userdata/llm.ini","works",
+ "Artemis-31B (Gemma 4) writes; nemo 12B for grammar. All on your PC; CPU capped at 8 cores.",
+ "Private, free, no content limits.","services/llm/client.py.",
+ "Artemis doesn't fit the GPU: 10–25 s a draft. Try a smaller quantized version (IQ3) or the cloud."],
+
+// ---- train
+["train","TestFlow","Ctrl+Win+J · desktop icon","works",
+ "A fake Infloww where you chat with the AI and grade or rewrite its replies; Export makes training files.",
+ "Turns your judgement into training data with no real fan involved.",
+ "tools/testflow (server 868 lines) on the shared clone.",""],
+["train","Arena","Tools window","works","AI fan vs her AI; inject, edit, replay, fork.","Stress-test the AI.","tools/testflow/arena.pyw.",""],
+["train","Live Trainer","Ctrl+Win+Y","works","Mirrors your real chat and grades the AI's suggestion against what you actually sent.","Learn from real shifts.","tools/livetrainer.",""],
+["train","Model bake-off","command line","dev","Runs the same chats through several AI models, blind.","Pick the best model.","services/llm/bakeoff.py.",""],
+["train","Fine-tuning pipeline","command line","dev","Builds the co-chatter training set and trains LoRAs on 12B models.","A model that writes like you.","tools/finetune, tools/corpus.",""],
+["train","Infloww OCR reader","used by __lore / Ghost","new",
+ "Our own text reader trained on synthetic Infloww text: 98.7% in practice, 11/11 real list rows.",
+ "General OCR engines misread Infloww names.",
+ "services/ocr (synth, train, reader, bench, livetest, scrolltest).",
+ "Trained on Inter, but Infloww uses Roboto; retrain waiting for your OK. Emojis only show as ◆."],
+
+// ---- plumbing
+["plumb","Settings + Tools window","main window","core",
+ "Eight Settings tabs; every non-core tool lives in the Tools window, where each background service can be started, stopped or restarted.",
+ "One place for everything.","ui/settings_window.ahk (1,641), tools_window, tools_settings.",""],
+["plumb","Two UI styles","Settings ▸ GUI","legacy",
+ "Main window, Settings and Hotkeys exist in WebView and Classic versions.",
+ "WebView was the future; Classic the fallback.",
+ "ui/webview_*, *_webview.ahk vs *_window.ahk.",
+ "Every UI change is paid twice. 16,700 lines, the largest area."],
+["plumb","Hotkey registry","Settings ▸ Hotkeys · userdata/hotkeys.ini","core",
+ "Every key is declared once; any action can carry several keys; protection against the same key firing twice.",
+ "All your keys in one editable file.","core/hotkeys.ahk (1,244), schema 3 overloads.",""],
+["plumb","Actions menu / Quick actions","Ctrl+Win+M · Ctrl+Shift+Win+Q","works",
+ "Searchable list of every action (runs even unbound ones); pinned actions as big buttons.",
+ "For things you forget the key for.","ui/actions_menu.ahk.","Nothing is pinned yet."],
+["plumb","Feature switches","Settings ▸ Features","core","44 on/off switches; Easy mode turns all optional ones off.","Turn off what you don't use.","core/modes.ahk (FEAT_Def).",""],
+["plumb","Service registry + runner + watchdog","automatic","core",
+ "Declares every background service once, starts Python through the runner, restarts crashed services.",
+ "12 background programs need babysitting.","core/processes.ahk (SVC_Def), services/runner/runner.pyw.",""],
+["plumb","Logging and crash logs","debuglogs\\","core","Every process logs to debuglogs\\; AHK errors go to AHK_engine.log.","So problems can be traced afterwards.","core/log.ahk, crashlog.ahk.",""],
+["plumb","Updater and releases","Settings ▸ Models","works","Checks for a new version; releases are tagged with a changelog.","Ship fixes to other machines.","src/updater.ahk, version.txt, CHANGELOG.md.",""],
+["plumb","Help panel, Debug panel, Startup scripts","main window","works","In-app help; what a mass will send; which scripts start with MMA.","Self-explanation and diagnosis.","ui/help_panel, debug_panel, startup_scripts.",""],
+["plumb","Infloww clone","—","works","A faithful local copy of the Infloww Messages look, shared by TestFlow and Fan Viewer.","One renderer, many tools.","tools/inflowwclone.",""],
+["plumb","Developer probes","tools/*.ahk","dev","About 10 probe and test scripts for detectors, clicks and overlays.","Built while debugging.","tools/detector_probe, detection_overlay_debug (938), …","Mixed in with real tools."],
+];
+
+const order = Object.keys(ST);
+const active = new Set(order);
+let q = "";
+function esc(s){return String(s).replace(/[&<>]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;"}[c]))}
+document.getElementById("legend").innerHTML = order.map(k=>`<span><i style="background:var(--${k})"></i><b>${ST[k][0]}</b>: ${ST[k][1]}</span>`).join("");
+const fl = document.getElementById("filters");
+fl.innerHTML = order.map(k=>`<button class="f on" data-k="${k}">${ST[k][0]} ${F.filter(f=>f[3]===k).length}</button>`).join(" ");
+fl.addEventListener("click",e=>{const b=e.target.closest("button");if(!b)return;const k=b.dataset.k;
+  active.has(k)?active.delete(k):active.add(k);b.classList.toggle("on");render();});
+document.getElementById("q").addEventListener("input",e=>{q=e.target.value.toLowerCase();render();});
+function render(){
+  let shown=0;
+  document.getElementById("cat").innerHTML = G.map(([id,title,why])=>{
+    const items=F.filter(f=>f[0]===id&&active.has(f[3])&&(!q||f.join(" ").toLowerCase().includes(q)));
+    shown+=items.length;
+    if(!items.length) return "";
+    return `<section class="grp"><h3>${esc(title)} <span class="n">· ${items.length}</span></h3><p class="why">${esc(why)}</p><div class="cards">`+
+      items.map(f=>`<div class="card" style="--c:var(--${f[3]})"><h4><span>${esc(f[1])}</span><span class="st">${ST[f[3]][0]}</span></h4>
+        <div class="key">${esc(f[2])}</div>
+        <p>${esc(f[4])}</p><p><span class="lbl">Why:</span> ${esc(f[5])}</p>
+        <p class="tech">${esc(f[6])}</p>${f[7]?`<div class="debt">${esc(f[7])}</div>`:""}</div>`).join("")+`</div></section>`;
+  }).join("");
+  document.getElementById("count").textContent = `${shown} of ${F.length} shown`;
+}
+render();
+</script>
+</body>
+</html>

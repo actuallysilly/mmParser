@@ -134,6 +134,7 @@ RUN_Start(tool) {
 ; Never starts a runner just for a window: with none up, `runner.pyw --start`
 ; opens the tool directly, the way its .vbs used to. True when something started.
 RUN_Open(tool) {
+    USAGE_Note("tool", tool)
     if (RUN_Up() && SubStr(RUN_Send("start " tool), 1, 2) = "ok")
         return true
     py := RUN_PythonExe()
